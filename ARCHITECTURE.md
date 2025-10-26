@@ -1837,66 +1837,137 @@ class TeamCoordination:
 
 ## 🔧 Technology Stack
 
-### Core Backend
-- **Python 3.11+**: Main language
-- **FastAPI**: Web framework
-- **Pydantic v2**: Type safety
-- **AsyncIO**: Async execution
+> **Philosophy**: Lock minimal stable infrastructure. Defer framework/library decisions until implementation proves need.
+>
+> **Locked** = Decision made, rationale clear
+> **Deferred** = Options listed, choice during implementation
 
-### Agent Framework
-- **LangGraph**: Stateful agent workflows
-- **Custom BDI Engine**: Autonomous reasoning
-- **Custom Event System**: Proactive triggers
+### Core Backend ✅ LOCKED
+- **Python 3.11+**: Main language (stability, type hints, async/await, ecosystem)
+- **FastAPI**: Web framework (async-native, OpenAPI, modern Python)
+- **Pydantic v2**: Type safety (runtime validation, serialization)
+- **AsyncIO**: Async execution (built-in, essential for I/O-bound work)
+- **SQLAlchemy 2.0**: ORM (PostgreSQL support, async, migrations via Alembic)
+- **Alembic**: Database migrations (SQLAlchemy integration)
 
-### Data Layer
-- **PostgreSQL**: Primary database (with pgvector)
-- **Neo4j**: Knowledge graph
-- **Qdrant/Weaviate**: Vector database
-- **Redis**: Caching, pub/sub, task queues
+### Agent Framework ⏳ DEFERRED
+**Options:**
+- **Agno**: 529× faster than LangGraph, modern Python-first design
+- **LangGraph**: Mature, stateful agent workflows, LangChain ecosystem
+- **Custom implementation**: Full control, tailored to BDI architecture
+- **Direct LLM function calling**: Simplest, no framework overhead
 
-### AI/ML
-- **Anthropic Claude**: Primary LLM (Sonnet 4.5)
-- **OpenAI**: Backup/specialized tasks
-- **LlamaIndex**: RAG and knowledge systems
-- **Whisper**: Speech-to-text
-- **ElevenLabs/Azure Voice**: Text-to-speech
+**Decision Point**: Phase 2 when implementing tool execution layer
+**Custom components (will build regardless):**
+- BDI (Belief-Desire-Intention) Engine
+- Proactive Execution Loop
+- Event Monitoring System
 
-### Integrations
+### Data Layer 🔀 MIXED
+**PostgreSQL 17 ✅ LOCKED** - Primary database
+- Relational data (employees, tasks, goals)
+- JSONB for flexible schemas
+- Full-text search
+- Row-level security for multi-tenancy
+- **pgvector extension** for vector embeddings (handles millions of vectors, sufficient for years)
+
+**Vector Database ⏳ DEFERRED**
+- **Options**: pgvector (PostgreSQL extension), Qdrant, Weaviate, Pinecone
+- **Decision Point**: Phase 4 when implementing semantic memory
+- **Start with**: pgvector (already in PostgreSQL, simpler ops)
+- **Scale to**: Dedicated vector DB only if proven necessary
+
+**Graph Database ⏳ DEFERRED**
+- **Options**:
+  - PostgreSQL recursive CTEs (2-3 hop queries, sufficient for most cases)
+  - Apache AGE (graph extension for PostgreSQL)
+  - Neo4j (dedicated graph DB)
+- **Decision Point**: Phase 4 when implementing knowledge graph
+- **Start with**: PostgreSQL recursive CTEs
+- **Migrate to**: Neo4j/AGE if query complexity demands it
+
+**Caching ⏳ DEFERRED**
+- **Options**: Redis, PostgreSQL, in-memory Python dict
+- **Decision Point**: Phase 2-3 when performance profiling shows need
+- **Start with**: No caching (YAGNI)
+- **Add**: Redis when working memory requires distributed cache
+
+### AI/ML ⏳ DEFERRED
+**LLM Provider Abstraction**
+- **Options**:
+  - LiteLLM (supports 100+ providers, unified API)
+  - Direct API calls (Anthropic SDK, OpenAI SDK)
+  - Agno framework (if chosen for agent layer)
+- **Decision Point**: Phase 1 during BDI implementation
+- **Primary LLM**: Anthropic Claude (Sonnet 4.5) - best reasoning for autonomous agents
+- **Backup**: OpenAI GPT-4 (fallback, specialized tasks)
+
+**RAG & Knowledge Systems**
+- **Options**:
+  - LlamaIndex (agentic RAG, document ingestion, query engines)
+  - Custom RAG (PostgreSQL + embeddings + prompting)
+  - Hybrid (LlamaIndex for ingestion, custom for retrieval)
+- **Decision Point**: Phase 4 during knowledge system implementation
+
+**Speech Services**
+- **Speech-to-Text Options**: Deepgram, Whisper, Azure Speech, Google STT
+- **Text-to-Speech Options**: ElevenLabs, Azure Voice, Google TTS, Play.ht
+- **Decision Point**: Phase 3 during meeting participation implementation
+- **Criteria**: Latency (real-time), voice quality, cost, language support
+
+### Integrations ✅ CLEAR
 - **Microsoft Graph**: M365 (email, calendar, Teams)
-- **Google APIs**: Workspace (Gmail, Calendar, Meet)
+- **Google Workspace APIs**: Gmail, Calendar, Meet
 - **Slack SDK**: Messaging
 - **Playwright**: Browser automation
 - **python-pptx, python-docx**: Document generation
-- **Meeting BaaS**: Meeting transcription
+- **Meeting transcription**: Options TBD (Recall.ai, Fireflies, custom)
 
-### Meeting/Communication
-- **aiortc**: WebRTC for Python
-- **WebSockets**: Real-time communication
-- **FFmpeg**: Audio/video processing
+### Meeting/Communication ⏳ DEFERRED
+**WebRTC**
+- **Options**: aiortc (Python), PyAV, custom implementation
+- **Decision Point**: Phase 3 during meeting participation
 
-### Auth & Security
-- **FastAPI-Azure-Auth**: OAuth2/OIDC
-- **JWT**: Tokens
-- **HashiCorp Vault**: Secrets (production)
+**Real-time Communication**
+- **Options**: WebSockets (standard), Server-Sent Events, Long polling
+- **Decision Point**: Phase 2-3 based on latency requirements
 
-### Deployment
-- **Docker**: Containerization
-- **Kubernetes**: Orchestration
-- **Terraform**: Infrastructure as Code
-- **GitHub Actions**: CI/CD
+**Media Processing**
+- **Options**: FFmpeg, PyAV, librosa (audio), opencv (video)
+- **Decision Point**: Phase 3 during voice/video implementation
 
-### Monitoring
-- **Prometheus**: Metrics
-- **Grafana**: Dashboards
-- **Sentry**: Error tracking
-- **Loguru**: Logging
+### Auth & Security 🔀 MIXED
+**OAuth2/OIDC ✅ LOCKED**
+- **FastAPI OAuth libraries** (built-in support)
+- **JWT tokens** (standard, stateless)
 
-### Development
-- **uv** or **Poetry**: Dependency management
-- **pytest**: Testing
-- **ruff**: Linting
-- **black**: Formatting
-- **mypy**: Type checking
+**Secrets Management ⏳ DEFERRED**
+- **Options**:
+  - Development: Environment variables, .env files
+  - Production: HashiCorp Vault, AWS Secrets Manager, Azure Key Vault
+- **Decision Point**: Phase 6 during production deployment
+
+### Deployment ✅ STANDARD
+- **Docker**: Containerization (standard, portable)
+- **Kubernetes**: Orchestration (production scale)
+- **Docker Compose**: Local development
+- **Terraform**: Infrastructure as Code (cloud-agnostic)
+- **GitHub Actions**: CI/CD (free for open source)
+
+### Monitoring ✅ STANDARD
+- **Prometheus**: Metrics (industry standard, Kubernetes-native)
+- **Grafana**: Dashboards (visualization)
+- **Sentry**: Error tracking (generous free tier)
+- **Loguru**: Python logging (better than stdlib logging)
+- **OpenTelemetry**: Distributed tracing (when needed)
+
+### Development ✅ STANDARD
+- **uv**: Dependency management (modern, fast, replaces pip/poetry)
+- **pytest**: Testing framework (standard, powerful)
+- **ruff**: Linting (blazing fast, replaces flake8/pylint)
+- **black**: Code formatting (opinionated, consistent)
+- **mypy**: Type checking (static analysis)
+- **pre-commit**: Git hooks (enforce quality)
 
 ---
 
