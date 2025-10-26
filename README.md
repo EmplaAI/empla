@@ -1,6 +1,6 @@
 # empla
 
-**The Operating System for Autonomous Digital Employees**
+**Production-Ready Digital Employees + Extensible Platform to Build Your Own**
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -563,7 +563,7 @@ python sales_ae.py
 
 ## 🤝 Contributing
 
-We're building the operating system for AI workers - **we'd love your help!**
+We're building production-ready digital employees AND the platform to create custom ones - **we'd love your help!**
 
 **Ways to contribute:**
 - 🐛 Report bugs and issues
@@ -617,7 +617,7 @@ Just as:
 
 Every company will eventually deploy digital employees. We're building the platform that makes it possible.
 
-**This isn't just a framework - it's the operating system for the future of work.**
+**This isn't just a framework - it's production-ready employees you can use today, plus the platform to build your own.**
 
 ---
 

@@ -1,6 +1,6 @@
 # CLAUDE.md - Your Development Guide
 
-> **Purpose:** Your north star for building empla - the Operating System for Autonomous Digital Employees
+> **Purpose:** Your north star for building empla - Production-Ready Digital Employees + Extensible Platform to Build Your Own
 > **Last Updated:** 2025-10-26
 
 ---
@@ -766,7 +766,7 @@ But don't write obviously slow code either. Use async for I/O, batch DB queries,
 
 ## 🎯 The Core Mission
 
-You are building **empla** - the Operating System for Autonomous Digital Employees.
+You are building **empla** - Production-Ready Digital Employees + Extensible Platform to Build Your Own.
 
 **This is NOT:**
 - ❌ Another AI agent framework
@@ -775,9 +775,10 @@ You are building **empla** - the Operating System for Autonomous Digital Employe
 - ❌ A task automation system
 
 **This IS:**
-- ✅ A platform for creating truly autonomous workers
-- ✅ Employees with goals who work proactively
-- ✅ Digital workers with superhuman capabilities
+- ✅ Production-ready digital employees you can deploy immediately (Sales AE, CSM, PM, etc.)
+- ✅ Extensible platform to customize existing employees or build completely new ones
+- ✅ Employees with goals who work proactively and autonomously
+- ✅ Digital workers with superhuman capabilities (infinite memory, 24/7, perfect consistency)
 - ✅ The future of how AI integrates into organizations
 
 ---
@@ -1511,7 +1512,7 @@ You're building this successfully if:
 
 **Remember:** You're not just building software - you're building the **future of work**.
 
-Every company will eventually have digital employees. You're creating the platform that makes that possible.
+Every company will eventually have digital employees. You're creating both the production-ready employees they can use today AND the platform that lets them build their own.
 
 This should be to AI workers what:
 - TensorFlow is to machine learning
