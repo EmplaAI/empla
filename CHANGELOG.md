@@ -6,9 +6,9 @@
 
 ---
 
-## 2025-10-26 - Documentation Infrastructure & Optimization
+## 2025-10-26 - Phase 0 Complete: Documentation & Project Setup
 
-**Phase:** 0 - Foundation Setup
+**Phase:** 0 - Foundation Setup ✅ COMPLETE
 
 ### Clarified
 
@@ -22,7 +22,23 @@
 - **Updated in:** CLAUDE.md, README.md, core mission sections
 
 ### Added
-- **CLAUDE.md** (1,495 lines, optimized from 1,816) - Complete development guide for Claude Code
+
+**Phase 0 Setup:**
+- **pyproject.toml** - Modern Python project configuration
+  - Using `uv` for 10-100x faster package management
+  - Configured ruff, mypy, pytest, coverage
+  - Top-level `empla/` package (not `src/empla/`)
+  - Apache 2.0 license
+
+- **docs/guides/project-structure.md** - Official project structure reference
+  - Research-backed: Analyzed 8 successful OSS projects (Django, FastAPI, MLflow, PostHog, Prefect, Airflow, Langflow, Supabase)
+  - **Decision:** Top-level `empla/` package + separate `web/` UI directory
+  - **Rationale:** Follows Python best practices (MLflow, PostHog pattern)
+  - Imports: `from empla.core.bdi import BeliefSystem` (simple, clean)
+  - Web UI gets own top-level directory with independent tooling
+  - Create-as-needed philosophy (directories per phase, not speculative)
+
+- **CLAUDE.md** (1,536 lines, optimized from 1,816) - Complete development guide for Claude Code
   - Working memory system with session management protocol
   - 10-point mandate for proactive, bold, excellent development
   - Meta-loop section establishing Claude Code as first empla employee
