@@ -147,6 +147,129 @@
 
 ---
 
+## 2025-10-27 - Phase 1 Setup Complete: Design Documents & Infrastructure
+
+**Phase:** 1 - Foundation & Lifecycle (Setup)
+
+### Added
+
+**Phase 1 Infrastructure:**
+- **scripts/setup-local-db.sh** - Automated PostgreSQL 17 + pgvector setup
+  - Homebrew installation of PostgreSQL 17 and pgvector
+  - Database creation (empla_dev and empla_test)
+  - Extension enablement (vector, pg_trgm)
+  - Error handling and colored output
+  - Executable script with comprehensive status messages
+
+- **docs/guides/local-development-setup.md** - Complete development environment guide
+  - Prerequisites (Python 3.11+, Homebrew, uv)
+  - PostgreSQL setup (automated script + manual instructions)
+  - Python environment with uv package manager
+  - Environment variables (.env configuration)
+  - Development workflow (daily routine, using uv run)
+  - Database management commands
+  - Troubleshooting section (PostgreSQL, Python, dependencies)
+  - IDE setup (VS Code, PyCharm)
+  - Time required: 15-20 minutes for complete setup
+
+**Phase 1 Design Documents:**
+- **docs/design/database-schema.md** (500+ lines) - Complete PostgreSQL schema design
+  - Multi-tenant row-level security (RLS) for all tables
+  - Core tables: tenants, users, employees
+  - BDI tables: employee_goals, employee_intentions, beliefs, belief_history
+  - Memory tables: memory_episodes, memory_semantic, memory_procedural, memory_working
+  - Audit tables: audit_log, metrics
+  - JSONB for flexibility, vector(1024) for embeddings (pgvector)
+  - Comprehensive indexes (foreign keys, search fields, JSONB paths, vector similarity)
+  - Soft delete support (deleted_at) with audit trail
+  - Performance targets and scalability considerations
+  - Migration strategy (Alembic-based)
+
+- **docs/design/core-models.md** (600+ lines) - Pydantic models specification
+  - Base models: EmplaBaseModel, TimestampedModel, SoftDeletableModel, TenantScopedModel
+  - Domain models: Employee, EmployeeGoal, EmployeeIntention, Belief
+  - Memory models: EpisodicMemory, SemanticMemory, ProceduralMemory, WorkingMemory
+  - Supporting models: Tenant, User, AuditLogEntry, Metric
+  - API request/response models (EmployeeCreateRequest, EmployeeResponse, etc.)
+  - Custom validators (email format, priority range, slug format)
+  - Serialization examples (model_dump, model_dump_json, model_validate)
+  - Database integration patterns (Pydantic ↔ SQLAlchemy conversion)
+  - Testing utilities (factory functions for test data)
+
+- **docs/design/bdi-engine.md** (700+ lines) - BDI architecture implementation
+  - Belief System: World model maintenance, temporal decay, conflict resolution
+  - Goal System: Goal formation, prioritization (urgency × importance), lifecycle management
+  - Intention Stack: Plan selection, execution, monitoring, replanning
+  - Strategic Reasoning: Opportunity detection, goal review, resource allocation
+  - Complete algorithms with pseudocode for all BDI operations
+  - Belief update algorithm (agreement/disagreement handling, confidence adjustment)
+  - Goal priority calculation (deadline-based urgency, strategic importance)
+  - Plan selection algorithm (procedural memory retrieval, strategy evaluation)
+  - Integration with proactive execution loop
+  - Performance considerations (database queries, caching, batch operations)
+  - Testing strategy (unit tests, integration tests)
+  - Observability (metrics, logging)
+
+- **docs/design/memory-system.md** (800+ lines) - Multi-layered memory system
+  - Episodic Memory: Personal experiences, temporal index, similarity search (pgvector)
+  - Semantic Memory: Facts/knowledge, Subject-Predicate-Object triples, graph-structured
+  - Procedural Memory: Skills/workflows, condition-action rules, success-rate learning
+  - Working Memory: Current context, short-lived, capacity-limited (priority-based eviction)
+  - Complete storage/retrieval algorithms for each memory type
+  - Memory consolidation (merge duplicates, reinforce important, decay unused)
+  - Fact extraction from episodes (LLM-based)
+  - Learning from observation (shadow mode: learn from humans)
+  - Memory integration (coordinated processing across all types)
+  - Performance optimization (caching, batch operations, batch embedding generation)
+  - Testing strategy (unit tests for each memory type)
+
+**Phase 1 Directory Structure:**
+- Created empla/ package structure:
+  - empla/core/{bdi,memory,loop,planning}/ (with __init__.py)
+  - empla/api/v1/endpoints/ (FastAPI structure)
+  - empla/models/ (database models)
+  - empla/cli/ (CLI implementation)
+  - empla/utils/ (utilities)
+- Created tests/ structure:
+  - tests/{unit,integration,e2e}/ (test organization)
+
+### Decided
+
+**Design Decisions Documented:**
+
+- **Belief Decay:** Linear decay for simplicity (revisit exponential in Phase 3)
+  - Rationale: Easier to understand, debug, and tune
+  - Decay rates: observation (0.05/day), told_by_human (0.03/day), inference (0.1/day), prior (0.15/day)
+
+- **Vector Dimensions:** 1024-dimensional embeddings
+  - Rationale: Balance between quality and performance
+  - Can upgrade to 1536 or 3072 if quality issues emerge
+
+- **Memory Capacity:** Soft limits with importance-based eviction
+  - Rationale: More flexible than hard limits, adapts to usage patterns
+  - Working memory: 20 contexts max, evict lowest priority
+
+- **SPO Triple Structure:** Subject-Predicate-Object for both beliefs and semantic memory
+  - Rationale: Standard knowledge representation, query-friendly
+  - Enables graph traversal and relationship queries
+
+- **Multi-tenant RLS:** All tables have tenant_id with row-level security
+  - Rationale: Security from day 1, prevents cross-tenant data leaks
+  - Application sets current_tenant_id, PostgreSQL enforces isolation
+
+### Next
+
+**Immediate (Phase 1 implementation):**
+- Implement SQLAlchemy models based on database schema
+- Create Alembic migrations for all tables
+- Implement BeliefSystem class (empla/core/bdi/beliefs.py)
+- Implement GoalSystem class (empla/core/bdi/goals.py)
+- Implement IntentionStack class (empla/core/bdi/intentions.py)
+- Implement memory systems (episodic, semantic, procedural, working)
+- Write comprehensive unit tests (>80% coverage)
+
+---
+
 ## Project Milestones
 
 ### Phase 0: Foundation Setup (Current)
