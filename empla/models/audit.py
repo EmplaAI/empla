@@ -7,7 +7,7 @@ Observability models:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from uuid import UUID as PyUUID
 
 from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, String, text
@@ -73,14 +73,14 @@ class AuditLog(TenantScopedModel):
     )
 
     # Details
-    details: Mapped[dict] = mapped_column(
+    details: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
         comment="Action-specific details",
     )
 
-    extra_metadata: Mapped[dict] = mapped_column(
+    extra_metadata: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
@@ -151,7 +151,7 @@ class Metric(TenantScopedModel):
     # Value
     value: Mapped[float] = mapped_column(Float, nullable=False, comment="Metric value")
 
-    tags: Mapped[dict] = mapped_column(
+    tags: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),

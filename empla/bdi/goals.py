@@ -398,7 +398,8 @@ class GoalSystem:
 
         # Extract current and target values
         target_value = goal.target.get("value")
-        current_value = goal.current_progress.get(goal.target.get("metric"))
+        metric = goal.target.get("metric")
+        current_value = goal.current_progress.get(metric) if metric else None
 
         if target_value is None or current_value is None:
             return None
@@ -407,7 +408,7 @@ class GoalSystem:
         if target_value == 0:
             return 100.0 if current_value >= 0 else 0.0
 
-        percentage = (current_value / target_value) * 100.0
+        percentage = float((current_value / target_value) * 100.0)
         return min(100.0, max(0.0, percentage))
 
     async def should_focus_on_goal(

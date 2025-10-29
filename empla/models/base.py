@@ -9,6 +9,8 @@ Provides base classes with common functionality:
 """
 
 from datetime import datetime
+from typing import Any
+from uuid import UUID as PyUUID
 from uuid import uuid4
 
 from sqlalchemy import DateTime, ForeignKey, text
@@ -86,14 +88,14 @@ class TenantScopedModel(SoftDeletableModel, Base):
 
     __abstract__ = True
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid4,
         comment="Unique identifier",
     )
 
-    tenant_id: Mapped[UUID] = mapped_column(
+    tenant_id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,

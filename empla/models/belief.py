@@ -7,7 +7,7 @@ BDI belief models:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import (
@@ -71,7 +71,7 @@ class Belief(TenantScopedModel):
         String(200), nullable=False, comment="Property or relation"
     )
 
-    object: Mapped[dict] = mapped_column(
+    object: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         comment="Value (can be text, number, boolean, or complex object)",
@@ -91,7 +91,7 @@ class Belief(TenantScopedModel):
         comment="How this belief was formed (observation, inference, told_by_human, prior)",
     )
 
-    evidence: Mapped[dict] = mapped_column(
+    evidence: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'[]'::jsonb"),
@@ -227,9 +227,13 @@ class BeliefHistory(TenantScopedModel):
         comment="Type of change (created, updated, deleted, decayed)",
     )
 
-    old_value: Mapped[dict | None] = mapped_column(JSONB, nullable=True, comment="Previous value")
+    old_value: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True, comment="Previous value"
+    )
 
-    new_value: Mapped[dict | None] = mapped_column(JSONB, nullable=True, comment="New value")
+    new_value: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True, comment="New value"
+    )
 
     old_confidence: Mapped[float | None] = mapped_column(
         Float, nullable=True, comment="Previous confidence"

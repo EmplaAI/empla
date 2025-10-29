@@ -8,7 +8,7 @@ Digital employee models:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import (
@@ -63,7 +63,7 @@ class Employee(TenantScopedModel):
         comment="Employee email address (must be unique within tenant)",
     )
 
-    personality: Mapped[dict] = mapped_column(
+    personality: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
@@ -98,7 +98,7 @@ class Employee(TenantScopedModel):
     )
 
     # Configuration
-    config: Mapped[dict] = mapped_column(
+    config: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
@@ -113,7 +113,7 @@ class Employee(TenantScopedModel):
     )
 
     # Performance
-    performance_metrics: Mapped[dict] = mapped_column(
+    performance_metrics: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
@@ -229,13 +229,13 @@ class EmployeeGoal(TenantScopedModel):
     )
 
     # Target & measurement
-    target: Mapped[dict] = mapped_column(
+    target: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         comment="Goal-specific target metrics (metric, value, timeframe, etc.)",
     )
 
-    current_progress: Mapped[dict] = mapped_column(
+    current_progress: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
@@ -344,7 +344,7 @@ class EmployeeIntention(TenantScopedModel):
         String(500), nullable=False, comment="Human-readable intention description"
     )
 
-    plan: Mapped[dict] = mapped_column(
+    plan: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         comment="Structured plan (steps, resources, expected outcomes)",
@@ -384,7 +384,7 @@ class EmployeeIntention(TenantScopedModel):
     )
 
     # Context
-    context: Mapped[dict] = mapped_column(
+    context: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),

@@ -140,8 +140,8 @@ class BeliefSystem:
             # Merge evidence
             if evidence:
                 existing_evidence = set(existing.evidence)
-                existing_evidence.update(evidence)
-                existing.evidence = list(existing_evidence)
+                existing_evidence.update(evidence)  # type: ignore[arg-type]
+                existing.evidence = list(existing_evidence)  # type: ignore[assignment]
 
             # Record history
             await self._record_belief_change(
