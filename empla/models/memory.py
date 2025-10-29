@@ -504,9 +504,7 @@ class WorkingMemory(TenantScopedModel):
             "idx_working_employee",
             "employee_id",
             "priority",
-            postgresql_where=text(
-                "deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())"
-            ),
+            postgresql_where=text("deleted_at IS NULL"),
         ),
         Index(
             "idx_working_type",

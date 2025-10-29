@@ -21,7 +21,7 @@ from sqlalchemy import (
     String,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from empla.models.base import TenantScopedModel
@@ -395,7 +395,7 @@ class EmployeeIntention(TenantScopedModel):
     )
 
     dependencies: Mapped[list[UUID]] = mapped_column(
-        ARRAY(UUID),
+        ARRAY(PGUUID(as_uuid=True)),
         nullable=False,
         server_default=text("'{}'::uuid[]"),
         comment="Other intention UUIDs this depends on",

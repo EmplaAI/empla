@@ -80,11 +80,12 @@ class AuditLog(TenantScopedModel):
         comment="Action-specific details",
     )
 
-    metadata: Mapped[dict] = mapped_column(
+    extra_metadata: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
         comment="Additional metadata",
+        name="metadata",  # Column name in database
     )
 
     # Temporal
