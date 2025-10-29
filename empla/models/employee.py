@@ -21,13 +21,14 @@ from sqlalchemy import (
     String,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from empla.models.base import TenantScopedModel
 
 if TYPE_CHECKING:
-    from empla.models.tenant import Tenant, User
+    from empla.models.tenant import User
 
 
 class Employee(TenantScopedModel):
@@ -48,9 +49,7 @@ class Employee(TenantScopedModel):
     __tablename__ = "employees"
 
     # Identity
-    name: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment="Employee display name"
-    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="Employee display name")
 
     role: Mapped[str] = mapped_column(
         String(50),
@@ -295,9 +294,7 @@ class EmployeeGoal(TenantScopedModel):
             "priority",
             postgresql_where=text("status = 'active'"),
         ),
-        Index(
-            "idx_goals_tenant", "tenant_id", postgresql_where=text("deleted_at IS NULL")
-        ),
+        Index("idx_goals_tenant", "tenant_id", postgresql_where=text("deleted_at IS NULL")),
     )
 
     def __repr__(self) -> str:
@@ -402,12 +399,8 @@ class EmployeeIntention(TenantScopedModel):
     )
 
     # Relationships
-    employee: Mapped["Employee"] = relationship(
-        "Employee", back_populates="intentions"
-    )
-    goal: Mapped["EmployeeGoal"] = relationship(
-        "EmployeeGoal", back_populates="intentions"
-    )
+    employee: Mapped["Employee"] = relationship("Employee", back_populates="intentions")
+    goal: Mapped["EmployeeGoal"] = relationship("EmployeeGoal", back_populates="intentions")
 
     # Constraints
     __table_args__ = (
@@ -434,9 +427,7 @@ class EmployeeIntention(TenantScopedModel):
             "goal_id",
             postgresql_where=text("deleted_at IS NULL"),
         ),
-        Index(
-            "idx_intentions_status", "status", postgresql_where=text("deleted_at IS NULL")
-        ),
+        Index("idx_intentions_status", "status", postgresql_where=text("deleted_at IS NULL")),
         Index(
             "idx_intentions_priority",
             "employee_id",

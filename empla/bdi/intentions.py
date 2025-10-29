@@ -8,7 +8,7 @@ BDI Intention System implementation:
 - Prioritizes and schedules intentions
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -156,9 +156,7 @@ class IntentionStack:
                 EmployeeIntention.priority >= min_priority,
                 EmployeeIntention.deleted_at.is_(None),
             )
-            .order_by(
-                EmployeeIntention.priority.desc(), EmployeeIntention.created_at.asc()
-            )
+            .order_by(EmployeeIntention.priority.desc(), EmployeeIntention.created_at.asc())
         )
         return list(result.scalars().all())
 
@@ -260,7 +258,7 @@ class IntentionStack:
             return intention
 
         intention.status = "in_progress"
-        intention.started_at = datetime.now(timezone.utc)
+        intention.started_at = datetime.now(UTC)
 
         return intention
 
@@ -285,7 +283,7 @@ class IntentionStack:
             return None
 
         intention.status = "completed"
-        intention.completed_at = datetime.now(timezone.utc)
+        intention.completed_at = datetime.now(UTC)
 
         if outcome:
             updated_context = dict(intention.context or {})
@@ -317,7 +315,7 @@ class IntentionStack:
             return None
 
         intention.status = "failed"
-        intention.failed_at = datetime.now(timezone.utc)
+        intention.failed_at = datetime.now(UTC)
         updated_context = dict(intention.context or {})
         updated_context["error"] = error
         updated_context["retry"] = retry
@@ -348,7 +346,7 @@ class IntentionStack:
         intention.status = "abandoned"
         updated_context = dict(intention.context or {})
         updated_context["abandonment_reason"] = reason
-        updated_context["abandoned_at"] = datetime.now(timezone.utc).isoformat()
+        updated_context["abandoned_at"] = datetime.now(UTC).isoformat()
         intention.context = updated_context
 
         return intention
@@ -374,7 +372,7 @@ class IntentionStack:
             return None
 
         intention.priority = new_priority
-        intention.updated_at = datetime.now(timezone.utc)
+        intention.updated_at = datetime.now(UTC)
 
         return intention
 
@@ -421,9 +419,7 @@ class IntentionStack:
         intentions = list(result.scalars().all())
 
         if retryable_only:
-            intentions = [
-                i for i in intentions if i.context.get("retry", False)
-            ]
+            intentions = [i for i in intentions if i.context.get("retry", False)]
 
         return intentions
 
@@ -456,7 +452,7 @@ class IntentionStack:
         retry_count = intention.context.get("retry_count", 0)
         updated_context = dict(intention.context or {})
         updated_context["retry_count"] = retry_count + 1
-        updated_context["last_retry_at"] = datetime.now(timezone.utc).isoformat()
+        updated_context["last_retry_at"] = datetime.now(UTC).isoformat()
         intention.context = updated_context
 
         return intention
@@ -476,7 +472,7 @@ class IntentionStack:
         Returns:
             Number of intentions cleared
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
 
         result = await self.session.execute(
             select(EmployeeIntention).where(
@@ -490,6 +486,6 @@ class IntentionStack:
         intentions = list(result.scalars().all())
 
         for intention in intentions:
-            intention.deleted_at = datetime.now(timezone.utc)
+            intention.deleted_at = datetime.now(UTC)
 
         return len(intentions)

@@ -70,9 +70,7 @@ class EpisodicMemory(TenantScopedModel):
         String(500), nullable=False, comment="Human-readable episode summary"
     )
 
-    content: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, comment="Full episode data"
-    )
+    content: Mapped[dict] = mapped_column(JSONB, nullable=False, comment="Full episode data")
 
     # Context
     participants: Mapped[list[str]] = mapped_column(
@@ -212,17 +210,13 @@ class SemanticMemory(TenantScopedModel):
         comment="Type of fact (entity, relationship, rule, definition)",
     )
 
-    subject: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment="Subject of the fact"
-    )
+    subject: Mapped[str] = mapped_column(String(200), nullable=False, comment="Subject of the fact")
 
     predicate: Mapped[str] = mapped_column(
         String(200), nullable=False, comment="Predicate (relation or property)"
     )
 
-    object: Mapped[str] = mapped_column(
-        String(500), nullable=False, comment="Object of the fact"
-    )
+    object: Mapped[str] = mapped_column(String(500), nullable=False, comment="Object of the fact")
 
     # Additional context
     confidence: Mapped[float] = mapped_column(
@@ -346,9 +340,7 @@ class ProceduralMemory(TenantScopedModel):
     )
 
     # Procedure content
-    steps: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, comment="Structured procedure steps"
-    )
+    steps: Mapped[dict] = mapped_column(JSONB, nullable=False, comment="Structured procedure steps")
 
     conditions: Mapped[dict] = mapped_column(
         JSONB,

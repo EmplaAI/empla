@@ -8,7 +8,7 @@ BDI Belief System implementation:
 - Tracks belief confidence and evidence
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -135,7 +135,7 @@ class BeliefSystem:
             existing.source = source
             existing.belief_type = belief_type
             existing.decay_rate = decay_rate
-            existing.last_updated_at = datetime.now(timezone.utc)
+            existing.last_updated_at = datetime.now(UTC)
 
             # Merge evidence
             if evidence:
@@ -156,38 +156,37 @@ class BeliefSystem:
 
             return existing
 
-        else:
-            # Create new belief
-            belief = Belief(
-                tenant_id=self.tenant_id,
-                employee_id=self.employee_id,
-                belief_type=belief_type,
-                subject=subject,
-                predicate=predicate,
-                object=object,
-                confidence=confidence,
-                source=source,
-                evidence=evidence or [],
-                formed_at=datetime.now(timezone.utc),
-                last_updated_at=datetime.now(timezone.utc),
-                decay_rate=decay_rate,
-            )
+        # Create new belief
+        belief = Belief(
+            tenant_id=self.tenant_id,
+            employee_id=self.employee_id,
+            belief_type=belief_type,
+            subject=subject,
+            predicate=predicate,
+            object=object,
+            confidence=confidence,
+            source=source,
+            evidence=evidence or [],
+            formed_at=datetime.now(UTC),
+            last_updated_at=datetime.now(UTC),
+            decay_rate=decay_rate,
+        )
 
-            self.session.add(belief)
-            await self.session.flush()  # Get ID for history
+        self.session.add(belief)
+        await self.session.flush()  # Get ID for history
 
-            # Record history
-            await self._record_belief_change(
-                belief_id=belief.id,
-                change_type="created",
-                old_value=None,
-                new_value=object,
-                old_confidence=None,
-                new_confidence=confidence,
-                reason=f"Created from {source}",
-            )
+        # Record history
+        await self._record_belief_change(
+            belief_id=belief.id,
+            change_type="created",
+            old_value=None,
+            new_value=object,
+            old_confidence=None,
+            new_confidence=confidence,
+            reason=f"Created from {source}",
+        )
 
-            return belief
+        return belief
 
     async def get_all_beliefs(
         self,
@@ -255,7 +254,7 @@ class BeliefSystem:
         Note:
             Should be called periodically (e.g., daily) by the proactive loop.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         beliefs = await self.get_all_beliefs()
         decayed_beliefs = []
 
@@ -328,7 +327,7 @@ class BeliefSystem:
         if not belief:
             return False
 
-        belief.deleted_at = datetime.now(timezone.utc)
+        belief.deleted_at = datetime.now(UTC)
 
         await self._record_belief_change(
             belief_id=belief.id,
@@ -377,7 +376,7 @@ class BeliefSystem:
             old_confidence=old_confidence,
             new_confidence=new_confidence,
             reason=reason,
-            changed_at=datetime.now(timezone.utc),
+            changed_at=datetime.now(UTC),
         )
 
         self.session.add(history)

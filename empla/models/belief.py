@@ -227,13 +227,9 @@ class BeliefHistory(TenantScopedModel):
         comment="Type of change (created, updated, deleted, decayed)",
     )
 
-    old_value: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Previous value"
-    )
+    old_value: Mapped[dict | None] = mapped_column(JSONB, nullable=True, comment="Previous value")
 
-    new_value: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="New value"
-    )
+    new_value: Mapped[dict | None] = mapped_column(JSONB, nullable=True, comment="New value")
 
     old_confidence: Mapped[float | None] = mapped_column(
         Float, nullable=True, comment="Previous confidence"

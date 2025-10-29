@@ -9,7 +9,6 @@ Provides base classes with common functionality:
 """
 
 from datetime import datetime
-from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import DateTime, ForeignKey, text
@@ -23,8 +22,6 @@ class Base(DeclarativeBase):
 
     All models inherit from this class.
     """
-
-    pass
 
 
 class TimestampedModel:

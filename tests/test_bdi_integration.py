@@ -5,7 +5,6 @@ Tests the BeliefSystem, GoalSystem, and IntentionStack with real database.
 """
 
 import pytest
-from uuid import uuid4
 
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
 from empla.models.database import get_engine, get_sessionmaker
@@ -19,16 +18,15 @@ async def session():
     engine = get_engine(echo=False)
     sessionmaker = get_sessionmaker(engine)
 
-    async with engine.begin() as conn:
-        async with sessionmaker(bind=conn) as session:
-            # Start a nested transaction
-            nested = await conn.begin_nested()
+    async with engine.begin() as conn, sessionmaker(bind=conn) as session:
+        # Start a nested transaction
+        nested = await conn.begin_nested()
 
-            yield session
+        yield session
 
-            # Rollback the nested transaction
-            if nested.is_active:
-                await nested.rollback()
+        # Rollback the nested transaction
+        if nested.is_active:
+            await nested.rollback()
 
     await engine.dispose()
 
@@ -37,6 +35,7 @@ async def session():
 async def tenant(session):
     """Create a test tenant with unique slug."""
     import uuid
+
     tenant = Tenant(
         name="Test Corp",
         slug=f"test-{uuid.uuid4().hex[:8]}",  # Unique slug for each test

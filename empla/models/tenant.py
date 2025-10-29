@@ -6,18 +6,17 @@ Multi-tenancy models:
 - User: Human user within a tenant
 """
 
-from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from empla.models.base import Base, SoftDeletableModel
 
 if TYPE_CHECKING:
-    from empla.models.employee import Employee
+    pass
 
 
 class Tenant(SoftDeletableModel, Base):
@@ -83,9 +82,7 @@ class Tenant(SoftDeletableModel, Base):
             name="ck_tenants_status",
         ),
         Index("idx_tenants_slug", "slug", postgresql_where=text("deleted_at IS NULL")),
-        Index(
-            "idx_tenants_status", "status", postgresql_where=text("deleted_at IS NULL")
-        ),
+        Index("idx_tenants_status", "status", postgresql_where=text("deleted_at IS NULL")),
     )
 
     def __repr__(self) -> str:
@@ -124,13 +121,9 @@ class User(SoftDeletableModel, Base):
         comment="Tenant this user belongs to",
     )
 
-    email: Mapped[str] = mapped_column(
-        String(255), nullable=False, comment="User email address"
-    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False, comment="User email address")
 
-    name: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment="User display name"
-    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="User display name")
 
     role: Mapped[str] = mapped_column(
         String(20),
@@ -158,9 +151,7 @@ class User(SoftDeletableModel, Base):
             "role IN ('admin', 'manager', 'user')",
             name="ck_users_role",
         ),
-        Index(
-            "idx_users_tenant", "tenant_id", postgresql_where=text("deleted_at IS NULL")
-        ),
+        Index("idx_users_tenant", "tenant_id", postgresql_where=text("deleted_at IS NULL")),
         Index(
             "idx_users_email",
             "tenant_id",
