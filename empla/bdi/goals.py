@@ -8,7 +8,7 @@ BDI Goal System implementation:
 - Prioritizes goals based on importance
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -117,6 +117,7 @@ class GoalSystem:
             select(EmployeeGoal).where(
                 EmployeeGoal.id == goal_id,
                 EmployeeGoal.employee_id == self.employee_id,
+                EmployeeGoal.tenant_id == self.tenant_id,
                 EmployeeGoal.deleted_at.is_(None),
             )
         )
@@ -139,6 +140,7 @@ class GoalSystem:
             select(EmployeeGoal)
             .where(
                 EmployeeGoal.employee_id == self.employee_id,
+                EmployeeGoal.tenant_id == self.tenant_id,
                 EmployeeGoal.status == "active",
                 EmployeeGoal.priority >= min_priority,
                 EmployeeGoal.deleted_at.is_(None),
@@ -164,6 +166,7 @@ class GoalSystem:
             select(EmployeeGoal)
             .where(
                 EmployeeGoal.employee_id == self.employee_id,
+                EmployeeGoal.tenant_id == self.tenant_id,
                 EmployeeGoal.status == status,
                 EmployeeGoal.deleted_at.is_(None),
             )
@@ -201,9 +204,11 @@ class GoalSystem:
         if not goal:
             return None
 
-        # Merge progress
-        goal.current_progress.update(progress)
-        goal.updated_at = datetime.utcnow()
+        # Merge progress (copy dict to ensure SQLAlchemy detects mutation)
+        updated_progress = dict(goal.current_progress or {})
+        updated_progress.update(progress)
+        goal.current_progress = updated_progress
+        goal.updated_at = datetime.now(timezone.utc)
 
         # Auto-transition to in_progress if still active
         if goal.status == "active":
@@ -232,10 +237,12 @@ class GoalSystem:
             return None
 
         goal.status = "completed"
-        goal.completed_at = datetime.utcnow()
+        goal.completed_at = datetime.now(timezone.utc)
 
         if final_progress:
-            goal.current_progress.update(final_progress)
+            updated_progress = dict(goal.current_progress or {})
+            updated_progress.update(final_progress)
+            goal.current_progress = updated_progress
 
         return goal
 
@@ -260,10 +267,12 @@ class GoalSystem:
             return None
 
         goal.status = "abandoned"
-        goal.abandoned_at = datetime.utcnow()
+        goal.abandoned_at = datetime.now(timezone.utc)
 
         if reason:
-            goal.current_progress["abandonment_reason"] = reason
+            updated_progress = dict(goal.current_progress or {})
+            updated_progress["abandonment_reason"] = reason
+            goal.current_progress = updated_progress
 
         return goal
 
@@ -288,8 +297,10 @@ class GoalSystem:
             return None
 
         goal.status = "blocked"
-        goal.current_progress["blocker"] = blocker
-        goal.current_progress["blocked_at"] = datetime.utcnow().isoformat()
+        updated_progress = dict(goal.current_progress or {})
+        updated_progress["blocker"] = blocker
+        updated_progress["blocked_at"] = datetime.now(timezone.utc).isoformat()
+        goal.current_progress = updated_progress
 
         return goal
 
@@ -316,13 +327,12 @@ class GoalSystem:
 
         goal.status = "active"
 
-        # Remove blocker info
-        if "blocker" in goal.current_progress:
-            del goal.current_progress["blocker"]
-        if "blocked_at" in goal.current_progress:
-            del goal.current_progress["blocked_at"]
-
-        goal.current_progress["unblocked_at"] = datetime.utcnow().isoformat()
+        # Remove blocker info (copy dict to ensure SQLAlchemy detects mutation)
+        updated_progress = dict(goal.current_progress or {})
+        updated_progress.pop("blocker", None)
+        updated_progress.pop("blocked_at", None)
+        updated_progress["unblocked_at"] = datetime.now(timezone.utc).isoformat()
+        goal.current_progress = updated_progress
 
         return goal
 
@@ -347,7 +357,7 @@ class GoalSystem:
             return None
 
         goal.priority = new_priority
-        goal.updated_at = datetime.utcnow()
+        goal.updated_at = datetime.now(timezone.utc)
 
         return goal
 

@@ -99,6 +99,8 @@ async def get_db(
             yield session
         finally:
             await session.close()
+            # Dispose engine to prevent connection pool leaks
+            await engine.dispose()
 
 
 async def init_db(database_url: str | None = None) -> None:

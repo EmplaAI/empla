@@ -8,7 +8,7 @@ BDI Belief System implementation:
 - Tracks belief confidence and evidence
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -135,7 +135,7 @@ class BeliefSystem:
             existing.source = source
             existing.belief_type = belief_type
             existing.decay_rate = decay_rate
-            existing.last_updated_at = datetime.utcnow()
+            existing.last_updated_at = datetime.now(timezone.utc)
 
             # Merge evidence
             if evidence:
@@ -168,8 +168,8 @@ class BeliefSystem:
                 confidence=confidence,
                 source=source,
                 evidence=evidence or [],
-                formed_at=datetime.utcnow(),
-                last_updated_at=datetime.utcnow(),
+                formed_at=datetime.now(timezone.utc),
+                last_updated_at=datetime.now(timezone.utc),
                 decay_rate=decay_rate,
             )
 
@@ -255,7 +255,7 @@ class BeliefSystem:
         Note:
             Should be called periodically (e.g., daily) by the proactive loop.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         beliefs = await self.get_all_beliefs()
         decayed_beliefs = []
 
@@ -328,7 +328,7 @@ class BeliefSystem:
         if not belief:
             return False
 
-        belief.deleted_at = datetime.utcnow()
+        belief.deleted_at = datetime.now(timezone.utc)
 
         await self._record_belief_change(
             belief_id=belief.id,
@@ -377,7 +377,7 @@ class BeliefSystem:
             old_confidence=old_confidence,
             new_confidence=new_confidence,
             reason=reason,
-            changed_at=datetime.utcnow(),
+            changed_at=datetime.now(timezone.utc),
         )
 
         self.session.add(history)

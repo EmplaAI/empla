@@ -8,7 +8,7 @@ BDI Intention System implementation:
 - Prioritizes and schedules intentions
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -128,6 +128,7 @@ class IntentionStack:
             select(EmployeeIntention).where(
                 EmployeeIntention.id == intention_id,
                 EmployeeIntention.employee_id == self.employee_id,
+                EmployeeIntention.tenant_id == self.tenant_id,
                 EmployeeIntention.deleted_at.is_(None),
             )
         )
@@ -150,6 +151,7 @@ class IntentionStack:
             select(EmployeeIntention)
             .where(
                 EmployeeIntention.employee_id == self.employee_id,
+                EmployeeIntention.tenant_id == self.tenant_id,
                 EmployeeIntention.status == "planned",
                 EmployeeIntention.priority >= min_priority,
                 EmployeeIntention.deleted_at.is_(None),
@@ -177,6 +179,7 @@ class IntentionStack:
             select(EmployeeIntention)
             .where(
                 EmployeeIntention.employee_id == self.employee_id,
+                EmployeeIntention.tenant_id == self.tenant_id,
                 EmployeeIntention.goal_id == goal_id,
                 EmployeeIntention.deleted_at.is_(None),
             )
@@ -226,6 +229,7 @@ class IntentionStack:
             select(EmployeeIntention).where(
                 EmployeeIntention.id.in_(intention.dependencies),
                 EmployeeIntention.employee_id == self.employee_id,
+                EmployeeIntention.tenant_id == self.tenant_id,
             )
         )
         dependencies = list(result.scalars().all())
@@ -256,7 +260,7 @@ class IntentionStack:
             return intention
 
         intention.status = "in_progress"
-        intention.started_at = datetime.utcnow()
+        intention.started_at = datetime.now(timezone.utc)
 
         return intention
 
@@ -281,10 +285,12 @@ class IntentionStack:
             return None
 
         intention.status = "completed"
-        intention.completed_at = datetime.utcnow()
+        intention.completed_at = datetime.now(timezone.utc)
 
         if outcome:
-            intention.context["outcome"] = outcome
+            updated_context = dict(intention.context or {})
+            updated_context["outcome"] = outcome
+            intention.context = updated_context
 
         return intention
 
@@ -311,9 +317,11 @@ class IntentionStack:
             return None
 
         intention.status = "failed"
-        intention.failed_at = datetime.utcnow()
-        intention.context["error"] = error
-        intention.context["retry"] = retry
+        intention.failed_at = datetime.now(timezone.utc)
+        updated_context = dict(intention.context or {})
+        updated_context["error"] = error
+        updated_context["retry"] = retry
+        intention.context = updated_context
 
         return intention
 
@@ -338,8 +346,10 @@ class IntentionStack:
             return None
 
         intention.status = "abandoned"
-        intention.context["abandonment_reason"] = reason
-        intention.context["abandoned_at"] = datetime.utcnow().isoformat()
+        updated_context = dict(intention.context or {})
+        updated_context["abandonment_reason"] = reason
+        updated_context["abandoned_at"] = datetime.now(timezone.utc).isoformat()
+        intention.context = updated_context
 
         return intention
 
@@ -364,7 +374,7 @@ class IntentionStack:
             return None
 
         intention.priority = new_priority
-        intention.updated_at = datetime.utcnow()
+        intention.updated_at = datetime.now(timezone.utc)
 
         return intention
 
@@ -379,6 +389,7 @@ class IntentionStack:
             select(EmployeeIntention)
             .where(
                 EmployeeIntention.employee_id == self.employee_id,
+                EmployeeIntention.tenant_id == self.tenant_id,
                 EmployeeIntention.status == "in_progress",
                 EmployeeIntention.deleted_at.is_(None),
             )
@@ -402,6 +413,7 @@ class IntentionStack:
         result = await self.session.execute(
             select(EmployeeIntention).where(
                 EmployeeIntention.employee_id == self.employee_id,
+                EmployeeIntention.tenant_id == self.tenant_id,
                 EmployeeIntention.status == "failed",
                 EmployeeIntention.deleted_at.is_(None),
             )
@@ -442,8 +454,10 @@ class IntentionStack:
 
         # Track retry count
         retry_count = intention.context.get("retry_count", 0)
-        intention.context["retry_count"] = retry_count + 1
-        intention.context["last_retry_at"] = datetime.utcnow().isoformat()
+        updated_context = dict(intention.context or {})
+        updated_context["retry_count"] = retry_count + 1
+        updated_context["last_retry_at"] = datetime.now(timezone.utc).isoformat()
+        intention.context = updated_context
 
         return intention
 
@@ -462,11 +476,12 @@ class IntentionStack:
         Returns:
             Number of intentions cleared
         """
-        cutoff = datetime.utcnow() - timedelta(days=older_than_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
 
         result = await self.session.execute(
             select(EmployeeIntention).where(
                 EmployeeIntention.employee_id == self.employee_id,
+                EmployeeIntention.tenant_id == self.tenant_id,
                 EmployeeIntention.status == "completed",
                 EmployeeIntention.completed_at < cutoff,
                 EmployeeIntention.deleted_at.is_(None),
@@ -475,10 +490,6 @@ class IntentionStack:
         intentions = list(result.scalars().all())
 
         for intention in intentions:
-            intention.deleted_at = datetime.utcnow()
+            intention.deleted_at = datetime.now(timezone.utc)
 
         return len(intentions)
-
-
-# Import timedelta for clear_completed_intentions
-from datetime import timedelta
