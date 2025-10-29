@@ -103,6 +103,9 @@ class TenantScopedModel(SoftDeletableModel, Base):
         comment="Tenant this record belongs to",
     )
 
+    # Note: Subclasses should define the relationship to Tenant if needed
+    # relationship("Tenant", foreign_keys=[tenant_id])
+
     def __repr__(self) -> str:
         """String representation for debugging."""
         return f"<{self.__class__.__name__}(id={self.id})>"

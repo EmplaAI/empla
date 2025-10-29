@@ -129,8 +129,8 @@ class Employee(TenantScopedModel):
     )
 
     # Relationships
-    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="employees")
-    creator: Mapped["User"] = relationship("User", foreign_keys=[created_by])
+    # Note: tenant relationship omitted - use tenant_id directly
+    creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
     goals: Mapped[list["EmployeeGoal"]] = relationship(
         "EmployeeGoal", back_populates="employee", cascade="all, delete-orphan"
     )

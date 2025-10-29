@@ -69,12 +69,8 @@ class Tenant(SoftDeletableModel, Base):
     )
 
     # Relationships
-    users: Mapped[list["User"]] = relationship(
-        "User", back_populates="tenant", cascade="all, delete-orphan"
-    )
-    employees: Mapped[list["Employee"]] = relationship(
-        "Employee", back_populates="tenant", cascade="all, delete-orphan"
-    )
+    # Note: relationships to User and Employee omitted for simplicity
+    # Use tenant_id directly in queries
 
     # Constraints
     __table_args__ = (
@@ -149,7 +145,7 @@ class User(SoftDeletableModel, Base):
     )
 
     # Relationships
-    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="users")
+    # Note: tenant relationship omitted - use tenant_id directly
 
     # Constraints
     __table_args__ = (
