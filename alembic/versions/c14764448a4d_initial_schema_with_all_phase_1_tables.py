@@ -195,7 +195,10 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index('idx_episodes_embedding', 'memory_episodes', ['embedding'], unique=False, postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
+    # NOTE: IVFFlat index creation deferred to follow-up migration after data seeding
+    # IVFFlat indexes require data to exist for clustering. Will be created in separate migration.
+    # See: alembic/versions/XXX_add_ivfflat_indexes.py
+    # op.create_index('idx_episodes_embedding', 'memory_episodes', ['embedding'], unique=False, postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
     op.create_index('idx_episodes_employee', 'memory_episodes', ['employee_id', 'occurred_at'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
     op.create_index('idx_episodes_occurred', 'memory_episodes', ['occurred_at'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
     op.create_index('idx_episodes_participants', 'memory_episodes', ['participants'], unique=False, postgresql_using='gin', postgresql_where=sa.text('deleted_at IS NULL'))
@@ -254,7 +257,10 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index('idx_semantic_embedding', 'memory_semantic', ['embedding'], unique=False, postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
+    # NOTE: IVFFlat index creation deferred to follow-up migration after data seeding
+    # IVFFlat indexes require data to exist for clustering. Will be created in separate migration.
+    # See: alembic/versions/XXX_add_ivfflat_indexes.py
+    # op.create_index('idx_semantic_embedding', 'memory_semantic', ['embedding'], unique=False, postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
     op.create_index('idx_semantic_employee', 'memory_semantic', ['employee_id'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
     op.create_index('idx_semantic_fts', 'memory_semantic', [sa.text("to_tsvector('english', subject || ' ' || predicate || ' ' || object)")], unique=False, postgresql_using='gin', postgresql_where=sa.text('deleted_at IS NULL'))
     op.create_index('idx_semantic_subject', 'memory_semantic', ['employee_id', 'subject'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -407,7 +413,8 @@ def downgrade() -> None:
     op.drop_index('idx_semantic_subject', table_name='memory_semantic', postgresql_where=sa.text('deleted_at IS NULL'))
     op.drop_index('idx_semantic_fts', table_name='memory_semantic', postgresql_using='gin', postgresql_where=sa.text('deleted_at IS NULL'))
     op.drop_index('idx_semantic_employee', table_name='memory_semantic', postgresql_where=sa.text('deleted_at IS NULL'))
-    op.drop_index('idx_semantic_embedding', table_name='memory_semantic', postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
+    # NOTE: IVFFlat index was deferred, so no need to drop here
+    # op.drop_index('idx_semantic_embedding', table_name='memory_semantic', postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
     op.drop_table('memory_semantic')
     op.drop_index(op.f('ix_memory_procedural_tenant_id'), table_name='memory_procedural')
     op.drop_index(op.f('ix_memory_procedural_employee_id'), table_name='memory_procedural')
@@ -424,7 +431,8 @@ def downgrade() -> None:
     op.drop_index('idx_episodes_participants', table_name='memory_episodes', postgresql_using='gin', postgresql_where=sa.text('deleted_at IS NULL'))
     op.drop_index('idx_episodes_occurred', table_name='memory_episodes', postgresql_where=sa.text('deleted_at IS NULL'))
     op.drop_index('idx_episodes_employee', table_name='memory_episodes', postgresql_where=sa.text('deleted_at IS NULL'))
-    op.drop_index('idx_episodes_embedding', table_name='memory_episodes', postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
+    # NOTE: IVFFlat index was deferred, so no need to drop here
+    # op.drop_index('idx_episodes_embedding', table_name='memory_episodes', postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
     op.drop_table('memory_episodes')
     op.drop_index(op.f('ix_employee_goals_tenant_id'), table_name='employee_goals')
     op.drop_index(op.f('ix_employee_goals_employee_id'), table_name='employee_goals')
