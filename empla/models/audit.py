@@ -7,7 +7,7 @@ Observability models:
 """
 
 from datetime import datetime
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID as PyUUID
 
 from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, String, text

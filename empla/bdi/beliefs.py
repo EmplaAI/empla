@@ -140,9 +140,7 @@ class BeliefSystem:
             # Merge evidence
             # Convert UUIDs to strings for JSONB serialization
             if evidence:
-                existing_evidence = {
-                    str(item) for item in (existing.evidence or [])
-                }
+                existing_evidence = {str(item) for item in (existing.evidence or [])}
                 existing_evidence.update(str(item) for item in evidence)
                 existing.evidence = list(existing_evidence)
 

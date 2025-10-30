@@ -9,7 +9,7 @@ Multi-layered memory models:
 """
 
 from datetime import datetime
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
@@ -70,7 +70,9 @@ class EpisodicMemory(TenantScopedModel):
         String(500), nullable=False, comment="Human-readable episode summary"
     )
 
-    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, comment="Full episode data")
+    content: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, comment="Full episode data"
+    )
 
     # Context
     participants: Mapped[list[str]] = mapped_column(
@@ -340,7 +342,9 @@ class ProceduralMemory(TenantScopedModel):
     )
 
     # Procedure content
-    steps: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, comment="Structured procedure steps")
+    steps: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, comment="Structured procedure steps"
+    )
 
     conditions: Mapped[dict[str, Any]] = mapped_column(
         JSONB,

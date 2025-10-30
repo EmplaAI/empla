@@ -9,7 +9,6 @@ Provides base classes with common functionality:
 """
 
 from datetime import datetime
-from typing import Any
 from uuid import UUID as PyUUID
 from uuid import uuid4
 
