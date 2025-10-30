@@ -259,7 +259,7 @@ class WorkingMemory:
 
         # Optionally boost importance
         if importance_boost is not None:
-            item.importance = min(1.0, item.importance + importance_boost)
+            item.importance = round(min(1.0, item.importance + importance_boost), 10)
 
         item.updated_at = datetime.now(UTC)
 

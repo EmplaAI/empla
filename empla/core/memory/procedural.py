@@ -16,6 +16,7 @@ Key characteristics:
 - Continuously refined (improves with every execution)
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -186,7 +187,8 @@ class ProceduralMemorySystem:
             employee_id=self.employee_id,
             procedure_type=procedure_type,
             name=name,
-            steps=steps,
+            description="",  # Empty description, can be updated later
+            steps=steps,  # Store list directly in JSONB
             trigger_conditions=trigger_conditions or {},
             context=context or {},
             embedding=embedding,
@@ -245,7 +247,7 @@ class ProceduralMemorySystem:
             # PostgreSQL JSONB @> operator (contains)
             query = query.where(
                 text("trigger_conditions @> :conditions")
-            ).params(conditions=str(trigger_conditions))
+            ).params(conditions=json.dumps(trigger_conditions))
 
         result = await self.session.execute(query)
         return result.scalar_one_or_none()

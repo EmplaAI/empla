@@ -15,6 +15,7 @@ Key characteristics:
 - Confidence-weighted (facts have certainty scores)
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -67,7 +68,7 @@ class SemanticMemorySystem:
         self,
         subject: str,
         predicate: str,
-        object: str,
+        object: str | dict[str, Any],
         confidence: float = 0.8,
         fact_type: str = "entity",
         source: str | None = None,
@@ -116,12 +117,15 @@ class SemanticMemorySystem:
             ...     source_id=episodic_memory_id
             ... )
         """
+        # Convert dict objects to JSON strings for storage
+        object_str = json.dumps(object) if isinstance(object, dict) else object
+
         # Check if fact already exists (same subject+predicate)
         existing = await self.get_fact(subject, predicate)
 
         if existing:
             # Update existing fact
-            existing.object = object
+            existing.object = object_str
             existing.confidence = confidence
             existing.access_count += 1
             existing.last_accessed_at = datetime.now(UTC)
@@ -146,7 +150,7 @@ class SemanticMemorySystem:
             fact_type=fact_type,
             subject=subject,
             predicate=predicate,
-            object=object,
+            object=object_str,
             confidence=confidence,
             source=source,
             verified=verified,
