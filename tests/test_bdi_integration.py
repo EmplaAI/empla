@@ -275,6 +275,11 @@ async def test_intention_dependencies(session, employee, tenant):
     next_intention = await intentions.get_next_intention()
     assert next_intention.id == intention1.id
 
+    # Try to start intention2 before dependency is complete - should fail
+    result = await intentions.start_intention(intention2.id)
+    assert result.status == "planned"  # Should remain planned
+    assert result.started_at is None  # Should not have started
+
     # Complete intention1
     await intentions.start_intention(intention1.id)
     await intentions.complete_intention(intention1.id)
@@ -282,6 +287,11 @@ async def test_intention_dependencies(session, employee, tenant):
     # Now intention2 should be next (dependencies satisfied)
     next_intention = await intentions.get_next_intention()
     assert next_intention.id == intention2.id
+
+    # Now start_intention should succeed
+    result = await intentions.start_intention(intention2.id)
+    assert result.status == "in_progress"  # Should be started
+    assert result.started_at is not None  # Should have start time
 
     await session.commit()
 

@@ -247,11 +247,38 @@ class IntentionStack:
         """
         Mark an intention as in_progress.
 
+        Verifies all dependencies are completed before allowing the intention to start.
+        If dependencies are not satisfied, returns the intention unchanged.
+
         Args:
             intention_id: Intention UUID
 
         Returns:
-            Updated EmployeeIntention, or None if not found
+            Updated EmployeeIntention if started, or unchanged intention if dependencies
+            not satisfied, or None if not found
+
+        Example:
+            >>> # Create dependent intentions
+            >>> dep1 = await stack.add_intention(...)
+            >>> dep2 = await stack.add_intention(...)
+            >>>
+            >>> # Create intention with dependencies
+            >>> intention = await stack.add_intention(
+            ...     dependencies=[dep1.id, dep2.id],
+            ...     ...
+            ... )
+            >>>
+            >>> # Try to start before dependencies complete - returns unchanged
+            >>> result = await stack.start_intention(intention.id)
+            >>> assert result.status == "planned"
+            >>>
+            >>> # Complete dependencies
+            >>> await stack.complete_intention(dep1.id)
+            >>> await stack.complete_intention(dep2.id)
+            >>>
+            >>> # Now can start - returns updated
+            >>> result = await stack.start_intention(intention.id)
+            >>> assert result.status == "in_progress"
         """
         intention = await self.get_intention(intention_id)
 
@@ -260,6 +287,11 @@ class IntentionStack:
 
         if intention.status != "planned":
             # Already started or completed
+            return intention
+
+        # Verify all dependencies are satisfied before starting
+        if not await self._are_dependencies_satisfied(intention):
+            # Dependencies not satisfied - return intention unchanged
             return intention
 
         intention.status = "in_progress"
