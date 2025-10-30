@@ -138,9 +138,12 @@ class BeliefSystem:
             existing.last_updated_at = datetime.now(UTC)
 
             # Merge evidence
+            # Convert UUIDs to strings for JSONB serialization
             if evidence:
-                existing_evidence = set(existing.evidence)
-                existing_evidence.update(evidence)  # type: ignore[arg-type]
+                existing_evidence = {
+                    str(item) for item in (existing.evidence or [])
+                }
+                existing_evidence.update(str(item) for item in evidence)
                 existing.evidence = list(existing_evidence)  # type: ignore[assignment]
 
             # Record history
@@ -157,6 +160,7 @@ class BeliefSystem:
             return existing
 
         # Create new belief
+        # Convert UUIDs to strings for JSONB serialization
         belief = Belief(
             tenant_id=self.tenant_id,
             employee_id=self.employee_id,
@@ -166,7 +170,7 @@ class BeliefSystem:
             object=object,
             confidence=confidence,
             source=source,
-            evidence=evidence or [],
+            evidence=[str(item) for item in evidence] if evidence else [],
             formed_at=datetime.now(UTC),
             last_updated_at=datetime.now(UTC),
             decay_rate=decay_rate,
