@@ -239,6 +239,40 @@ class SemanticMemory(TenantScopedModel):
         comment="Whether fact was verified by human",
     )
 
+    # Source tracking (added in migration a537dbe240e4)
+    source_id: Mapped[UUID | None] = mapped_column(
+        nullable=True,
+        comment="Source memory UUID (episodic, belief, etc.)",
+    )
+
+    source_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Source memory type (episodic, belief, observation, etc.)",
+    )
+
+    # Access tracking (added in migration a537dbe240e4)
+    access_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+        comment="How many times this fact was accessed",
+    )
+
+    last_accessed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When this fact was last accessed (UTC)",
+    )
+
+    # Context (added in migration a537dbe240e4)
+    context: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        comment="Additional context and metadata",
+    )
+
     # Embedding
     embedding: Mapped[Vector | None] = mapped_column(
         Vector(1024), nullable=True, comment="1024-dim embedding for semantic similarity"
@@ -327,7 +361,7 @@ class ProceduralMemory(TenantScopedModel):
     )
 
     # Procedure definition
-    procedure_name: Mapped[str] = mapped_column(
+    name: Mapped[str] = mapped_column(
         String(200), nullable=False, comment="Unique procedure name"
     )
 
@@ -346,7 +380,7 @@ class ProceduralMemory(TenantScopedModel):
         JSONB, nullable=False, comment="Structured procedure steps"
     )
 
-    conditions: Mapped[dict[str, Any]] = mapped_column(
+    trigger_conditions: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
@@ -368,16 +402,43 @@ class ProceduralMemory(TenantScopedModel):
         comment="How many times this procedure was executed",
     )
 
+    # Success tracking (added in migration a537dbe240e4)
+    success_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+        comment="Number of successful executions",
+    )
+
+    avg_execution_time: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Average execution time in seconds",
+    )
+
     last_executed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When this procedure was last executed (UTC)",
     )
 
-    # Metadata
-    learned_from: Mapped[str] = mapped_column(
-        String(50),
+    # Context (added in migration a537dbe240e4)
+    context: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
         nullable=False,
+        server_default=text("'{}'::jsonb"),
+        comment="Additional context and execution history",
+    )
+
+    # Embedding (added in migration a537dbe240e4)
+    embedding: Mapped[Vector | None] = mapped_column(
+        Vector(1024), nullable=True, comment="1024-dim embedding for semantic similarity"
+    )
+
+    # Metadata
+    learned_from: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
         comment="How this procedure was learned",
     )
 
@@ -420,18 +481,18 @@ class ProceduralMemory(TenantScopedModel):
             "tenant_id",
             postgresql_where=text("deleted_at IS NULL"),
         ),
-        # Unique constraint: one procedure per (employee, procedure_name)
+        # Unique constraint: one procedure per (employee, name)
         Index(
             "idx_procedural_unique_name",
             "employee_id",
-            "procedure_name",
+            "name",
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
     )
 
     def __repr__(self) -> str:
-        return f"<ProceduralMemory(id={self.id}, name={self.procedure_name})>"
+        return f"<ProceduralMemory(id={self.id}, name={self.name})>"
 
 
 class WorkingMemory(TenantScopedModel):
@@ -461,26 +522,52 @@ class WorkingMemory(TenantScopedModel):
     )
 
     # Context content
-    context_type: Mapped[str] = mapped_column(
+    item_type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        comment="Type of context (current_task, conversation, scratchpad, recent_observation)",
+        comment="Type of item (task, goal, observation, conversation, context)",
     )
 
-    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, comment="Context data")
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, comment="Item data")
 
     # Lifecycle
-    priority: Mapped[int] = mapped_column(
-        Integer,
+    importance: Mapped[float] = mapped_column(
+        Float,
         nullable=False,
-        server_default=text("5"),
-        comment="Priority (1=lowest, 10=highest, affects eviction)",
+        server_default=text("0.5"),
+        comment="Importance score (0-1 scale)",
     )
 
-    expires_at: Mapped[datetime | None] = mapped_column(
+    expires_at: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+        comment="Unix timestamp when to auto-evict this memory",
+    )
+
+    # Source tracking (added in migration a537dbe240e4)
+    source_id: Mapped[UUID | None] = mapped_column(
+        nullable=True,
+        comment="Source memory UUID",
+    )
+
+    source_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Source memory type",
+    )
+
+    # Access tracking (added in migration a537dbe240e4)
+    access_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+        comment="How many times accessed",
+    )
+
+    last_accessed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
-        comment="When to auto-evict this memory (UTC)",
+        comment="When last accessed (UTC)",
     )
 
     # Relationships
@@ -489,23 +576,23 @@ class WorkingMemory(TenantScopedModel):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "priority BETWEEN 1 AND 10",
-            name="ck_working_priority",
+            "importance BETWEEN 0 AND 1",
+            name="ck_working_importance",
         ),
         CheckConstraint(
-            "context_type IN ('current_task', 'conversation', 'scratchpad', 'recent_observation')",
-            name="ck_working_context_type",
+            "item_type IN ('task', 'goal', 'observation', 'conversation', 'context')",
+            name="ck_working_item_type",
         ),
         Index(
             "idx_working_employee",
             "employee_id",
-            "priority",
+            "importance",
             postgresql_where=text("deleted_at IS NULL"),
         ),
         Index(
             "idx_working_type",
             "employee_id",
-            "context_type",
+            "item_type",
             postgresql_where=text("deleted_at IS NULL"),
         ),
         Index(
@@ -521,4 +608,4 @@ class WorkingMemory(TenantScopedModel):
     )
 
     def __repr__(self) -> str:
-        return f"<WorkingMemory(id={self.id}, type={self.context_type})>"
+        return f"<WorkingMemory(id={self.id}, type={self.item_type})>"
