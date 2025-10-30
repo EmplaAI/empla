@@ -798,7 +798,7 @@ def upgrade() -> None:
             "employee_id", sa.UUID(), nullable=False, comment="Employee this memory belongs to"
         ),
         sa.Column(
-            "procedure_name", sa.String(length=200), nullable=False, comment="Unique procedure name"
+            "name", sa.String(length=200), nullable=False, comment="Unique procedure name"
         ),
         sa.Column(
             "description",
@@ -819,7 +819,7 @@ def upgrade() -> None:
             comment="Structured procedure steps",
         ),
         sa.Column(
-            "conditions",
+            "trigger_conditions",
             postgresql.JSONB(astext_type=sa.Text()),
             server_default=sa.text("'{}'::jsonb"),
             nullable=False,
@@ -840,15 +840,41 @@ def upgrade() -> None:
             comment="How many times this procedure was executed",
         ),
         sa.Column(
+            "success_count",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
+            comment="Number of successful executions",
+        ),
+        sa.Column(
+            "avg_execution_time",
+            sa.Float(),
+            nullable=True,
+            comment="Average execution time in seconds",
+        ),
+        sa.Column(
             "last_executed_at",
             sa.DateTime(timezone=True),
             nullable=True,
             comment="When this procedure was last executed (UTC)",
         ),
         sa.Column(
+            "context",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+            comment="Additional context and execution history",
+        ),
+        sa.Column(
+            "embedding",
+            pgvector.sqlalchemy.Vector(dim=1024),
+            nullable=True,
+            comment="1024-dim embedding for semantic similarity",
+        ),
+        sa.Column(
             "learned_from",
             sa.String(length=50),
-            nullable=False,
+            nullable=True,
             comment="How this procedure was learned",
         ),
         sa.Column("id", sa.UUID(), nullable=False, comment="Unique identifier"),
@@ -917,7 +943,7 @@ def upgrade() -> None:
     op.create_index(
         "idx_procedural_unique_name",
         "memory_procedural",
-        ["employee_id", "procedure_name"],
+        ["employee_id", "name"],
         unique=True,
         postgresql_where=sa.text("deleted_at IS NULL"),
     )
@@ -962,6 +988,38 @@ def upgrade() -> None:
             server_default=sa.text("false"),
             nullable=False,
             comment="Whether fact was verified by human",
+        ),
+        sa.Column(
+            "source_id",
+            sa.UUID(),
+            nullable=True,
+            comment="Source memory UUID (episodic, belief, etc.)",
+        ),
+        sa.Column(
+            "source_type",
+            sa.String(length=50),
+            nullable=True,
+            comment="Source memory type (episodic, belief, observation, etc.)",
+        ),
+        sa.Column(
+            "access_count",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
+            comment="How many times this fact was accessed",
+        ),
+        sa.Column(
+            "last_accessed_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+            comment="When this fact was last accessed (UTC)",
+        ),
+        sa.Column(
+            "context",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+            comment="Additional context and metadata",
         ),
         sa.Column(
             "embedding",
@@ -1052,29 +1110,54 @@ def upgrade() -> None:
             "employee_id", sa.UUID(), nullable=False, comment="Employee this memory belongs to"
         ),
         sa.Column(
-            "context_type",
+            "item_type",
             sa.String(length=50),
             nullable=False,
-            comment="Type of context (current_task, conversation, scratchpad, recent_observation)",
+            comment="Type of item (task, goal, observation, conversation, context)",
         ),
         sa.Column(
             "content",
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=False,
-            comment="Context data",
+            comment="Item data",
         ),
         sa.Column(
-            "priority",
-            sa.Integer(),
-            server_default=sa.text("5"),
+            "importance",
+            sa.Float(),
+            server_default=sa.text("0.5"),
             nullable=False,
-            comment="Priority (1=lowest, 10=highest, affects eviction)",
+            comment="Importance score (0-1 scale)",
         ),
         sa.Column(
             "expires_at",
+            sa.Float(),
+            nullable=True,
+            comment="Unix timestamp when to auto-evict this memory",
+        ),
+        sa.Column(
+            "source_id",
+            sa.UUID(),
+            nullable=True,
+            comment="Source memory UUID",
+        ),
+        sa.Column(
+            "source_type",
+            sa.String(length=50),
+            nullable=True,
+            comment="Source memory type",
+        ),
+        sa.Column(
+            "access_count",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
+            comment="How many times accessed",
+        ),
+        sa.Column(
+            "last_accessed_at",
             sa.DateTime(timezone=True),
             nullable=True,
-            comment="When to auto-evict this memory (UTC)",
+            comment="When last accessed (UTC)",
         ),
         sa.Column("id", sa.UUID(), nullable=False, comment="Unique identifier"),
         sa.Column("tenant_id", sa.UUID(), nullable=False, comment="Tenant this record belongs to"),
@@ -1099,10 +1182,13 @@ def upgrade() -> None:
             comment="When this record was last updated (UTC)",
         ),
         sa.CheckConstraint(
-            "context_type IN ('current_task', 'conversation', 'scratchpad', 'recent_observation')",
-            name="ck_working_context_type",
+            "item_type IN ('task', 'goal', 'observation', 'conversation', 'context')",
+            name="ck_working_item_type",
         ),
-        sa.CheckConstraint("priority BETWEEN 1 AND 10", name="ck_working_priority"),
+        sa.CheckConstraint(
+            "importance BETWEEN 0 AND 1",
+            name="ck_working_importance",
+        ),
         sa.ForeignKeyConstraint(["employee_id"], ["employees.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
@@ -1110,7 +1196,7 @@ def upgrade() -> None:
     op.create_index(
         "idx_working_employee",
         "memory_working",
-        ["employee_id", "priority"],
+        ["employee_id", "importance"],
         unique=False,
         postgresql_where=sa.text("deleted_at IS NULL"),
     )
@@ -1131,7 +1217,7 @@ def upgrade() -> None:
     op.create_index(
         "idx_working_type",
         "memory_working",
-        ["employee_id", "context_type"],
+        ["employee_id", "item_type"],
         unique=False,
         postgresql_where=sa.text("deleted_at IS NULL"),
     )
