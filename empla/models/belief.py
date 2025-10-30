@@ -91,7 +91,7 @@ class Belief(TenantScopedModel):
         comment="How this belief was formed (observation, inference, told_by_human, prior)",
     )
 
-    evidence: Mapped[dict[str, Any]] = mapped_column(
+    evidence: Mapped[list[str]] = mapped_column(
         JSONB,
         nullable=False,
         server_default=text("'[]'::jsonb"),

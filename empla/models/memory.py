@@ -87,7 +87,7 @@ class EpisodicMemory(TenantScopedModel):
     )
 
     # Embedding for similarity search (pgvector)
-    embedding: Mapped[Vector] = mapped_column(
+    embedding: Mapped[Vector | None] = mapped_column(
         Vector(1024), nullable=True, comment="1024-dim embedding for semantic similarity"
     )
 
@@ -238,7 +238,7 @@ class SemanticMemory(TenantScopedModel):
     )
 
     # Embedding
-    embedding: Mapped[Vector] = mapped_column(
+    embedding: Mapped[Vector | None] = mapped_column(
         Vector(1024), nullable=True, comment="1024-dim embedding for semantic similarity"
     )
 

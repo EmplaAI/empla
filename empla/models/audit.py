@@ -7,7 +7,7 @@ Observability models:
 """
 
 from datetime import datetime
-from typing import Any, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 from uuid import UUID as PyUUID
 
 from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, String, text
@@ -167,7 +167,7 @@ class Metric(TenantScopedModel):
     )
 
     # Relationships
-    employee: Mapped["Employee"] = relationship("Employee")
+    employee: Mapped[Optional["Employee"]] = relationship("Employee")
 
     # Constraints
     __table_args__ = (

@@ -144,7 +144,7 @@ class BeliefSystem:
                     str(item) for item in (existing.evidence or [])
                 }
                 existing_evidence.update(str(item) for item in evidence)
-                existing.evidence = list(existing_evidence)  # type: ignore[assignment]
+                existing.evidence = list(existing_evidence)
 
             # Record history
             await self._record_belief_change(
@@ -396,24 +396,36 @@ class BeliefSystem:
         Get belief change history.
 
         Args:
-            subject: Filter by subject (optional)
-            predicate: Filter by predicate (optional)
+            subject: Filter by subject (optional, can be used independently)
+            predicate: Filter by predicate (optional, can be used independently)
             limit: Maximum number of records to return
 
         Returns:
             List of BeliefHistory records
+
+        Example:
+            >>> # Get all history for a subject
+            >>> history = await belief_system.get_belief_history(subject="Acme Corp")
+            >>> # Get all history for a predicate across all subjects
+            >>> history = await belief_system.get_belief_history(predicate="deal_stage")
+            >>> # Get history for specific subject+predicate combination
+            >>> history = await belief_system.get_belief_history(
+            ...     subject="Acme Corp", predicate="deal_stage"
+            ... )
         """
         query = select(BeliefHistory).where(
             BeliefHistory.employee_id == self.employee_id,
         )
 
-        if subject and predicate:
-            # Get belief ID first
-            belief = await self.get_belief(subject, predicate)
-            if belief:
-                query = query.where(BeliefHistory.belief_id == belief.id)
-            else:
-                return []
+        # Apply subject and/or predicate filters independently via join
+        if subject or predicate:
+            query = query.join(Belief, Belief.id == BeliefHistory.belief_id)
+
+            if subject:
+                query = query.where(Belief.subject == subject)
+
+            if predicate:
+                query = query.where(Belief.predicate == predicate)
 
         result = await self.session.execute(
             query.order_by(BeliefHistory.changed_at.desc()).limit(limit)

@@ -383,6 +383,7 @@ class IntentionStack:
         intention.priority = new_priority
         intention.updated_at = datetime.now(UTC)
 
+        await self.session.flush()
         return intention
 
     async def get_in_progress_intentions(self) -> list[EmployeeIntention]:
@@ -464,6 +465,7 @@ class IntentionStack:
         updated_context["last_retry_at"] = datetime.now(UTC).isoformat()
         intention.context = updated_context
 
+        await self.session.flush()
         return intention
 
     async def clear_completed_intentions(
@@ -481,7 +483,8 @@ class IntentionStack:
         Returns:
             Number of intentions cleared
         """
-        cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(days=older_than_days)
 
         result = await self.session.execute(
             select(EmployeeIntention).where(
@@ -495,6 +498,7 @@ class IntentionStack:
         intentions = list(result.scalars().all())
 
         for intention in intentions:
-            intention.deleted_at = datetime.now(UTC)
+            intention.deleted_at = now
 
+        await self.session.flush()
         return len(intentions)
