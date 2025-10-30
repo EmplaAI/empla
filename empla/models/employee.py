@@ -400,7 +400,7 @@ class EmployeeIntention(TenantScopedModel):
 
     # Relationships
     employee: Mapped["Employee"] = relationship("Employee", back_populates="intentions")
-    goal: Mapped["EmployeeGoal"] = relationship("EmployeeGoal", back_populates="intentions")
+    goal: Mapped["EmployeeGoal | None"] = relationship("EmployeeGoal", back_populates="intentions")
 
     # Constraints
     __table_args__ = (

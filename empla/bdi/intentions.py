@@ -222,15 +222,20 @@ class IntentionStack:
         if not intention.dependencies:
             return True
 
-        # Get all dependency intentions
+        # Get all dependency intentions (excluding soft-deleted)
         result = await self.session.execute(
             select(EmployeeIntention).where(
                 EmployeeIntention.id.in_(intention.dependencies),
                 EmployeeIntention.employee_id == self.employee_id,
                 EmployeeIntention.tenant_id == self.tenant_id,
+                EmployeeIntention.deleted_at.is_(None),
             )
         )
         dependencies = list(result.scalars().all())
+
+        # Verify all requested dependencies were found (not deleted)
+        if len(dependencies) != len(intention.dependencies):
+            return False  # Some dependencies missing or deleted
 
         # All dependencies must be completed
         return all(dep.status == "completed" for dep in dependencies)
@@ -260,6 +265,7 @@ class IntentionStack:
         intention.status = "in_progress"
         intention.started_at = datetime.now(UTC)
 
+        await self.session.flush()
         return intention
 
     async def complete_intention(
@@ -290,6 +296,7 @@ class IntentionStack:
             updated_context["outcome"] = outcome
             intention.context = updated_context
 
+        await self.session.flush()
         return intention
 
     async def fail_intention(
@@ -321,6 +328,7 @@ class IntentionStack:
         updated_context["retry"] = retry
         intention.context = updated_context
 
+        await self.session.flush()
         return intention
 
     async def abandon_intention(
@@ -349,6 +357,7 @@ class IntentionStack:
         updated_context["abandoned_at"] = datetime.now(UTC).isoformat()
         intention.context = updated_context
 
+        await self.session.flush()
         return intention
 
     async def update_intention_priority(
