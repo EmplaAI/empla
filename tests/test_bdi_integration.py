@@ -5,6 +5,7 @@ Tests the BeliefSystem, GoalSystem, and IntentionStack with real database.
 """
 
 import pytest
+from sqlalchemy import event
 
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
 from empla.models.database import get_engine, get_sessionmaker
@@ -14,20 +15,51 @@ from empla.models.tenant import Tenant, User
 
 @pytest.fixture
 async def session():
-    """Create a test database session with transaction rollback."""
+    """
+    Create a test database session with proper transaction isolation.
+
+    Uses nested savepoints to ensure test commits don't release the outer transaction.
+    After each commit, automatically creates a new nested savepoint to maintain isolation.
+    """
     engine = get_engine(echo=False)
+
+    # Acquire a persistent connection
+    conn = await engine.connect()
+
+    # Begin a top-level transaction
+    trans = await conn.begin()
+
+    # Create session bound to this connection
     sessionmaker = get_sessionmaker(engine)
+    session = sessionmaker(bind=conn)
 
-    async with engine.begin() as conn, sessionmaker(bind=conn) as session:
-        # Start a nested transaction
-        nested = await conn.begin_nested()
+    # Start an initial nested savepoint
+    nested = await conn.begin_nested()
 
-        yield session
+    # Register after_commit hook to re-create nested savepoint
+    @event.listens_for(session.sync_session, "after_transaction_end")
+    def restart_savepoint(session, transaction):
+        """Re-create a nested savepoint after each commit."""
+        if transaction.nested and not transaction._parent.nested:
+            # This was a commit of the nested savepoint
+            # Create a new nested savepoint for the next test operation
+            conn.sync_connection.begin_nested()
 
-        # Rollback the nested transaction
-        if nested.is_active:
-            await nested.rollback()
+    yield session
 
+    # Teardown: rollback everything
+    await session.close()
+
+    # Rollback the nested savepoint if still active
+    if nested.is_active:
+        await nested.rollback()
+
+    # Rollback the top-level transaction
+    if trans.is_active:
+        await trans.rollback()
+
+    # Close and dispose
+    await conn.close()
     await engine.dispose()
 
 
