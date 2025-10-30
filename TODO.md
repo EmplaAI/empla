@@ -127,7 +127,7 @@ None currently - fresh start!
 - [x] ARCHITECTURE.md created
 - [x] README.md created
 - [x] TODO.md created
-- [ ] CHANGELOG.md created
+- [x] CHANGELOG.md created
 - [ ] ADR infrastructure created
 - [ ] Design doc infrastructure created
 

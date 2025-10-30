@@ -8,4 +8,4 @@ This package contains the fundamental components of empla's autonomous system:
 - Strategic planning algorithms
 """
 
-__all__ = []
+__all__: list[str] = []

@@ -123,7 +123,7 @@ CREATE POLICY users_tenant_isolation ON users
 ```
 
 **Design Notes:**
-- `tenant_id`: Isolates users by tenant (user@acme.com vs user@competitor.com are different)
+- `tenant_id`: Isolates users by tenant (<user@acme.com> vs <user@competitor.com> are different)
 - `role`: Authorization level (admin > manager > user)
 - `settings`: User preferences (notification settings, UI preferences)
 
