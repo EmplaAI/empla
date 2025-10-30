@@ -13,7 +13,7 @@ from typing import Any
 from uuid import UUID as PyUUID
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, text
+from sqlalchemy import DateTime, ForeignKey, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -46,7 +46,7 @@ class TimestampedModel:
         DateTime(timezone=True),
         nullable=False,
         server_default=text("now()"),
-        onupdate=datetime.utcnow,
+        onupdate=func.now(),
         comment="When this record was last updated (UTC)",
     )
 
