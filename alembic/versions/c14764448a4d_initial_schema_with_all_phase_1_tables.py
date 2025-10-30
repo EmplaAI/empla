@@ -39,6 +39,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False, comment='When this record was created (UTC)'),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False, comment='When this record was last updated (UTC)'),
     sa.CheckConstraint("actor_type IN ('employee', 'user', 'system')", name='ck_audit_log_actor_type'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_audit_action', 'audit_log', ['action_type', 'occurred_at'], unique=False)
@@ -74,6 +75,7 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False, comment='When this record was last updated (UTC)'),
     sa.CheckConstraint("email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}$'", name='ck_users_email_format'),
     sa.CheckConstraint("role IN ('admin', 'manager', 'user')", name='ck_users_role'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_users_email', 'users', ['tenant_id', 'email'], unique=True, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -100,7 +102,8 @@ def upgrade() -> None:
     sa.CheckConstraint("lifecycle_stage IN ('shadow', 'supervised', 'autonomous')", name='ck_employees_lifecycle_stage'),
     sa.CheckConstraint("role IN ('sales_ae', 'csm', 'pm', 'sdr', 'recruiter', 'custom')", name='ck_employees_role'),
     sa.CheckConstraint("status IN ('onboarding', 'active', 'paused', 'terminated')", name='ck_employees_status'),
-    sa.ForeignKeyConstraint(['created_by'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_employees_email', 'employees', ['tenant_id', 'email'], unique=True, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -131,6 +134,7 @@ def upgrade() -> None:
     sa.CheckConstraint('confidence BETWEEN 0 AND 1', name='ck_beliefs_confidence'),
     sa.CheckConstraint('decay_rate BETWEEN 0 AND 1', name='ck_beliefs_decay_rate'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_beliefs_confidence', 'beliefs', ['employee_id', 'confidence'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -160,6 +164,7 @@ def upgrade() -> None:
     sa.CheckConstraint("status IN ('active', 'in_progress', 'completed', 'abandoned', 'blocked')", name='ck_employee_goals_status'),
     sa.CheckConstraint('priority BETWEEN 1 AND 10', name='ck_employee_goals_priority'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_goals_employee', 'employee_goals', ['employee_id', 'status'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -187,6 +192,7 @@ def upgrade() -> None:
     sa.CheckConstraint("episode_type IN ('interaction', 'event', 'observation', 'feedback')", name='ck_episodes_episode_type'),
     sa.CheckConstraint('importance BETWEEN 0 AND 1', name='ck_episodes_importance'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_episodes_embedding', 'memory_episodes', ['embedding'], unique=False, postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -217,6 +223,7 @@ def upgrade() -> None:
     sa.CheckConstraint("procedure_type IN ('skill', 'workflow', 'heuristic')", name='ck_procedural_procedure_type'),
     sa.CheckConstraint('success_rate BETWEEN 0 AND 1', name='ck_procedural_success_rate'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_procedural_employee', 'memory_procedural', ['employee_id'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -244,6 +251,7 @@ def upgrade() -> None:
     sa.CheckConstraint("fact_type IN ('entity', 'relationship', 'rule', 'definition')", name='ck_semantic_fact_type'),
     sa.CheckConstraint('confidence BETWEEN 0 AND 1', name='ck_semantic_confidence'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_semantic_embedding', 'memory_semantic', ['embedding'], unique=False, postgresql_using='ivfflat', postgresql_with={'lists': 100}, postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -268,6 +276,7 @@ def upgrade() -> None:
     sa.CheckConstraint("context_type IN ('current_task', 'conversation', 'scratchpad', 'recent_observation')", name='ck_working_context_type'),
     sa.CheckConstraint('priority BETWEEN 1 AND 10', name='ck_working_priority'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_working_employee', 'memory_working', ['employee_id', 'priority'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
@@ -290,6 +299,7 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False, comment='When this record was last updated (UTC)'),
     sa.CheckConstraint("metric_type IN ('counter', 'gauge', 'histogram')", name='ck_metrics_metric_type'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_metrics_employee', 'metrics', ['employee_id', 'metric_name', 'timestamp'], unique=False, postgresql_where=sa.text('employee_id IS NOT NULL'))
@@ -314,6 +324,7 @@ def upgrade() -> None:
     sa.CheckConstraint("change_type IN ('created', 'updated', 'deleted', 'decayed')", name='ck_belief_history_change_type'),
     sa.ForeignKeyConstraint(['belief_id'], ['beliefs.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_belief_history_belief', 'belief_history', ['belief_id', 'changed_at'], unique=False)
@@ -345,6 +356,7 @@ def upgrade() -> None:
     sa.CheckConstraint('priority BETWEEN 1 AND 10', name='ck_employee_intentions_priority'),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['goal_id'], ['employee_goals.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_intentions_employee', 'employee_intentions', ['employee_id', 'status'], unique=False, postgresql_where=sa.text('deleted_at IS NULL'))
