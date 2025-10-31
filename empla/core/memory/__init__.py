@@ -85,7 +85,7 @@ from empla.core.memory.working import WorkingMemory
 
 __all__ = [
     "EpisodicMemorySystem",
-    "SemanticMemorySystem",
     "ProceduralMemorySystem",
+    "SemanticMemorySystem",
     "WorkingMemory",
 ]

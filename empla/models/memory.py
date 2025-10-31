@@ -361,9 +361,7 @@ class ProceduralMemory(TenantScopedModel):
     )
 
     # Procedure definition
-    name: Mapped[str] = mapped_column(
-        String(200), nullable=False, comment="Unique procedure name"
-    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False, comment="Unique procedure name")
 
     description: Mapped[str] = mapped_column(
         String(500), nullable=False, comment="Human-readable procedure description"

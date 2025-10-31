@@ -17,11 +17,11 @@ Key characteristics:
 """
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from empla.models.memory import ProceduralMemory
@@ -150,17 +150,17 @@ class ProceduralMemorySystem:
                     existing.avg_execution_time = execution_time
                 else:
                     # Incremental average
-                    total_time = (
-                        existing.avg_execution_time * (existing.execution_count - 1)
-                    )
-                    existing.avg_execution_time = (total_time + execution_time) / existing.execution_count
+                    total_time = existing.avg_execution_time * (existing.execution_count - 1)
+                    existing.avg_execution_time = (
+                        total_time + execution_time
+                    ) / existing.execution_count
 
             # Update last execution
             existing.last_executed_at = datetime.now(UTC)
             existing.updated_at = datetime.now(UTC)
 
             # Optionally update steps if they've evolved
-            existing.steps = steps
+            existing.steps = steps  # type: ignore[assignment]
 
             # Store outcome in context
             if outcome:
@@ -245,9 +245,9 @@ class ProceduralMemorySystem:
 
         if trigger_conditions:
             # PostgreSQL JSONB @> operator (contains)
-            query = query.where(
-                text("trigger_conditions @> :conditions")
-            ).params(conditions=json.dumps(trigger_conditions))
+            query = query.where(text("trigger_conditions @> :conditions")).params(
+                conditions=json.dumps(trigger_conditions)
+            )
 
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
@@ -300,9 +300,7 @@ class ProceduralMemorySystem:
 
         # For now, we retrieve all matching procedures and filter in Python
         # In production, could use PostgreSQL jsonpath for more sophisticated matching
-        result = await self.session.execute(
-            query.order_by(ProceduralMemory.success_rate.desc())
-        )
+        result = await self.session.execute(query.order_by(ProceduralMemory.success_rate.desc()))
 
         all_procedures = list(result.scalars().all())
 

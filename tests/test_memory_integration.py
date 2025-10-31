@@ -5,20 +5,19 @@ Tests all four memory types (Episodic, Semantic, Procedural, Working)
 with real database interactions.
 """
 
+
 import pytest
-from datetime import datetime, timedelta
-from uuid import UUID
+from sqlalchemy import event
 
 from empla.core.memory import (
     EpisodicMemorySystem,
-    SemanticMemorySystem,
     ProceduralMemorySystem,
+    SemanticMemorySystem,
     WorkingMemory,
 )
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee
 from empla.models.tenant import Tenant, User
-from sqlalchemy import event
 
 
 @pytest.fixture
@@ -732,9 +731,7 @@ async def test_memory_systems_integration(session, employee, tenant):
 
     # Can find workflow for future large deals
     large_deal_situation = {"deal_size": 50000}
-    applicable_procedures = await procedural.find_procedures_for_situation(
-        large_deal_situation
-    )
+    applicable_procedures = await procedural.find_procedures_for_situation(large_deal_situation)
     assert len(applicable_procedures) > 0
 
     # Working memory has context
