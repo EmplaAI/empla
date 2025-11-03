@@ -31,7 +31,7 @@ Different types of information require different storage, retrieval, and update 
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │              Proactive Execution Loop                │
 └─────────────────────────────────────────────────────┘

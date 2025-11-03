@@ -797,9 +797,7 @@ def upgrade() -> None:
         sa.Column(
             "employee_id", sa.UUID(), nullable=False, comment="Employee this memory belongs to"
         ),
-        sa.Column(
-            "name", sa.String(length=200), nullable=False, comment="Unique procedure name"
-        ),
+        sa.Column("name", sa.String(length=200), nullable=False, comment="Unique procedure name"),
         sa.Column(
             "description",
             sa.String(length=500),

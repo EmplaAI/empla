@@ -172,9 +172,7 @@ class WorkingMemory:
         if item_type:
             query = query.where(WorkingMemoryModel.item_type == item_type)
 
-        result = await self.session.execute(
-            query.order_by(WorkingMemoryModel.importance.desc())
-        )
+        result = await self.session.execute(query.order_by(WorkingMemoryModel.importance.desc()))
 
         items = list(result.scalars().all())
 
@@ -428,9 +426,7 @@ class WorkingMemory:
                     "id": str(item.id),
                     "content": item.content,
                     "importance": item.importance,
-                    "age_seconds": (
-                        datetime.now(UTC) - item.created_at
-                    ).total_seconds(),
+                    "age_seconds": (datetime.now(UTC) - item.created_at).total_seconds(),
                 }
             )
 

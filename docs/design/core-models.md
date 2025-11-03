@@ -55,7 +55,7 @@ This document defines all Pydantic models for empla's core system. These models 
 ## Base Models
 
 ```python
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -708,7 +708,7 @@ class Belief(TenantScopedModel):
 
         Confidence decays linearly unless reinforced by new observations.
         """
-        days_since_update = (datetime.utcnow() - self.last_updated_at).days
+        days_since_update = (datetime.now(timezone.utc) - self.last_updated_at).days
         decayed_confidence = self.confidence - (self.decay_rate * days_since_update)
         return max(0.0, decayed_confidence)
 
@@ -1045,7 +1045,7 @@ class WorkingMemory(TenantScopedModel):
         ...         "progress": {"step": "drafting"}
         ...     },
         ...     priority=8,
-        ...     expires_at=datetime.utcnow() + timedelta(hours=1)
+        ...     expires_at=datetime.now(timezone.utc) + timedelta(hours=1)
         ... )
     """
 
