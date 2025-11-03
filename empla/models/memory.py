@@ -374,7 +374,7 @@ class ProceduralMemory(TenantScopedModel):
     )
 
     # Procedure content
-    steps: Mapped[dict[str, Any]] = mapped_column(
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, comment="Structured procedure steps"
     )
 

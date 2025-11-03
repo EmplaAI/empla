@@ -294,8 +294,17 @@ class ProactiveExecutionLoop:
                 )
 
                 # ============ SLEEP ============
-                # Wait before next cycle
-                await asyncio.sleep(self.cycle_interval)
+                # Wait before next cycle (check is_running flag during sleep for prompt shutdown)
+                if not self.is_running:
+                    break
+
+                # Sleep in small increments to check is_running flag frequently
+                # This allows prompt shutdown without waiting for full cycle_interval
+                sleep_remaining = self.cycle_interval
+                while sleep_remaining > 0 and self.is_running:
+                    sleep_chunk = min(0.1, sleep_remaining)  # Check every 100ms
+                    await asyncio.sleep(sleep_chunk)
+                    sleep_remaining -= sleep_chunk
 
             except Exception as e:
                 # NEVER let loop crash - log error and continue
@@ -312,8 +321,16 @@ class ProactiveExecutionLoop:
                 # TODO: Add metrics for errors
                 # metrics.increment("proactive_loop.errors")
 
-                # Back off on errors to avoid thundering herd
-                await asyncio.sleep(self.error_backoff_interval)
+                # Back off on errors (check is_running flag during sleep for prompt shutdown)
+                if not self.is_running:
+                    break
+
+                # Sleep in small increments to check is_running flag frequently
+                sleep_remaining = self.error_backoff_interval
+                while sleep_remaining > 0 and self.is_running:
+                    sleep_chunk = min(0.1, sleep_remaining)  # Check every 100ms
+                    await asyncio.sleep(sleep_chunk)
+                    sleep_remaining -= sleep_chunk
 
         logger.info(
             f"Proactive loop ended for {self.employee.name}",

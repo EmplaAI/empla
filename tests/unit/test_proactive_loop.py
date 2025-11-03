@@ -543,3 +543,57 @@ def test_loop_uses_default_config():
     # Should use defaults
     assert loop.cycle_interval == 300  # Default 5 minutes
     assert loop.config.strategic_planning_interval_hours == 24  # Default daily
+
+
+@pytest.mark.asyncio
+async def test_loop_stops_promptly_without_sleep_delay(proactive_loop, mock_beliefs):
+    """Test loop exits promptly when stop() is called, without waiting for sleep"""
+    mock_beliefs.update_beliefs.return_value = []
+
+    # Start loop
+    loop_task = asyncio.create_task(proactive_loop.start())
+
+    # Wait for at least one cycle to start
+    await asyncio.sleep(0.1)
+
+    # Call stop() - this should exit promptly without waiting for full cycle_interval
+    start_stop_time = asyncio.get_event_loop().time()
+    await proactive_loop.stop()
+
+    # Wait for loop to actually stop
+    await loop_task
+    stop_duration = asyncio.get_event_loop().time() - start_stop_time
+
+    # Verify loop stopped
+    assert not proactive_loop.is_running
+
+    # Verify it stopped quickly (< 0.5s) and didn't wait for full cycle_interval (1s)
+    # This confirms the is_running check before sleep is working
+    assert stop_duration < 0.5, f"Loop took {stop_duration}s to stop, should be < 0.5s"
+
+
+@pytest.mark.asyncio
+async def test_loop_stops_promptly_after_error(proactive_loop, mock_beliefs):
+    """Test loop exits promptly when stop() is called during error backoff"""
+    # Make beliefs.update_beliefs always raise errors
+    mock_beliefs.update_beliefs = AsyncMock(side_effect=ValueError("Test error"))
+
+    # Start loop
+    loop_task = asyncio.create_task(proactive_loop.start())
+
+    # Wait for error to occur
+    await asyncio.sleep(0.2)
+
+    # Call stop() during error backoff - should exit promptly
+    start_stop_time = asyncio.get_event_loop().time()
+    await proactive_loop.stop()
+
+    # Wait for loop to actually stop
+    await loop_task
+    stop_duration = asyncio.get_event_loop().time() - start_stop_time
+
+    # Verify loop stopped
+    assert not proactive_loop.is_running
+
+    # Verify it stopped quickly and didn't wait for full error_backoff_interval (1s)
+    assert stop_duration < 0.5, f"Loop took {stop_duration}s to stop, should be < 0.5s"

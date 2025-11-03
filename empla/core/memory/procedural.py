@@ -160,7 +160,7 @@ class ProceduralMemorySystem:
             existing.updated_at = datetime.now(UTC)
 
             # Optionally update steps if they've evolved
-            existing.steps = steps  # type: ignore[assignment]
+            existing.steps = steps
 
             # Store outcome in context
             if outcome:

@@ -4,7 +4,7 @@ empla.core.loop.models - Loop-specific Models
 Data models for the proactive execution loop.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -47,7 +47,7 @@ class Observation(BaseModel):
     content: dict[str, Any] = Field(..., description="Structured observation data")
 
     # Context
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     priority: int = Field(default=5, ge=1, le=10, description="Priority (1=lowest, 10=highest)")
 
     # Processing

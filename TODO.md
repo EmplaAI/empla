@@ -141,8 +141,8 @@ None currently - fresh start!
 - [x] README.md created
 - [x] TODO.md created
 - [x] CHANGELOG.md created
-- [ ] ADR infrastructure created
-- [ ] Design doc infrastructure created
+- [x] ADR infrastructure created
+- [x] Design doc infrastructure created
 
 ### Implementation Progress
 **Phase 1 Progress:**
