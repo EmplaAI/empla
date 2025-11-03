@@ -416,6 +416,44 @@ async def test_loop_stops_when_employee_inactive(proactive_loop, mock_employee):
     assert not proactive_loop.is_running
 
 
+@pytest.mark.asyncio
+async def test_loop_can_restart_after_natural_shutdown(proactive_loop, mock_employee, mock_beliefs):
+    """Test loop can be restarted after natural shutdown (employee deactivated)"""
+    mock_beliefs.update_beliefs.return_value = []
+
+    # Start loop
+    loop_task = asyncio.create_task(proactive_loop.start())
+    await asyncio.sleep(0.1)
+    assert proactive_loop.is_running
+
+    # Deactivate employee (natural shutdown)
+    mock_employee.status = "terminated"
+    await asyncio.sleep(1.5)  # Wait for loop to detect and stop
+
+    # Wait for task to complete
+    try:
+        await asyncio.wait_for(loop_task, timeout=1.0)
+    except TimeoutError:
+        pass
+
+    # Verify loop stopped and flag cleared
+    assert not proactive_loop.is_running
+
+    # Reactivate employee
+    mock_employee.status = "active"
+
+    # Restart loop - should work since is_running was cleared
+    loop_task2 = asyncio.create_task(proactive_loop.start())
+    await asyncio.sleep(0.1)
+
+    # Verify loop restarted successfully
+    assert proactive_loop.is_running
+
+    # Clean up
+    await proactive_loop.stop()
+    await loop_task2
+
+
 # ============================================================================
 # Test: Loop Cycle Execution
 # ============================================================================

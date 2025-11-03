@@ -332,12 +332,19 @@ class ProactiveExecutionLoop:
                     await asyncio.sleep(sleep_chunk)
                     sleep_remaining -= sleep_chunk
 
+        # Determine exit reason before clearing flag
+        exit_reason = "stopped" if not self.is_running else "employee_deactivated"
+
+        # Clear running flag on natural exit (employee deactivated, etc.)
+        # This ensures the loop can be restarted after natural shutdown
+        self.is_running = False
+
         logger.info(
             f"Proactive loop ended for {self.employee.name}",
             extra={
                 "employee_id": str(self.employee.id),
                 "total_cycles": self.cycle_count,
-                "reason": "stopped" if not self.is_running else "employee_deactivated",
+                "reason": exit_reason,
             },
         )
 
