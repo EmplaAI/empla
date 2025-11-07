@@ -90,11 +90,11 @@ class TimestampedModel(EmplaBaseModel):
     """Model with automatic timestamps."""
 
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When this record was created (UTC)"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When this record was last updated (UTC)"
     )
 
@@ -687,11 +687,11 @@ class Belief(TenantScopedModel):
 
     # Temporal decay
     formed_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When belief was formed (UTC)"
     )
     last_updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When belief was last updated (UTC)"
     )
     decay_rate: float = Field(
@@ -757,7 +757,7 @@ class BeliefHistory(TenantScopedModel):
 
     # Temporal
     changed_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When change occurred (UTC)"
     )
 ```
@@ -850,7 +850,7 @@ class EpisodicMemory(TenantScopedModel):
 
     # Temporal
     occurred_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When episode occurred (UTC)"
     )
 
@@ -1140,7 +1140,7 @@ class AuditLogEntry(TenantScopedModel):
 
     # Temporal
     occurred_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When action occurred (UTC)"
     )
 
@@ -1195,7 +1195,7 @@ class Metric(TenantScopedModel):
 
     # Temporal
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="When metric was recorded (UTC)"
     )
 ```
