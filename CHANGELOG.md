@@ -13,7 +13,7 @@
 ### Fixed
 
 **Documentation:**
-- **docs/design/core-models.md** - Fixed deprecated `datetime.utcnow()` usage (5 occurrences)
+- **docs/design/core-models.md** - Fixed deprecated `datetime.utcnow()` usage (8 occurrences)
   - Changed: `datetime.utcnow` → `lambda: datetime.now(timezone.utc)`
   - Lines fixed: 93, 97, 690, 694, 760, 853, 1143, 1198
   - Rationale: `datetime.utcnow()` deprecated in Python 3.12+, use timezone-aware UTC
