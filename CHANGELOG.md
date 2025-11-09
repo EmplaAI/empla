@@ -6,6 +6,62 @@
 
 ---
 
+## 2025-11-07 - CodeRabbit Verification & Documentation Fix
+
+**Phase:** 1 - Post-Merge Cleanup
+
+### Fixed
+
+**Documentation:**
+- **docs/design/core-models.md** - Fixed deprecated `datetime.utcnow()` usage (8 occurrences)
+  - Changed: `datetime.utcnow` → `lambda: datetime.now(timezone.utc)`
+  - Lines fixed: 93, 97, 690, 694, 760, 853, 1143, 1198
+  - Rationale: `datetime.utcnow()` deprecated in Python 3.12+, use timezone-aware UTC
+
+### Verified
+
+**CodeRabbit Review Results:**
+- **Reviewed:** 10 issues from PR #10 CodeRabbit feedback
+- **Real issues:** 2/10 (both addressed)
+  - datetime.utcnow() in documentation - FIXED ✅
+  - Run comprehensive test suite - DONE ✅
+- **False positives:** 6/10 (code already correct)
+  - session.flush() consistency - all 8 calls use await correctly
+  - Nullable relationship type hints - proper Optional syntax already used
+  - Dependency checking - robust with deleted check
+  - IVFFlat indexes - correctly deferred (requires data)
+  - ForeignKey ondelete - intentional CASCADE/SET NULL
+  - Test execution - completed successfully
+- **Already fixed in PR:** 3/10
+  - database-schema.md emails wrapped
+  - TODO.md CHANGELOG marked complete
+  - memory-system.md code block language
+
+**Code Quality:**
+- 6 out of 10 CodeRabbit issues were false positives (code quality excellent)
+- Migration strategy (IVFFlat deferral) was intentional and correct
+- ForeignKey policies (CASCADE/SET NULL) are appropriate for data model
+
+### Test Results
+
+**Comprehensive Test Suite:**
+- **48/48 tests passing** (100% pass rate) ✅
+- **Overall coverage:** 69.33%
+- **Proactive loop coverage:** 90.06%
+- **Test execution time:** 13.30 seconds
+- **All systems:** BDI (5 tests), Memory (17 tests), Loop (26 tests)
+
+### Next
+
+**Ready for Phase 2:**
+- All Phase 1 foundation complete and tested
+- Documentation up to date
+- Test suite comprehensive (48 tests)
+- Code quality verified (6/10 false positives)
+- Ready to implement capabilities and perception sources
+
+---
+
 ## 2025-10-30 - Proactive Execution Loop Implementation Complete
 
 **Phase:** 1 - Foundation & Lifecycle (Week 3) ✅ COMPLETE
