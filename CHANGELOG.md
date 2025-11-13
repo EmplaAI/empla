@@ -6,6 +6,158 @@
 
 ---
 
+## 2025-11-12 - Phase 2 Capability Framework Implementation
+
+**Phase:** 2 - Basic Capabilities (Week 1) ✅ Framework Complete
+
+### Added
+
+**Capability Framework Architecture:**
+- **empla/capabilities/base.py** (79 statements, 100% coverage)
+  - BaseCapability: Abstract base class for all capabilities
+  - CapabilityType: Enum for 8 capability types (EMAIL, CALENDAR, MESSAGING, BROWSER, DOCUMENT, CRM, VOICE, COMPUTER_USE)
+  - Observation: Model for environment observations
+  - Action: Model for capability actions
+  - ActionResult: Model for action execution results
+  - CapabilityConfig: Base configuration with rate limiting, retries, timeouts
+
+- **empla/capabilities/registry.py** (95 statements, 88% coverage)
+  - CapabilityRegistry: Central registry for capability lifecycle
+  - register(): Register capability implementations
+  - enable_for_employee(): Enable capabilities per-employee
+  - disable_for_employee(): Disable capabilities
+  - perceive_all(): Gather observations from all enabled capabilities
+  - execute_action(): Route actions to appropriate capabilities
+  - health_check(): Monitor capability health
+
+- **empla/capabilities/__init__.py**
+  - Clean public API exports
+  - Comprehensive module documentation
+
+**Proactive Loop Integration:**
+- **empla/core/loop/execution.py** (updated, 90% coverage)
+  - Added optional capability_registry parameter to __init__
+  - Updated perceive_environment() to use capability registry
+  - Automatic conversion between capability and loop observations
+  - Detection of opportunities, problems, and risks from observations
+  - Backward compatible (works with or without registry)
+
+**Design Documentation:**
+- **docs/design/capabilities-layer.md** (~2,800 lines)
+  - Complete Phase 2 architecture specification
+  - BaseCapability protocol design
+  - CapabilityRegistry architecture
+  - Email capability specification
+  - Calendar capability specification
+  - Perception integration design
+  - Security & multi-tenancy considerations
+  - Testing strategy
+  - Migration path
+  - Open questions and recommendations
+
+### Tested
+
+**Unit Tests (31 tests added):**
+- **tests/unit/test_capabilities_base.py** (12 tests, 100% pass)
+  - Capability type enum validation
+  - CapabilityConfig model
+  - Observation model with priority validation (1-10)
+  - Action and ActionResult models
+  - BaseCapability initialization, perception, action execution
+  - BaseCapability shutdown and health checks
+  - String representation
+
+- **tests/unit/test_capabilities_registry.py** (19 tests, 100% pass)
+  - Registry initialization
+  - Capability registration and validation
+  - Enable/disable capabilities for employees
+  - Handle duplicate enablement
+  - Handle initialization failures
+  - Get capability instances
+  - List enabled capabilities
+  - Perceive from all capabilities
+  - Execute actions via registry
+  - Health checks
+
+**Integration Tests (6 tests added):**
+- **tests/integration/test_capabilities_loop_integration.py** (6 tests, 100% pass)
+  - Loop perceives from capability registry
+  - Loop works without registry (backward compatibility)
+  - Loop detects opportunities from observations
+  - Loop detects problems from observations
+  - Loop detects high-priority observations as risks (priority >= 9)
+  - Loop handles multiple capabilities simultaneously
+
+### Test Results
+
+**Comprehensive Test Suite:**
+- **85/85 tests passing** (100% pass rate) ✅
+- **Overall coverage:** 72.43% (up from 69.33%)
+- **Test execution time:** 12.20 seconds
+
+**Coverage by Module:**
+- BaseCapability: 100% coverage
+- CapabilityRegistry: 88.42% coverage
+- ProactiveExecutionLoop: 89.77% coverage (up from 86.78%)
+- BDI components: 48-53% coverage
+- Memory systems: 38-79% coverage
+
+### Decided
+
+**Architecture Decisions:**
+
+- **Plugin-based capability system**: Each capability is independent, can be developed/tested separately
+  - Rationale: Allows parallel development, easier to add new capabilities
+  - Benefits: Clean separation of concerns, flexible deployment, independent versioning
+
+- **Protocol-based design**: Use Python protocols for capability interfaces
+  - Rationale: Enables clean abstraction without tight coupling
+  - Benefits: Easy mocking for tests, clear contracts, flexible implementations
+
+- **Observation model conversion**: Convert between capability and loop observations
+  - Rationale: Each layer has different requirements (capability needs simplicity, loop needs employee context)
+  - Implementation: Convert in perceive_environment() method
+  - Fields mapped: type→observation_type, data→content, plus employee_id/tenant_id added
+
+- **Backward compatibility**: CapabilityRegistry is optional parameter
+  - Rationale: Don't break existing tests, allow gradual adoption
+  - Implementation: Default to None, check before using
+
+- **Tenant isolation**: All capabilities are tenant-scoped from day 1
+  - Rationale: Security requirement, prevent cross-tenant data leaks
+  - Implementation: tenant_id required in all capability operations
+
+### Performance
+
+**Capability Framework:**
+- Registry operations: O(1) lookup by employee_id and capability_type
+- Perception: Parallel async calls to all capabilities
+- No performance regression in existing tests (12.20s vs 10.54s - added 54 tests)
+
+### Next
+
+**Phase 2.2: Email Capability (Next Focus):**
+- Implement EmailCapability class
+- Microsoft Graph API integration
+- Email triage logic (priority classification based on sender, keywords, content)
+- Email composition helpers
+- Unit tests for email capability
+- Integration tests with proactive loop
+- E2E test: Employee autonomously responds to inbound email
+
+**Phase 2.3: Calendar Capability:**
+- Implement CalendarCapability class
+- Event monitoring and notifications
+- Meeting scheduling logic
+- Optimal time finding algorithm
+
+**Phase 2.4: Additional Capabilities:**
+- Messaging capability (Slack/Teams)
+- Browser capability (Playwright)
+- Document capability (basic generation)
+
+---
+
 ## 2025-11-07 - CodeRabbit Verification & Documentation Fix
 
 **Phase:** 1 - Post-Merge Cleanup
