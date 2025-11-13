@@ -23,12 +23,29 @@ class MockEmailCapability(BaseCapability):
 
     @property
     def capability_type(self) -> CapabilityType:
+        """
+        Identify this capability's type as Email.
+        
+        Returns:
+            CapabilityType.EMAIL — the Email capability type.
+        """
         return CapabilityType.EMAIL
 
     async def initialize(self) -> None:
+        """
+        Mark the capability as initialized.
+        
+        Sets the internal `_initialized` flag to True so the capability is considered ready for use.
+        """
         self._initialized = True
 
     async def perceive(self) -> List[Observation]:
+        """
+        Produce a list containing a single Observation representing a newly received email.
+        
+        Returns:
+            list[Observation]: A list with one Observation whose source is "email", type is "new_email", timestamp is the current UTC time, priority is 7, and data contains {"email_id": "123"}.
+        """
         return [
             Observation(
                 source="email",
@@ -40,6 +57,15 @@ class MockEmailCapability(BaseCapability):
         ]
 
     async def execute_action(self, action: Action) -> ActionResult:
+        """
+        Execute an action supported by this capability.
+        
+        Parameters:
+            action (Action): The action to perform; its `operation` field determines the behavior.
+        
+        Returns:
+            ActionResult: An object indicating success and containing any result output or an error message. For `operation == "send_email"`, `success` is `true` and `output` contains `{"sent": True}`; otherwise `success` is `false` and `error` is `"Unknown operation"`.
+        """
         if action.operation == "send_email":
             return ActionResult(success=True, output={"sent": True})
         return ActionResult(success=False, error="Unknown operation")
@@ -50,12 +76,29 @@ class MockCalendarCapability(BaseCapability):
 
     @property
     def capability_type(self) -> CapabilityType:
+        """
+        Identify the capability type provided by this capability.
+        
+        Returns:
+            CapabilityType: `CapabilityType.CALENDAR` representing a calendar capability.
+        """
         return CapabilityType.CALENDAR
 
     async def initialize(self) -> None:
+        """
+        Mark the capability as initialized.
+        
+        Sets the internal `_initialized` flag to True so the capability is considered ready for use.
+        """
         self._initialized = True
 
     async def perceive(self) -> List[Observation]:
+        """
+        Return observations representing imminent calendar events.
+        
+        Returns:
+            List[Observation]: A list containing a single Observation with source "calendar", type "meeting_soon", the current UTC timestamp, priority 8, and data {"event_id": "456"}.
+        """
         return [
             Observation(
                 source="calendar",
@@ -67,6 +110,17 @@ class MockCalendarCapability(BaseCapability):
         ]
 
     async def execute_action(self, action: Action) -> ActionResult:
+        """
+        Execute the requested action for the calendar capability.
+        
+        Handles the "schedule_meeting" operation by marking the action as successful and returning output indicating the meeting was scheduled; any other operation returns a failure with an "Unknown operation" error.
+        
+        Parameters:
+            action (Action): The action to execute, including its operation name and parameters.
+        
+        Returns:
+            ActionResult: For operation "schedule_meeting", `success` is True and `output` is {"scheduled": True}; otherwise `success` is False and `error` is "Unknown operation".
+        """
         if action.operation == "schedule_meeting":
             return ActionResult(success=True, output={"scheduled": True})
         return ActionResult(success=False, error="Unknown operation")
@@ -77,15 +131,44 @@ class FailingCapability(BaseCapability):
 
     @property
     def capability_type(self) -> CapabilityType:
+        """
+        Identify this capability as a browser capability.
+        
+        Returns:
+            CapabilityType: The capability type `CapabilityType.BROWSER`.
+        """
         return CapabilityType.BROWSER
 
     async def initialize(self) -> None:
+        """
+        Attempt to initialize the capability.
+        
+        This implementation always fails.
+        
+        Raises:
+            Exception: Always raised with the message "Initialization failed".
+        """
         raise Exception("Initialization failed")
 
     async def perceive(self) -> List[Observation]:
+        """
+        Indicates the capability perceives no observations.
+        
+        Returns:
+            List[Observation]: An empty list of Observation objects.
+        """
         return []
 
     async def execute_action(self, action: Action) -> ActionResult:
+        """
+        Return an unsuccessful ActionResult indicating the capability is not initialized.
+        
+        Parameters:
+            action (Action): The action attempted to execute; ignored because the capability is not initialized.
+        
+        Returns:
+            ActionResult: An unsuccessful result with the error message "Not initialized".
+        """
         return ActionResult(success=False, error="Not initialized")
 
 
@@ -299,7 +382,12 @@ def test_registry_get_capability():
 
 @pytest.mark.asyncio
 async def test_registry_get_capability_enabled():
-    """Test getting enabled capability"""
+    """
+    Verify that an enabled capability can be retrieved for an employee.
+    
+    Enables the EMAIL capability for a generated tenant/employee and asserts that
+    retrieving that capability returns a non-None instance with the expected type.
+    """
     registry = CapabilityRegistry()
     registry.register(CapabilityType.EMAIL, MockEmailCapability)
 

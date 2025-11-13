@@ -212,12 +212,12 @@ class BaseCapability(ABC):
         self, tenant_id: UUID, employee_id: UUID, config: CapabilityConfig
     ):
         """
-        Initialize capability.
-
-        Args:
-            tenant_id: Tenant this capability belongs to
-            employee_id: Employee this capability is for
-            config: Capability configuration
+        Initialize the capability instance with tenant, employee, and configuration context.
+        
+        Parameters:
+            tenant_id (UUID): Identifier of the tenant that owns the capability.
+            employee_id (UUID): Identifier of the employee associated with the capability.
+            config (CapabilityConfig): Configuration values controlling capability behavior.
         """
         self.tenant_id = tenant_id
         self.employee_id = employee_id
@@ -228,80 +228,76 @@ class BaseCapability(ABC):
     @abstractmethod
     def capability_type(self) -> CapabilityType:
         """
-        Type of this capability.
-
+        Identify this capability's category.
+        
         Returns:
-            CapabilityType enum value
+            The CapabilityType value that represents this capability's category.
         """
         pass
 
     @abstractmethod
     async def initialize(self) -> None:
         """
-        Initialize capability - set up connections, auth, etc.
-
-        Called once when capability is enabled for an employee.
-        Should set self._initialized = True on success.
-
+        Prepare the capability for use for the assigned employee.
+        
+        Performs startup work such as establishing connections and authentication. Called once when the capability is enabled; implementations should set self._initialized = True on successful completion.
+        
         Raises:
-            Exception: If initialization fails
+            Exception: If initialization fails.
         """
         pass
 
     @abstractmethod
     async def perceive(self) -> List[Observation]:
         """
-        Observe environment - check for new events, changes, triggers.
-
-        Called periodically by proactive loop (frequency depends on config).
-
+        Detects new events, changes, or triggers from the capability's environment and produces corresponding observations.
+        
+        Implementations should perform a single perception pass and return any observations discovered. If an error occurs, implementations must not raise; they should log the error and return an empty list.
+        
         Returns:
-            List of observations (can be empty if nothing new)
-
-        Note:
-            Should not raise exceptions - log errors and return empty list
+            List[Observation]: Observations discovered during this perception pass; an empty list if nothing new or on error.
         """
         pass
 
     @abstractmethod
     async def execute_action(self, action: Action) -> ActionResult:
         """
-        Execute a specific action.
-
-        Called when employee decides to act (via BDI intention execution).
-
-        Args:
-            action: Action to execute with parameters
-
+        Execute the given action on the target capability.
+        
+        Implementations perform the requested operation and return an ActionResult describing success, any capability-specific output, and an error message when execution fails. Implementations should capture internal failures and surface them via the returned ActionResult rather than raising.
+        
+        Parameters:
+            action (Action): The operation to perform, including target capability, operation name, and parameters.
+        
         Returns:
-            Result of action execution
-
-        Note:
-            Should not raise exceptions - catch and return ActionResult with error
+            ActionResult: Outcome of executing the action — `success` is `true` when the operation completed successfully; `output` contains capability-specific result data; `error` contains a human-readable message when `success` is `false`.
         """
         pass
 
     async def shutdown(self) -> None:
         """
-        Clean shutdown - close connections, flush state.
-
-        Called when capability is disabled or employee deactivated.
-        Override if cleanup is needed.
+        Perform an orderly shutdown of the capability, releasing resources and flushing any in-memory state.
+        
+        Called when the capability is disabled or the associated employee is deactivated. Subclasses should override to implement concrete cleanup; the base implementation is a no-op.
         """
         pass
 
     def is_healthy(self) -> bool:
         """
-        Health check - is capability functioning properly?
-
-        Used for monitoring and alerting.
-
+        Indicates whether the capability has completed initialization successfully.
+        
         Returns:
-            True if healthy, False otherwise
+            `true` if initialization completed successfully, `false` otherwise.
         """
         return self._initialized
 
     def __repr__(self) -> str:
+        """
+        Return a concise string representation of the capability instance.
+        
+        Returns:
+            str: A string containing the class name, `capability_type`, `employee_id`, and whether the instance is initialized.
+        """
         return (
             f"{self.__class__.__name__}("
             f"type={self.capability_type}, "

@@ -132,16 +132,19 @@ class ProactiveExecutionLoop:
         config: LoopConfig | None = None,
     ):
         """
-        Initialize proactive execution loop.
-
-        Args:
-            employee: Digital employee this loop runs for
-            beliefs: BeliefSystem component (BDI Beliefs)
-            goals: GoalSystem component (BDI Desires)
-            intentions: IntentionStack component (BDI Intentions)
-            memory: MemorySystem component (episodic, semantic, procedural, working)
-            capability_registry: CapabilityRegistry for perception and action execution (optional)
-            config: Loop configuration (timing, perception sources, etc.)
+        Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
+        
+        Parameters:
+            employee: The digital employee instance this loop will run for; used for identification and status checks.
+            beliefs: Belief system used to update and query the agent's world model.
+            goals: Goal system responsible for providing and updating active goals.
+            intentions: Intention stack managing selection, start, completion, and failure of intentions.
+            memory: Memory system used for recording and retrieving episodic/semantic/procedural data.
+            capability_registry: Optional capability registry used to perceive the environment and enumerate enabled capabilities.
+            config: Optional loop configuration object; when omitted defaults are applied (e.g., cycle and error backoff intervals).
+        
+        Notes:
+            Initializes internal timing/state (cycle interval, error backoff, counters, and last-run timestamps) and logs startup metadata including whether a capability registry is present.
         """
         self.employee = employee
         self.beliefs = beliefs
@@ -358,17 +361,18 @@ class ProactiveExecutionLoop:
 
     async def perceive_environment(self) -> PerceptionResult:
         """
-        Gather observations from all sources.
-
-        This is the "eyes and ears" of the employee - monitoring the environment
-        for changes, events, opportunities, and problems.
-
-        If a CapabilityRegistry is configured, perception will use all enabled
-        capabilities (email, calendar, messaging, etc.). Otherwise, returns
-        empty observations for testing.
-
+        Collects observations from configured capabilities and summarizes detected opportunities, problems, and risks.
+        
+        If a CapabilityRegistry is present, polls all enabled capabilities for this employee and converts their observations into the loop's Observation shape; if not present or if capability polling fails, returns an empty observation list. The returned PerceptionResult includes the observations, counts of opportunities/problems/risks, the perception duration in milliseconds, and the list of capability sources that were checked.
+        
         Returns:
-            PerceptionResult with observations and statistics
+            PerceptionResult: Aggregated perception data containing:
+                - observations: list of Observation objects collected (may be empty)
+                - opportunities_detected: count of observations classified as opportunities
+                - problems_detected: count of observations classified as problems or errors
+                - risks_detected: count of observations classified as risks or with high priority
+                - perception_duration_ms: elapsed time spent perceiving, in milliseconds
+                - sources_checked: list of capability identifiers that were queried
         """
         start_time = time.time()
         observations: list[Observation] = []
