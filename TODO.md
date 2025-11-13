@@ -6,49 +6,88 @@
 
 ---
 
-## 📋 Current Session: 2025-11-07
+## 📋 Current Session: 2025-11-12
 
 ### Today's Goal
-Verify and address remaining CodeRabbit feedback after PR #10 merge
+Begin Phase 2: Capabilities Layer - Implement base abstraction and integrate with proactive loop
 
 ### Completed ✅
-- [x] Verified CodeRabbit review items after PR #10 merge
-- [x] Found 6 out of 10 were false positives (code already correct)
-- [x] Found 3 out of 10 were already fixed in merged PR
-- [x] Fixed remaining real issue: datetime.utcnow() in docs/design/core-models.md (5 occurrences)
-- [x] Ran comprehensive test suite: 48/48 tests passing (100%)
-- [x] Overall test coverage: 69.33%
+- [x] Created comprehensive Phase 2 design document (docs/design/capabilities-layer.md ~700 lines)
+- [x] Implemented BaseCapability abstraction with protocol-based design
+- [x] Implemented CapabilityRegistry for lifecycle management
+- [x] Integrated capabilities with ProactiveExecutionLoop perception
+- [x] Created 31 unit tests for capability framework (100% pass rate)
+- [x] Created 6 integration tests for loop-capability integration (100% pass rate)
+- [x] All 85 tests passing (up from 48)
+- [x] Test coverage: 72.43% (up from 69.33%)
 
-### CodeRabbit Verification Summary
-**Real issues fixed (2/10):**
-1. ✅ Fixed deprecated `datetime.utcnow()` in documentation (5 occurrences)
-2. ✅ Ran comprehensive test suite (48 tests passing)
+### Key Implementations
+**Capability Framework:**
+- BaseCapability: Abstract base with perceive() and execute_action() methods
+- CapabilityRegistry: Manages capability lifecycle (enable/disable/health)
+- Observation/Action/ActionResult: Protocol models for capability I/O
+- Support for 8 capability types: EMAIL, CALENDAR, MESSAGING, BROWSER, DOCUMENT, CRM, VOICE, COMPUTER_USE
 
-**False positives / Already correct (6/10):**
-- session.flush() consistency - all 8 calls already use await correctly
-- employee.py nullable relationship type hint - already uses proper Optional syntax
-- intentions.py dependency checking - robust implementation with deleted check
-- Migration IVFFlat indexes - correctly deferred (requires data for clustering)
-- Migration ForeignKey ondelete - intentional CASCADE/SET NULL usage
-- Run tests - completed successfully
+**Proactive Loop Integration:**
+- Updated ProactiveExecutionLoop to accept optional CapabilityRegistry
+- perceive_environment() now uses registry for multi-capability perception
+- Automatic conversion between capability observations and loop observations
+- Detection of opportunities, problems, and risks from observations
+- Backward compatible (works without registry)
 
-**Already fixed in PR #10 (3/10):**
-- database-schema.md email addresses properly wrapped
-- TODO.md CHANGELOG items marked complete
-- memory-system.md code block has text language specifier
+**Test Coverage:**
+- BaseCapability: 100% coverage (12 tests)
+- CapabilityRegistry: 88% coverage (19 tests)
+- Loop integration: 6 integration tests
+- ProactiveExecutionLoop: 90% coverage
 
 ### Blockers
 - None currently
 
 ### Insights & Notes
-- Code quality is excellent - most CodeRabbit concerns were false positives
-- Test suite is comprehensive (48 tests, 69% coverage)
-- Proactive loop has 90% coverage (16 lines uncovered, mostly placeholders)
-- Ready for Phase 2 implementation
+- Plugin-based capability architecture allows independent development
+- Protocol-based design enables clean separation between BDI and capabilities
+- Observation model conversion works smoothly between layers
+- Ready to implement specific capabilities (Email, Calendar, etc.)
 
 ---
 
-## 🎯 Current Phase: Phase 0 - Foundation Setup ✅ 100% COMPLETE
+## 🎯 Current Phase: Phase 2 - Basic Capabilities (IN PROGRESS)
+
+**Goal:** Implement capability framework and basic capabilities (email, calendar, messaging, browser)
+
+### Phase 2.1 - Capability Framework ✅ COMPLETE
+- [x] Design capability abstraction (BaseCapability, CapabilityRegistry)
+- [x] Implement BaseCapability protocol
+- [x] Implement CapabilityRegistry lifecycle management
+- [x] Integrate with ProactiveExecutionLoop
+- [x] Write comprehensive unit tests (31 tests)
+- [x] Write integration tests (6 tests)
+
+### Phase 2.2 - Email Capability (NEXT)
+- [ ] Implement EmailCapability class
+- [ ] Microsoft Graph API integration
+- [ ] Gmail API integration (optional)
+- [ ] Email triage logic (priority classification)
+- [ ] Email composition helpers
+- [ ] Unit tests for email capability
+- [ ] Integration tests with proactive loop
+
+### Phase 2.3 - Calendar Capability
+- [ ] Implement CalendarCapability class
+- [ ] Event monitoring and notifications
+- [ ] Meeting scheduling logic
+- [ ] Optimal time finding algorithm
+- [ ] Unit and integration tests
+
+### Phase 2.4 - Additional Capabilities
+- [ ] Messaging capability (Slack/Teams)
+- [ ] Browser capability (Playwright)
+- [ ] Document capability (basic generation)
+
+## 🎯 Previous Phases
+
+### Phase 0 - Foundation Setup ✅ 100% COMPLETE
 
 **Goal:** Establish documentation infrastructure before Phase 1 implementation
 
