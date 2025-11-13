@@ -282,7 +282,7 @@ class CapabilityRegistry:
 
         observations = []
 
-        for capability_type, capability in self._instances[employee_id].items():
+        for capability_type, capability in list(self._instances[employee_id].items()):
             try:
                 obs = await capability.perceive()
                 observations.extend(obs)
@@ -307,7 +307,6 @@ class CapabilityRegistry:
                     },
                 )
                 # Continue with other capabilities
-
         return observations
 
     async def execute_action(

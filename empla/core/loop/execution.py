@@ -398,7 +398,7 @@ class ProactiveExecutionLoop:
 
                 # Track which capabilities were checked
                 sources_checked = [
-                    str(cap_type)
+                    cap_type.value
                     for cap_type in self.capability_registry.get_enabled_capabilities(
                         self.employee.id
                     )
