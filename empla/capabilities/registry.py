@@ -72,14 +72,14 @@ class CapabilityRegistry:
         self, capability_type: CapabilityType, capability_class: Type[BaseCapability]
     ) -> None:
         """
-        Register a capability implementation.
-
-        Args:
-            capability_type: Type of capability
-            capability_class: Implementation class (must extend BaseCapability)
-
+        Register a capability implementation for a capability type.
+        
+        Parameters:
+            capability_type (CapabilityType): Identifier of the capability being registered.
+            capability_class (Type[BaseCapability]): Implementation class to associate with the capability; must be a subclass of `BaseCapability`.
+        
         Raises:
-            ValueError: If capability_class doesn't extend BaseCapability
+            ValueError: If `capability_class` does not subclass `BaseCapability`.
         """
         if not issubclass(capability_class, BaseCapability):
             raise ValueError(
@@ -101,22 +101,20 @@ class CapabilityRegistry:
         config: CapabilityConfig,
     ) -> BaseCapability:
         """
-        Enable a capability for an employee.
-
-        Creates capability instance, initializes it, and stores for later use.
-
-        Args:
-            employee_id: Employee to enable capability for
-            tenant_id: Tenant the employee belongs to
-            capability_type: Type of capability to enable
-            config: Capability configuration
-
+        Enable the given capability for an employee by instantiating, initializing, and registering it.
+        
+        Parameters:
+            employee_id (UUID): Employee identifier for whom the capability is enabled.
+            tenant_id (UUID): Tenant identifier the employee belongs to.
+            capability_type (CapabilityType): Capability type to enable.
+            config (CapabilityConfig): Configuration passed to the capability on creation.
+        
         Returns:
-            Initialized capability instance
-
+            BaseCapability: The initialized capability instance.
+        
         Raises:
-            ValueError: If capability type not registered
-            Exception: If initialization fails
+            ValueError: If the capability type is not registered.
+            Exception: If the capability instance fails to initialize.
         """
         if capability_type not in self._capabilities:
             raise ValueError(f"Capability not registered: {capability_type}")
@@ -166,13 +164,13 @@ class CapabilityRegistry:
         self, employee_id: UUID, capability_type: CapabilityType
     ) -> None:
         """
-        Disable a capability for an employee.
-
-        Shuts down capability and removes from registry.
-
-        Args:
-            employee_id: Employee to disable capability for
-            capability_type: Type of capability to disable
+        Disable and remove a specific capability for an employee.
+        
+        If the capability is not enabled for the given employee, the call is a no-op. If enabled, the method attempts to call the capability's shutdown routine; any exception raised during shutdown is logged and suppressed, and the capability is removed from the registry.
+        
+        Parameters:
+            employee_id (UUID): Identifier of the employee whose capability should be disabled.
+            capability_type (CapabilityType): The type of capability to disable.
         """
         if employee_id not in self._instances:
             logger.warning(
@@ -209,12 +207,12 @@ class CapabilityRegistry:
 
     async def disable_all_for_employee(self, employee_id: UUID) -> None:
         """
-        Disable all capabilities for an employee.
-
-        Used when employee is deactivated or offboarded.
-
-        Args:
-            employee_id: Employee to disable all capabilities for
+        Disable all capabilities currently enabled for the given employee and remove the employee entry from the registry.
+        
+        If the employee has no enabled capabilities this function returns without error. Each enabled capability is shut down via disable_for_employee; errors during individual shutdowns are handled by that method and do not prevent other capabilities from being disabled.
+        
+        Parameters:
+            employee_id (UUID): Identifier of the employee whose capabilities should be disabled.
         """
         if employee_id not in self._instances:
             return
@@ -236,14 +234,9 @@ class CapabilityRegistry:
         self, employee_id: UUID, capability_type: CapabilityType
     ) -> Optional[BaseCapability]:
         """
-        Get capability instance for employee.
-
-        Args:
-            employee_id: Employee ID
-            capability_type: Type of capability
-
-        Returns:
-            Capability instance if enabled, None otherwise
+        Retrieve the enabled capability instance for an employee.
+        
+        @returns: `BaseCapability` instance for the given capability type if enabled for the employee, `None` otherwise.
         """
         if employee_id not in self._instances:
             return None
@@ -252,13 +245,13 @@ class CapabilityRegistry:
 
     def get_enabled_capabilities(self, employee_id: UUID) -> List[CapabilityType]:
         """
-        Get list of enabled capabilities for employee.
-
-        Args:
-            employee_id: Employee ID
-
+        List the capability types currently enabled for the given employee.
+        
+        Parameters:
+            employee_id (UUID): Employee identifier to query.
+        
         Returns:
-            List of enabled capability types (empty if none)
+            enabled_capabilities (List[CapabilityType]): Enabled capability types for the employee; empty list if none are enabled.
         """
         if employee_id not in self._instances:
             return []
@@ -267,15 +260,12 @@ class CapabilityRegistry:
 
     async def perceive_all(self, employee_id: UUID) -> List[Observation]:
         """
-        Run perception across all enabled capabilities for employee.
-
-        Called by proactive loop during perception phase.
-
-        Args:
-            employee_id: Employee ID
-
+        Aggregate observations from all capabilities enabled for the given employee.
+        
+        If the employee has no enabled capabilities this returns an empty list. Exceptions raised by individual capabilities are logged and skipped so that perception continues for remaining capabilities.
+        
         Returns:
-            List of observations from all capabilities (can be empty)
+            List[Observation]: Observations collected from enabled capabilities; empty list if none.
         """
         if employee_id not in self._instances:
             return []
@@ -313,16 +303,12 @@ class CapabilityRegistry:
         self, employee_id: UUID, action: Action
     ) -> ActionResult:
         """
-        Execute action using appropriate capability.
-
-        Routes action to the capability that can execute it.
-
-        Args:
-            employee_id: Employee ID
-            action: Action to execute
-
+        Route and execute an Action using the employee's enabled capability.
+        
+        If the employee does not have the required capability enabled, returns a failure ActionResult with an explanatory error. If executing the capability raises an exception, returns a failure ActionResult containing the exception message; otherwise returns the capability's ActionResult.
+        
         Returns:
-            Result of action execution
+            ActionResult: `success` is `True` when the action completed successfully; `False` otherwise, with `error` populated on failure.
         """
         # Parse capability from action
         capability_type = CapabilityType(action.capability)
@@ -373,13 +359,13 @@ class CapabilityRegistry:
 
     def health_check(self, employee_id: UUID) -> Dict[CapabilityType, bool]:
         """
-        Run health check on all capabilities for employee.
-
-        Args:
-            employee_id: Employee ID
-
+        Run a health check for every capability enabled for the given employee.
+        
+        Parameters:
+            employee_id (UUID): Identifier of the employee whose enabled capabilities will be checked.
+        
         Returns:
-            Dict mapping capability type to health status
+            health_status (Dict[CapabilityType, bool]): Mapping from capability type to `true` if that capability reports healthy, `false` otherwise. If the employee has no enabled capabilities, returns an empty dict.
         """
         if employee_id not in self._instances:
             return {}
@@ -391,6 +377,12 @@ class CapabilityRegistry:
         return health_status
 
     def __repr__(self) -> str:
+        """
+        Return a concise string representation of the registry showing counts of registered capability types and employees with enabled capabilities.
+        
+        Returns:
+            str: A string in the form "CapabilityRegistry(registered={registered}, employees_with_capabilities={employees})".
+        """
         registered = len(self._capabilities)
         employees = len(self._instances)
         return (

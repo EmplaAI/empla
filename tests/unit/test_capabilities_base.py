@@ -21,6 +21,14 @@ class MockCapability(BaseCapability):
     """Mock capability for testing"""
 
     def __init__(self, tenant_id, employee_id, config):
+        """
+        Initialize a MockCapability instance and set internal state tracking flags.
+        
+        Parameters:
+            tenant_id (str): Identifier of the tenant owning the capability.
+            employee_id (str): Identifier of the employee associated with the capability.
+            config (CapabilityConfig): Configuration for this capability instance.
+        """
         super().__init__(tenant_id, employee_id, config)
         self.init_called = False
         self.perceive_called = False
@@ -29,13 +37,32 @@ class MockCapability(BaseCapability):
 
     @property
     def capability_type(self) -> CapabilityType:
+        """
+        The capability type for this capability implementation.
+        
+        Returns:
+            CapabilityType: The enum member `CapabilityType.EMAIL`.
+        """
         return CapabilityType.EMAIL
 
     async def initialize(self) -> None:
+        """
+        Mark the capability as initialized.
+        
+        Sets internal flags to record that initialization was performed and that the capability is initialized.
+        """
         self.init_called = True
         self._initialized = True
 
     async def perceive(self) -> List[Observation]:
+        """
+        Produce mock observations for testing.
+        
+        Also sets the instance flag `perceive_called` to True.
+        
+        Returns:
+            list[Observation]: A list containing a single Observation with source "mock", type "test_observation", the current UTC timestamp, priority 5, and data {"test": "data"}.
+        """
         self.perceive_called = True
         return [
             Observation(
@@ -48,12 +75,26 @@ class MockCapability(BaseCapability):
         ]
 
     async def execute_action(self, action: Action) -> ActionResult:
+        """
+        Execute the provided action and return a simulated execution result for testing.
+        
+        Parameters:
+        	action (Action): The action to execute; its `operation` field controls simulated outcome.
+        
+        Returns:
+        	ActionResult: `success` is `False` with `error` set to "Simulated failure" when `action.operation == "fail"`, otherwise `success` is `True` and `output` contains {"result": "success"}.
+        """
         self.action_executed = action
         if action.operation == "fail":
             return ActionResult(success=False, error="Simulated failure")
         return ActionResult(success=True, output={"result": "success"})
 
     async def shutdown(self) -> None:
+        """
+        Mark the capability as shut down for test verification.
+        
+        Sets an internal flag indicating shutdown was invoked so tests can verify shutdown behavior.
+        """
         self.shutdown_called = True
 
 
