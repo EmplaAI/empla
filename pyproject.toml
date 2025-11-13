@@ -45,6 +45,8 @@ dependencies = [
     "pgvector>=0.3.0", # Vector support for PostgreSQL
     # AI/LLM
     "anthropic>=0.39.0", # Claude API
+    "openai>=1.54.0", # OpenAI GPT API
+    "google-cloud-aiplatform>=1.71.0", # Google Vertex AI / Gemini
     # HTTP Client
     "httpx>=0.27.0", # Async HTTP client
     # Utilities
@@ -165,6 +167,9 @@ strict_equality = true
 [[tool.mypy.overrides]]
 module = [
     "anthropic.*",
+    "openai.*",
+    "google.*",
+    "vertexai.*",
     "pgvector.*",
 ]
 ignore_missing_imports = true

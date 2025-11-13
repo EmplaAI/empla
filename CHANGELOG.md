@@ -6,6 +6,159 @@
 
 ---
 
+## 2025-11-12 - Multi-Provider LLM Abstraction Complete
+
+**Phase:** 2 - Transition to LLM Integration
+
+### Added
+
+**Multi-Provider LLM Service:**
+
+- **empla/llm/** - Complete LLM abstraction package (830+ lines)
+  - `__init__.py` (300 lines) - Main `LLMService` with automatic fallback and cost tracking
+  - `models.py` (90 lines) - Shared data models (LLMRequest, LLMResponse, TokenUsage, Message)
+  - `provider.py` (70 lines) - Abstract base class + factory pattern
+  - `config.py` (80 lines) - Configuration + pre-configured models with pricing
+  - `anthropic.py` (150 lines) - Anthropic Claude provider implementation
+  - `openai.py` (140 lines) - OpenAI GPT provider implementation
+  - `vertex.py` (200 lines) - Google Vertex AI / Gemini provider implementation
+
+**Features:**
+- **Multi-provider support:** Anthropic Claude, OpenAI GPT, Google Vertex AI / Gemini
+- **Automatic fallback:** Primary provider → Fallback provider on failure
+- **Cost tracking:** Automatic token usage and cost calculation across all requests
+- **Structured outputs:** Generate Pydantic models from LLM responses
+- **Streaming support:** Real-time content generation
+- **Embeddings:** Vector embeddings via OpenAI (Anthropic doesn't provide embeddings)
+- **Provider-agnostic API:** Unified interface regardless of underlying provider
+
+**Tests:**
+
+- **tests/unit/llm/** - Comprehensive unit tests (210+ lines)
+  - `test_llm_service.py` (180 lines) - 9 tests for LLMService functionality
+  - `test_models.py` (30 lines) - 7 tests for data models
+  - **16/16 tests passing** (100% pass rate) ✅
+  - **Test coverage:** 80.21% for LLMService, 100% for models and config
+
+### Decided
+
+**ADR-008: Multi-Provider LLM Abstraction** - Comprehensive architecture decision
+
+**Decision:** Implement multi-provider LLM abstraction supporting Anthropic, OpenAI, and Vertex AI
+
+**Rationale:**
+1. **Resilience:** Automatic fallback when primary provider has issues (critical for production)
+2. **Cost Optimization:** Switch between providers based on cost/performance trade-offs
+3. **A/B Testing:** Compare model performance on same tasks for data-driven selection
+4. **Future-Proofing:** Not locked into single vendor, easy to add new providers
+
+**Primary Model:** Claude Sonnet 4
+- Reason: Best reasoning for autonomous agents
+- Use: Complex decision-making, strategic planning, belief extraction
+
+**Fallback Model:** GPT-4o
+- Reason: Different provider for redundancy
+- Use: When Anthropic API unavailable
+
+**Embeddings:** OpenAI text-embedding-3-large
+- Reason: Anthropic doesn't provide embeddings API
+- Use: Semantic memory, episodic recall
+
+**Alternatives Considered:**
+- LangChain / LlamaIndex: Heavy dependencies, designed for chat apps (rejected)
+- LiteLLM: Less control, empla only needs 3 providers (rejected)
+- Single provider: No resilience, vendor lock-in (rejected)
+- Provider agnostic (no SDKs): Too much manual work (rejected)
+
+**Provider-Specific Handling:**
+- **Anthropic:** System messages separate, JSON mode for structured outputs
+- **OpenAI:** Native structured outputs (beta.chat.completions.parse), best embeddings
+- **Vertex AI:** Requires GCP project, different message format (Content + Parts)
+
+### Dependencies
+
+**Added to pyproject.toml:**
+- `anthropic>=0.39.0` - Anthropic Claude API
+- `openai>=1.54.0` - OpenAI GPT API
+- `google-cloud-aiplatform>=1.71.0` - Google Vertex AI / Gemini
+
+### Test Results
+
+**All Tests Passing:**
+- **Total:** 64/64 tests passing (100% pass rate) ✅
+- **LLM Tests:** 16/16 passing (new)
+- **Existing Tests:** 48/48 passing (unchanged)
+- **Overall Coverage:** 64.09% (was 69.33%, total lines increased with LLM package)
+- **LLM Package Coverage:**
+  - `empla/llm/__init__.py`: 80.21% (LLMService)
+  - `empla/llm/config.py`: 100%
+  - `empla/llm/models.py`: 100%
+  - `empla/llm/provider.py`: 47.37% (factory only, providers need API keys to test)
+  - Individual providers: 0% (require actual API keys for integration testing)
+
+### Performance
+
+**Cost Tracking:**
+- Automatic tracking of input/output tokens per request
+- Cost calculation based on model pricing
+- Summary statistics: total cost, request count, average cost per request
+
+**Example Pricing (per 1M tokens):**
+- Claude Sonnet 4: $3 input, $15 output
+- GPT-4o: $2.50 input, $10 output
+- Gemini 2.0 Flash: $0.10 input, $0.30 output (most cost-effective)
+
+### Usage Example
+
+```python
+from empla.llm import LLMService
+from empla.llm.config import LLMConfig
+
+# Configure service
+config = LLMConfig(
+    primary_model="claude-sonnet-4",
+    fallback_model="gpt-4o",
+    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+    openai_api_key=os.getenv("OPENAI_API_KEY"),
+)
+llm = LLMService(config)
+
+# Generate text
+response = await llm.generate("Analyze this situation...")
+print(response.content)
+
+# Generate structured output
+from pydantic import BaseModel
+class Belief(BaseModel):
+    subject: str
+    confidence: float
+
+response, belief = await llm.generate_structured(
+    "Customer is very interested",
+    response_format=Belief,
+)
+
+# Cost summary
+summary = llm.get_cost_summary()
+print(f"Total spent: ${summary['total_cost']:.2f}")
+```
+
+### Next
+
+**Phase 2 Integration:**
+1. **Belief extraction** (`empla/core/bdi/beliefs.py`) - Extract structured beliefs from observations
+2. **Plan generation** (`empla/core/bdi/intentions.py`) - Generate action plans with LLM
+3. **Strategic planning** (`empla/core/planning/strategic.py`) - Deep reasoning and strategy generation
+4. **Content generation** (`empla/capabilities/`) - Email composition, document creation
+5. **Learning** (`empla/core/learning/`) - Pattern analysis and insight extraction
+
+**Integration testing:**
+- Test actual API calls to all three providers (requires API keys)
+- Performance benchmarks (latency, quality comparison)
+- Cost analysis across different models and tasks
+
+---
+
 ## 2025-11-07 - CodeRabbit Verification & Documentation Fix
 
 **Phase:** 1 - Post-Merge Cleanup
