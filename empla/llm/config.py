@@ -4,12 +4,10 @@ LLM provider configuration.
 This module provides configuration for LLM providers and pre-configured model definitions.
 """
 
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
 from empla.llm.models import LLMModel, LLMProvider
-
 
 # Pre-configured models with pricing
 MODELS = {
@@ -50,7 +48,7 @@ MODELS = {
     # Google Vertex AI / Gemini
     "gemini-1.5-pro": LLMModel(
         provider=LLMProvider.VERTEX,
-        model_id="gemini-1.5-pro-002",
+        model_id="gemini-1.5-pro",
         max_tokens=8192,
         temperature=0.7,
         input_cost_per_1m=1.25,
@@ -58,11 +56,11 @@ MODELS = {
     ),
     "gemini-2.0-flash": LLMModel(
         provider=LLMProvider.VERTEX,
-        model_id="gemini-2.0-flash-exp",
+        model_id="gemini-2.0-flash",
         max_tokens=8192,
         temperature=0.7,
-        input_cost_per_1m=0.10,
-        output_cost_per_1m=0.30,
+        input_cost_per_1m=0.15,
+        output_cost_per_1m=0.60,
     ),
 }
 
@@ -74,15 +72,15 @@ class LLMConfig(BaseModel):
     primary_model: str = "claude-sonnet-4"
 
     # Fallback model (different provider for redundancy)
-    fallback_model: Optional[str] = "gpt-4o"
+    fallback_model: str | None = "gpt-4o"
 
     # Embedding model (use OpenAI for now)
     embedding_model: str = "text-embedding-3-large"
 
     # API keys (exclude from serialization for security)
-    anthropic_api_key: Optional[str] = Field(default=None, exclude=True)
-    openai_api_key: Optional[str] = Field(default=None, exclude=True)
-    vertex_project_id: Optional[str] = None
+    anthropic_api_key: str | None = Field(default=None, exclude=True)
+    openai_api_key: str | None = Field(default=None, exclude=True)
+    vertex_project_id: str | None = None
     vertex_location: str = "us-central1"
 
     # Performance settings

@@ -33,7 +33,8 @@ Example:
 """
 
 import logging
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -71,9 +72,7 @@ class LLMService:
 
         # Initialize primary provider
         primary_model = MODELS[config.primary_model]
-        self.primary = self._create_provider(
-            primary_model.provider.value, primary_model.model_id
-        )
+        self.primary = self._create_provider(primary_model.provider.value, primary_model.model_id)
 
         # Initialize fallback provider (if configured)
         self.fallback = None
@@ -104,13 +103,13 @@ class LLMService:
                 api_key=self.config.anthropic_api_key,
                 model_id=model_id,
             )
-        elif provider == "openai":
+        if provider == "openai":
             return LLMProviderFactory.create(
                 provider="openai",
                 api_key=self.config.openai_api_key,
                 model_id=model_id,
             )
-        elif provider == "vertex":
+        if provider == "vertex":
             return LLMProviderFactory.create(
                 provider="vertex",
                 api_key="",  # Vertex uses application default credentials
@@ -118,11 +117,15 @@ class LLMService:
                 project_id=self.config.vertex_project_id,
                 location=self.config.vertex_location,
             )
+        raise ValueError(
+            f"Unsupported LLM provider: {provider}. "
+            f"Supported providers: anthropic, openai, vertex"
+        )
 
     async def generate(
         self,
         prompt: str,
-        system: Optional[str] = None,
+        system: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
     ) -> LLMResponse:
@@ -152,9 +155,7 @@ class LLMService:
             messages.append(Message(role="system", content=system))
         messages.append(Message(role="user", content=prompt))
 
-        request = LLMRequest(
-            messages=messages, max_tokens=max_tokens, temperature=temperature
-        )
+        request = LLMRequest(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
         # Try primary provider
         try:
@@ -171,14 +172,13 @@ class LLMService:
                 response = await self.fallback.generate(request)
                 self._track_cost(response, is_primary=False)
                 return response
-            else:
-                raise
+            raise
 
     async def generate_structured(
         self,
         prompt: str,
         response_format: type[BaseModel],
-        system: Optional[str] = None,
+        system: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
     ) -> tuple[LLMResponse, BaseModel]:
@@ -212,15 +212,11 @@ class LLMService:
             messages.append(Message(role="system", content=system))
         messages.append(Message(role="user", content=prompt))
 
-        request = LLMRequest(
-            messages=messages, max_tokens=max_tokens, temperature=temperature
-        )
+        request = LLMRequest(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
         # Try primary provider
         try:
-            response, parsed = await self.primary.generate_structured(
-                request, response_format
-            )
+            response, parsed = await self.primary.generate_structured(request, response_format)
             self._track_cost(response, is_primary=True)
             return response, parsed
 
@@ -229,18 +225,15 @@ class LLMService:
 
             if self.fallback:
                 logger.info("Falling back to secondary provider")
-                response, parsed = await self.fallback.generate_structured(
-                    request, response_format
-                )
+                response, parsed = await self.fallback.generate_structured(request, response_format)
                 self._track_cost(response, is_primary=False)
                 return response, parsed
-            else:
-                raise
+            raise
 
     async def stream(
         self,
         prompt: str,
-        system: Optional[str] = None,
+        system: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
     ) -> AsyncIterator[str]:
@@ -265,9 +258,7 @@ class LLMService:
             messages.append(Message(role="system", content=system))
         messages.append(Message(role="user", content=prompt))
 
-        request = LLMRequest(
-            messages=messages, max_tokens=max_tokens, temperature=temperature
-        )
+        request = LLMRequest(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
         async for chunk in self.primary.stream(request):
             yield chunk
@@ -328,9 +319,7 @@ class LLMService:
             return
 
         # Find model config to calculate cost
-        model_key = (
-            self.config.primary_model if is_primary else self.config.fallback_model
-        )
+        model_key = self.config.primary_model if is_primary else self.config.fallback_model
         model_config = MODELS.get(model_key)
 
         if model_config:
@@ -364,4 +353,4 @@ class LLMService:
 
 
 # Export main classes
-__all__ = ["LLMService", "LLMConfig", "MODELS"]
+__all__ = ["MODELS", "LLMConfig", "LLMService"]

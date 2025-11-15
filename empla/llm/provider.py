@@ -5,7 +5,7 @@ This module defines the base interface that all LLM providers must implement.
 """
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 from pydantic import BaseModel
 
@@ -31,7 +31,6 @@ class LLMProviderBase(ABC):
         Returns:
             LLM response with content and metadata
         """
-        pass
 
     @abstractmethod
     async def generate_structured(
@@ -50,7 +49,6 @@ class LLMProviderBase(ABC):
         Returns:
             Tuple of (LLM response, parsed structured output)
         """
-        pass
 
     @abstractmethod
     async def stream(self, request: LLMRequest) -> AsyncIterator[str]:
@@ -63,7 +61,6 @@ class LLMProviderBase(ABC):
         Yields:
             Content chunks as they arrive
         """
-        pass
 
     @abstractmethod
     async def embed(self, texts: list[str]) -> list[list[float]]:
@@ -76,7 +73,6 @@ class LLMProviderBase(ABC):
         Returns:
             List of embedding vectors
         """
-        pass
 
 
 class LLMProviderFactory:
@@ -111,8 +107,7 @@ class LLMProviderFactory:
 
         if provider not in providers:
             raise ValueError(
-                f"Unknown provider: {provider}. "
-                f"Supported providers: {', '.join(providers.keys())}"
+                f"Unknown provider: {provider}. Supported providers: {', '.join(providers.keys())}"
             )
 
         return providers[provider](api_key=api_key, model_id=model_id, **kwargs)

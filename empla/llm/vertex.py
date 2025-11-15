@@ -5,7 +5,7 @@ This module implements the LLM provider interface for Google's Gemini models via
 """
 
 import json
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from pydantic import BaseModel
 
@@ -118,9 +118,7 @@ class VertexAIProvider(LLMProviderBase):
                 break
 
         if not system_found:
-            modified_request.messages.insert(
-                0, Message(role="system", content=schema_prompt)
-            )
+            modified_request.messages.insert(0, Message(role="system", content=schema_prompt))
 
         # Generate
         response = await self.generate(modified_request)
@@ -167,6 +165,7 @@ class VertexAIProvider(LLMProviderBase):
         generation_config = {
             "max_output_tokens": request.max_tokens,
             "temperature": request.temperature,
+            "stop_sequences": request.stop_sequences,
         }
 
         response_stream = await self.model.generate_content_async(

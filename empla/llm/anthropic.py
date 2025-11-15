@@ -5,7 +5,7 @@ This module implements the LLM provider interface for Anthropic's Claude models.
 """
 
 import json
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
@@ -104,7 +104,7 @@ class AnthropicProvider(LLMProviderBase):
         # Parse JSON
         try:
             parsed = response_format.model_validate_json(response.content)
-        except Exception as e:
+        except Exception:
             # Try to extract JSON from response if wrapped in markdown
             content = response.content.strip()
             if content.startswith("```json"):
@@ -142,6 +142,7 @@ class AnthropicProvider(LLMProviderBase):
             temperature=request.temperature,
             system=system_message,
             messages=messages,
+            stop_sequences=request.stop_sequences,
         ) as stream:
             async for text in stream.text_stream:
                 yield text

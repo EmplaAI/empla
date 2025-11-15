@@ -4,7 +4,7 @@ OpenAI provider implementation.
 This module implements the LLM provider interface for OpenAI's GPT models.
 """
 
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -115,6 +115,7 @@ class OpenAIProvider(LLMProviderBase):
             messages=messages,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
+            stop=request.stop_sequences,
             stream=True,
         )
 
@@ -132,8 +133,12 @@ class OpenAIProvider(LLMProviderBase):
         Returns:
             List of embedding vectors
         """
+        model_name = self.kwargs.get("embedding_model") or self.model_id
+        if not model_name or not model_name.startswith("text-embedding-"):
+            model_name = "text-embedding-3-large"
+
         response = await self.client.embeddings.create(
-            model="text-embedding-3-large",  # Or "text-embedding-3-small"
+            model=model_name,
             input=texts,
         )
 

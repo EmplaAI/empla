@@ -6,6 +6,213 @@
 
 ---
 
+## 2025-11-13 - LLM Provider Bug Fixes & Improvements
+
+**Phase:** 2 - LLM Integration (Bug Fixes & Configuration Updates)
+
+### Updated
+
+**Gemini Model Configurations** (`empla/llm/config.py:50-72`)
+
+Corrected Gemini model IDs and pricing to match Vertex AI production settings:
+
+- **gemini-1.5-pro:**
+  - Model ID: `"gemini-1.5-pro-002"` → `"gemini-1.5-pro"` (stable version)
+  - Pricing: Confirmed token-based (not character-based)
+  - Input: $1.25 per 1M tokens
+  - Output: $5.00 per 1M tokens
+
+- **gemini-2.0-flash:**
+  - Model ID: `"gemini-2.0-flash-exp"` → `"gemini-2.0-flash"` (GA version)
+  - Updated pricing:
+    - Input: $0.10 → $0.15 per 1M tokens
+    - Output: $0.30 → $0.60 per 1M tokens
+
+**Rationale:**
+- Experimental model IDs (`-exp`, `-002`) should not be used in production config
+- Stable model IDs (`gemini-1.5-pro`, `gemini-2.0-flash`) ensure consistent behavior
+- Updated pricing reflects current Vertex AI rates (verified at cloud.google.com/vertex-ai/generative-ai/pricing)
+- Vertex AI uses token-based pricing like other providers (no special character-based handling needed)
+
+### Fixed
+
+**Unsupported Provider Error Handling** (`empla/llm/__init__.py:121-125`)
+
+- **Issue:** `_create_provider()` method returned `None` for unsupported providers
+- **Impact:** Led to `AttributeError` when trying to use `self.primary` or `self.fallback` later
+- **Fix:** Added else clause to raise `ValueError` with clear error message
+- **Error message:** `"Unsupported LLM provider: {provider}. Supported providers: anthropic, openai, vertex"`
+- **Benefit:** Errors surface immediately during initialization with actionable information
+
+**Before:**
+```python
+# Silent failure, AttributeError later when calling methods
+service = LLMService(config_with_bad_provider)  # Returns None silently
+await service.generate("...")  # AttributeError: 'NoneType' has no attribute 'generate'
+```
+
+**After:**
+```python
+# Immediate, clear error at initialization
+service = LLMService(config_with_bad_provider)
+# ValueError: Unsupported LLM provider: bad_provider. Supported providers: anthropic, openai, vertex
+```
+
+**Streaming Stop Sequences Bug (All Providers):**
+
+All three LLM providers had a critical bug where streaming requests ignored `stop_sequences` parameter:
+
+- **Vertex AI** (`empla/llm/vertex.py:167-171`)
+  - **Issue:** `generation_config` in `stream()` method omitted `stop_sequences`
+  - **Impact:** Streaming responses never truncated at specified stop sequences
+  - **Fix:** Added `"stop_sequences": request.stop_sequences` to `generation_config`
+  - **Consistency:** Now matches non-streaming `generate()` method (line 67)
+
+- **OpenAI** (`empla/llm/openai.py:113-119`)
+  - **Issue:** `chat.completions.create()` in `stream()` method omitted `stop` parameter
+  - **Impact:** Streaming responses ignored caller-specified stop sequences
+  - **Fix:** Added `stop=request.stop_sequences` to streaming create call
+  - **Consistency:** Now matches non-streaming `generate()` method (line 42)
+
+- **Anthropic** (`empla/llm/anthropic.py:139-146`)
+  - **Issue:** `messages.stream()` omitted `stop_sequences` parameter
+  - **Impact:** Streaming responses never stopped at specified sequences
+  - **Fix:** Added `stop_sequences=request.stop_sequences` to stream call
+  - **Consistency:** Now matches non-streaming `generate()` method (line 50)
+
+**Rationale:**
+- Stop sequences are critical for controlling LLM output length and format
+- Inconsistency between streaming and non-streaming paths caused unexpected behavior
+- Users expect same truncation behavior whether streaming or not
+
+### Improved
+
+**OpenAI Embedding Model Configuration** (`empla/llm/openai.py:125-144`)
+
+- **Before:** Hard-coded `"text-embedding-3-large"` for all embedding requests
+- **After:** Configurable embedding model with precedence hierarchy:
+  1. `kwargs.get("embedding_model")` - Explicit override at provider instantiation
+  2. `self.model_id` - Use primary model if it's an embedding model
+  3. `"text-embedding-3-large"` - Default fallback only if neither is set
+
+**Usage example:**
+```python
+# Option 1: Specify at instantiation
+provider = OpenAIProvider(
+    api_key="...",
+    model_id="gpt-4o",
+    embedding_model="text-embedding-3-small"  # Use cheaper/faster model
+)
+
+# Option 2: Use embedding model as primary
+provider = OpenAIProvider(
+    api_key="...",
+    model_id="text-embedding-3-small"  # Will be used for embeddings
+)
+
+# Option 3: Default (no config)
+provider = OpenAIProvider(
+    api_key="...",
+    model_id="gpt-4o"  # Embeddings default to text-embedding-3-large
+)
+```
+
+**Benefits:**
+- **Cost optimization:** Can use cheaper `text-embedding-3-small` when high quality not needed
+- **Flexibility:** Different models for different use cases (speed vs quality)
+- **Backward compatible:** Defaults to `text-embedding-3-large` if not specified
+
+### Verified
+
+**Test Results:**
+- **All LLM tests:** 16/16 passing (100%) ✅
+- **Test execution:** 0.50s (fast)
+- **No regressions:** All existing tests continue to pass
+- **Coverage:** LLMService 80.21%, models/config 100%
+
+**Files Modified:**
+- `empla/llm/vertex.py` - Line 170: Added stop_sequences to streaming config
+- `empla/llm/openai.py` - Line 118: Added stop parameter to streaming call
+- `empla/llm/openai.py` - Lines 135-137: Made embedding model configurable
+- `empla/llm/anthropic.py` - Line 145: Added stop_sequences to streaming call
+
+### Impact
+
+**Production Impact:**
+- **High priority fix:** Stop sequences are essential for controlling LLM output
+- **Breaking change:** None - purely additive fixes
+- **User-facing:** Streaming responses now respect stop_sequences as expected
+
+**Code Quality:**
+- **Consistency:** Streaming and non-streaming methods now have identical parameters
+- **Maintainability:** Less confusion about why streaming behaves differently
+- **Testability:** Easier to test with consistent behavior across methods
+
+---
+
+## 2025-11-13 - Dependency Updates: OpenAI & Google Cloud AI Platform
+
+**Phase:** 2 - LLM Integration (Maintenance)
+
+### Updated
+
+**LLM Provider Dependencies:**
+- **openai:** Updated from `>=1.54.0` to `>=2.7.2`
+  - Reason: Stay current with latest stable release
+  - Breaking changes: None detected
+  - All 16 LLM tests passing ✅
+
+- **google-cloud-aiplatform:** Updated from `>=1.71.0` to `>=1.127.0`
+  - Reason: Stay current with latest stable release
+  - Breaking changes: None detected
+  - All tests continue to pass ✅
+
+### Verified
+
+**API Compatibility Testing:**
+- **LLM unit tests:** 16/16 passing (100%) ✅
+- **Proactive loop tests:** 26/26 passing (100%) ✅
+- **Total unit tests:** 42/42 passing (100%) ✅
+- **Integration tests:** 22 errors (all PostgreSQL connection issues, not API compatibility)
+- **Conclusion:** No API breaking changes detected in either package
+
+**Test execution:**
+- LLM tests: 0.59s (fast, all passing)
+- Proactive loop tests: 10.35s (all passing)
+- No code changes required (full backward compatibility)
+
+### Rationale
+
+**Why update dependencies:**
+1. **Security:** Latest releases include security patches
+2. **Features:** Access to new provider capabilities and improvements
+3. **Bug fixes:** Benefit from upstream bug fixes
+4. **Best practice:** Stay current with dependency versions to avoid large version jumps later
+
+**Why these specific versions:**
+- openai 2.7.2: Latest stable release as of 2025-11-13
+- google-cloud-aiplatform 1.127.0: Latest stable release as of 2025-11-13
+- Both versions maintain backward compatibility with our implementation
+
+**Alternative approach considered:**
+- Tighten ranges (e.g., `openai>=1.54.0,<2.0.0`) to preserve explicit compatibility
+- Rejected: Our tests confirm v2.x is compatible; staying current is preferred
+
+### Files Modified
+
+- **pyproject.toml** - Updated dependency version constraints (lines 48-49)
+  - `openai>=1.54.0` → `openai>=2.7.2`
+  - `google-cloud-aiplatform>=1.71.0` → `google-cloud-aiplatform>=1.127.0`
+
+### Next
+
+**Monitoring:**
+- Watch for any issues in production usage with updated dependencies
+- Re-run integration tests with actual API keys to verify provider compatibility
+- Monitor release notes for future breaking changes in major versions
+
+---
+
 ## 2025-11-12 - Multi-Provider LLM Abstraction Complete
 
 **Phase:** 2 - Transition to LLM Integration

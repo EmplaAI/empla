@@ -5,9 +5,9 @@ This module defines common data models used across all LLM providers.
 """
 
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class LLMProvider(str, Enum):
@@ -44,10 +44,10 @@ class LLMRequest(BaseModel):
     messages: list[Message]
     max_tokens: int = 4096
     temperature: float = 0.7
-    stop_sequences: Optional[list[str]] = None
+    stop_sequences: list[str] | None = None
 
     # Structured output (optional)
-    response_format: Optional[type[BaseModel]] = None
+    response_format: type[BaseModel] | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -84,7 +84,7 @@ class LLMResponse(BaseModel):
     finish_reason: str
 
     # For structured outputs
-    structured_output: Optional[Any] = None
+    structured_output: Any | None = None
 
     class Config:
         arbitrary_types_allowed = True
