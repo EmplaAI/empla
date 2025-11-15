@@ -70,7 +70,6 @@ class MockMemorySystem:
     """Mock MemorySystem for testing"""
 
 
-
 class MockIntention:
     """Mock intention for testing"""
 

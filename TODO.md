@@ -6,121 +6,141 @@
 
 ---
 
-## 📋 Current Session: 2025-11-07
+## 📋 Current Session: 2025-11-12
 
 ### Today's Goal
-Verify and address remaining CodeRabbit feedback after PR #10 merge
+Implement multi-provider LLM abstraction (Anthropic, OpenAI, Google Vertex AI)
 
 ### Completed ✅
-- [x] Verified CodeRabbit review items after PR #10 merge
-- [x] Found 6 out of 10 were false positives (code already correct)
-- [x] Found 3 out of 10 were already fixed in merged PR
-- [x] Fixed remaining real issue: datetime.utcnow() in docs/design/core-models.md (5 occurrences)
-- [x] Ran comprehensive test suite: 48/48 tests passing (100%)
-- [x] Overall test coverage: 69.33%
+- [x] Designed multi-provider LLM architecture with automatic fallback
+- [x] Implemented abstract provider base and factory pattern
+- [x] Implemented Anthropic provider (Claude Sonnet 4, Opus, Haiku)
+- [x] Implemented OpenAI provider (GPT-4o, GPT-4o-mini, o1, o3-mini)
+- [x] Implemented Google Vertex AI provider (Gemini 1.5 Pro, Flash)
+- [x] Implemented main LLMService with automatic fallback logic
+- [x] Added comprehensive cost tracking across all providers
+- [x] Wrote 16 unit tests for LLM package (100% passing)
+- [x] Ran full test suite: 64/64 tests passing (100%)
+- [x] Achieved 64.09% overall coverage (LLM package: 80%+)
+- [x] Wrote comprehensive ADR-008: Multi-Provider LLM Abstraction
+- [x] Updated pyproject.toml with LLM provider dependencies
+- [x] Updated CHANGELOG.md with implementation details
+- [x] Updated TODO.md to reflect current status
 
-### CodeRabbit Verification Summary
-**Real issues fixed (2/10):**
-1. ✅ Fixed deprecated `datetime.utcnow()` in documentation (5 occurrences)
-2. ✅ Ran comprehensive test suite (48 tests passing)
+### Implementation Summary
+**Created empla/llm/ package (7 files, 830+ lines):**
+- `models.py` - Shared data models (LLMRequest, LLMResponse, TokenUsage)
+- `provider.py` - Abstract base class and factory
+- `config.py` - Configuration and pre-configured models with pricing
+- `anthropic.py` - Anthropic Claude provider
+- `openai.py` - OpenAI GPT provider
+- `vertex.py` - Google Vertex AI / Gemini provider
+- `__init__.py` - Main LLMService with fallback and cost tracking
 
-**False positives / Already correct (6/10):**
-- session.flush() consistency - all 8 calls already use await correctly
-- employee.py nullable relationship type hint - already uses proper Optional syntax
-- intentions.py dependency checking - robust implementation with deleted check
-- Migration IVFFlat indexes - correctly deferred (requires data for clustering)
-- Migration ForeignKey ondelete - intentional CASCADE/SET NULL usage
-- Run tests - completed successfully
-
-**Already fixed in PR #10 (3/10):**
-- database-schema.md email addresses properly wrapped
-- TODO.md CHANGELOG items marked complete
-- memory-system.md code block has text language specifier
+**Tests written:**
+- `test_llm_service.py` - 9 tests for LLMService (fallback, cost tracking, streaming)
+- `test_models.py` - 7 tests for data models and cost calculation
 
 ### Blockers
 - None currently
 
 ### Insights & Notes
-- Code quality is excellent - most CodeRabbit concerns were false positives
-- Test suite is comprehensive (48 tests, 69% coverage)
-- Proactive loop has 90% coverage (16 lines uncovered, mostly placeholders)
-- Ready for Phase 2 implementation
+- Multi-provider abstraction enables A/B testing and resilience
+- Automatic fallback ensures empla keeps running during provider outages
+- Cost tracking will be critical for production optimization
+- Phase 2 has officially begun with LLM integration
+- Ready to integrate LLMService into BDI components (beliefs, plans, strategies)
 
 ---
 
-## 🎯 Current Phase: Phase 0 - Foundation Setup ✅ 100% COMPLETE
+## 🎯 Current Phase: Phase 2 - LLM Integration & Capabilities (IN PROGRESS)
 
+**Goal:** Integrate LLM providers and implement autonomous decision-making
+
+### Phase 2.0: Multi-Provider LLM Abstraction ✅ COMPLETE
+- [x] Design multi-provider architecture
+- [x] Implement Anthropic provider (Claude Sonnet 4, Opus, Haiku)
+- [x] Implement OpenAI provider (GPT-4o, GPT-4o-mini, o1, o3-mini)
+- [x] Implement Google Vertex AI provider (Gemini 1.5 Pro, Flash)
+- [x] Implement automatic fallback logic
+- [x] Implement cost tracking
+- [x] Write comprehensive unit tests (16 tests, 100% passing)
+- [x] Write ADR-008: Multi-Provider LLM Abstraction
+
+### Phase 2.1: BDI + LLM Integration (NEXT)
+- [ ] Integrate LLMService into belief extraction (`empla/core/bdi/beliefs.py`)
+- [ ] Integrate LLMService into plan generation (`empla/core/bdi/intentions.py`)
+- [ ] Integrate LLMService into strategic planning (`empla/core/planning/strategic.py`)
+- [ ] Add belief extraction from observations (text → structured beliefs)
+- [ ] Add plan generation when no learned strategy exists
+- [ ] Write integration tests with mocked LLM responses
+
+### Phase 2.2: Tool Execution & Capabilities (FUTURE)
+- [ ] Choose agent framework (Agno vs LangGraph vs custom)
+- [ ] Implement tool execution layer
+- [ ] Add email capability (send, read, reply)
+- [ ] Add calendar capability (schedule, check availability)
+- [ ] Add research capability (web search, document analysis)
+
+---
+
+## 🏁 Completed Phases
+
+### Phase 0 - Foundation Setup ✅ 100% COMPLETE
 **Goal:** Establish documentation infrastructure before Phase 1 implementation
 
-### Phase 0 Tasks - ALL COMPLETE ✅
-- [x] Create TODO.md
-- [x] Create CHANGELOG.md
+**Completed:**
+- [x] Create TODO.md, CHANGELOG.md
 - [x] Create docs/decisions/ with ADR template
 - [x] Create docs/design/ with design template
-- [x] Create docs/README.md explaining doc system
-- [x] Write initial ADRs for existing decisions:
-  - [x] ADR-001: PostgreSQL as primary database
-  - [x] ADR-002: Python + FastAPI stack choice
-  - [x] ADR-003: Custom BDI architecture over frameworks
-  - [x] ADR-004: Defer agent framework to Phase 2
-  - [x] ADR-005: Use pgvector for initial vector storage
-  - [x] ADR-006: Proactive loop over event-driven architecture
-- [x] Optimize CLAUDE.md (1,536 lines final, comprehensive, zero info loss)
-- [x] Comprehensive pre-implementation review (3 subagents)
+- [x] Write initial ADRs (ADR-001 through ADR-006)
+- [x] Optimize CLAUDE.md (1,536 lines final)
+- [x] Comprehensive pre-implementation review
 
 ---
 
-## 📅 Upcoming Work
+### Phase 1 - Foundation & Lifecycle ✅ 100% COMPLETE
+**Goal:** Build core BDI architecture and memory systems
 
-### Phase 1: Foundation & Lifecycle (STARTING NOW)
+**Completed:**
+- [x] Week 0: Setup & Design (database schema, core models, BDI design docs)
+- [x] Week 1: Foundation (database migrations, Pydantic models, FastAPI skeleton)
+- [x] Week 2: BDI Engine (BeliefSystem, GoalSystem, IntentionStack)
+- [x] Week 3: Proactive Loop (ProactiveExecutionLoop with 23 tests, 90% coverage)
+- [x] Week 4: Memory System (episodic, semantic, procedural, working memory with 17 integration tests)
 
-**Week 0: Setup & Design (Days 1-2)**
-- [ ] Create pyproject.toml with uv-based setup
-- [ ] Create project scaffold (src/empla/, tests/)
-- [ ] Set up native PostgreSQL 17 + pgvector (not Docker)
-- [ ] Create scripts/setup-local-db.sh
-- [ ] Create docs/guides/local-development-setup.md
-- [ ] Create .gitignore and LICENSE
-- [ ] Write design doc: database-schema.md
-- [ ] Write design doc: core-models.md
-- [ ] Write design doc: bdi-engine.md
-- [ ] Write design doc: memory-system.md
+---
 
-**Week 1: Foundation (Days 3-7)**
-- [ ] Implement database schema with Alembic migrations
-- [ ] Implement core Pydantic models (Employee, Profile, Goal, Belief)
-- [ ] Set up FastAPI skeleton with health check
-- [ ] Write initial unit tests (models, basic DB)
+## 📅 Next Steps
 
-**Week 2: BDI Engine (Days 8-14)**
-- [ ] Implement BeliefSystem (world model, updates, queries)
-- [ ] Implement GoalSystem (goal hierarchy, prioritization)
-- [ ] Implement IntentionStack (plan commitment, reconsideration)
-- [ ] Integration: BDI components working together
-- [ ] Comprehensive tests (>80% coverage)
+### Immediate (Phase 2.1): BDI + LLM Integration
+**Priority:** Integrate LLMService into BDI components for autonomous decision-making
 
-**Week 3: Proactive Loop (Days 15-21)** ✅ COMPLETE
-- [x] Implement ProactiveExecutionLoop
-- [x] Implement loop models and protocols
-- [x] Implement decision logic (when to replan, reflect)
-- [x] Write comprehensive unit tests (23 tests, 100% passing)
-- [x] Achieve 90% test coverage
-- [ ] Implement actual perception sources (Phase 2)
-- [ ] Implement event monitoring system (Phase 2)
-- [ ] E2E test: Employee runs autonomously for 1 hour (Phase 2)
+1. **Belief extraction** - Use LLM to extract structured beliefs from observations
+   - Location: `empla/core/bdi/beliefs.py`
+   - Input: Raw observations (text, events)
+   - Output: Structured Belief objects with confidence scores
 
-**Week 4: Memory System (Days 22-28)** ✅ COMPLETE
-- [x] Implement episodic memory (record/recall with vectors)
-- [x] Implement semantic memory (knowledge storage)
-- [x] Implement procedural memory (workflow storage)
-- [x] Implement working memory (context management)
-- [x] Integration: Memory systems working together
-- [x] Comprehensive integration tests (17/17 passing, 100% pass rate)
+2. **Plan generation** - Use LLM to generate action plans when no learned strategy exists
+   - Location: `empla/core/bdi/intentions.py`
+   - Input: Current goals, beliefs, context
+   - Output: Step-by-step action plans (Intention objects)
+
+3. **Strategic planning** - Use LLM for deep reasoning and strategy generation
+   - Location: `empla/core/planning/strategic.py` (to be created)
+   - Input: Long-term goals, current situation, historical outcomes
+   - Output: Strategic plans and approach recommendations
+
+### Future (Phase 2.2): Tool Execution & Capabilities
+- Choose agent framework (Agno vs LangGraph vs custom) - **DECISION NEEDED**
+- Implement tool execution layer
+- Add core capabilities (email, calendar, research)
+- Integration testing with real API keys
 
 ### Known Dependencies
-- Phase 0 must complete before Phase 1
-- All ADRs should be written before architectural implementation
-- Design docs should be created for each major component before coding
+- Phase 2.1 depends on completed LLM abstraction (✅ done)
+- Phase 2.2 depends on agent framework decision (pending)
+- All phases require ADRs for major architectural decisions
 
 ---
 
@@ -142,36 +162,53 @@ None currently - fresh start!
 ## 📊 Progress Tracking
 
 ### Documentation Health
-- [x] CLAUDE.md created
-- [x] ARCHITECTURE.md created
+- [x] CLAUDE.md created (1,536 lines, comprehensive development guide)
+- [x] ARCHITECTURE.md created (complete system architecture)
 - [x] README.md created
-- [x] TODO.md created
-- [x] CHANGELOG.md created
-- [x] ADR infrastructure created
-- [x] Design doc infrastructure created
+- [x] TODO.md created and maintained
+- [x] CHANGELOG.md created and maintained
+- [x] ADR infrastructure created (8 ADRs written)
+- [x] Design doc infrastructure created (4 design docs)
 
 ### Implementation Progress
-**Phase 1 Progress:**
+**Phase 0 (Foundation Setup):** ✅ 100% complete
+**Phase 1 (BDI & Memory):** ✅ 100% complete
 - Week 0 (Setup & Design): ✅ 100% complete
 - Week 1 (Foundation): ✅ 100% complete
 - Week 2 (BDI Engine): ✅ 100% complete
-- Week 3 (Proactive Loop): ✅ 100% complete (core loop structure)
+- Week 3 (Proactive Loop): ✅ 100% complete
 - Week 4 (Memory System): ✅ 100% complete
 
-**Test Coverage:**
+**Phase 2 (LLM Integration):** 🚧 10% complete (just started)
+- Phase 2.0 (Multi-Provider LLM): ✅ 100% complete
+- Phase 2.1 (BDI + LLM Integration): 🔜 Not started
+- Phase 2.2 (Tool Execution): 🔜 Not started
+
+### Test Coverage
+**Overall:** 64.09% coverage (64/64 tests passing)
 - Memory integration tests: 17/17 passing (100%)
 - Proactive loop unit tests: 23/23 passing (100%)
+- LLM unit tests: 16/16 passing (100%)
 - Proactive loop coverage: 90.60%
-- Overall coverage: ~50%
+- LLM package coverage: 80.21%+
 
-**Current Status:**
-- Memory systems fully implemented and tested ✅
-- Database schema and migrations complete ✅
-- BDI engine (Beliefs, Goals, Intentions) complete ✅
-- Proactive loop core structure complete ✅
-- Ready for Phase 2: Capabilities and actual perception/execution
+### Current Status
+**Completed:**
+- ✅ Database schema and migrations
+- ✅ BDI engine (Beliefs, Goals, Intentions)
+- ✅ Proactive execution loop
+- ✅ Memory systems (episodic, semantic, procedural, working)
+- ✅ Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
+
+**In Progress:**
+- 🚧 Phase 2.1: BDI + LLM Integration
+
+**Next:**
+- 🔜 Belief extraction using LLM
+- 🔜 Plan generation using LLM
+- 🔜 Strategic planning using LLM
 
 ---
 
-**Last Updated:** 2025-10-30 (Proactive loop implementation complete)
-**Next Session Goal:** Implement perception sources or begin Phase 2 capabilities
+**Last Updated:** 2025-11-12 (Multi-provider LLM abstraction complete)
+**Next Session Goal:** Integrate LLMService into BDI components (belief extraction, plan generation)
