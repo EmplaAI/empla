@@ -6,50 +6,64 @@
 
 ---
 
-## 📋 Current Session: 2025-11-12
+## 📋 Current Session: 2025-11-14
 
-### Today's Goal
-Implement multi-provider LLM abstraction (Anthropic, OpenAI, Google Vertex AI)
+### ✅ Completed: Belief Extraction using LLM
+**Phase 2.1 First Milestone:** LLM-powered belief extraction from observations
 
-### Completed ✅
-- [x] Designed multi-provider LLM architecture with automatic fallback
-- [x] Implemented abstract provider base and factory pattern
-- [x] Implemented Anthropic provider (Claude Sonnet 4, Opus, Haiku)
-- [x] Implemented OpenAI provider (GPT-4o, GPT-4o-mini, o1, o3-mini)
-- [x] Implemented Google Vertex AI provider (Gemini 1.5 Pro, Flash)
-- [x] Implemented main LLMService with automatic fallback logic
-- [x] Added comprehensive cost tracking across all providers
-- [x] Wrote 16 unit tests for LLM package (100% passing)
-- [x] Ran full test suite: 64/64 tests passing (100%)
-- [x] Achieved 64.09% overall coverage (LLM package: 80%+)
-- [x] Wrote comprehensive ADR-008: Multi-Provider LLM Abstraction
-- [x] Updated pyproject.toml with LLM provider dependencies
-- [x] Updated CHANGELOG.md with implementation details
-- [x] Updated TODO.md to reflect current status
+### This Session Completed ✅
+- [x] Reviewed BeliefSystem implementation
+- [x] Designed LLM integration approach for belief extraction
+- [x] Created Pydantic models (ExtractedBelief, BeliefExtractionResult)
+- [x] Implemented `extract_beliefs_from_observation()` method
+- [x] Wrote 4 comprehensive integration tests (all passing)
+- [x] Fixed database constraint issues (belief source values)
+- [x] Updated CHANGELOG.md with complete documentation
+- [x] **All tests passing:** 4/4 belief extraction tests ✅
 
-### Implementation Summary
-**Created empla/llm/ package (7 files, 830+ lines):**
-- `models.py` - Shared data models (LLMRequest, LLMResponse, TokenUsage)
-- `provider.py` - Abstract base class and factory
-- `config.py` - Configuration and pre-configured models with pricing
-- `anthropic.py` - Anthropic Claude provider
-- `openai.py` - OpenAI GPT provider
-- `vertex.py` - Google Vertex AI / Gemini provider
-- `__init__.py` - Main LLMService with fallback and cost tracking
+### Implementation Details
+**Files Modified:**
+- `empla/bdi/beliefs.py` - Added belief extraction (lines 27-96, 512-657)
+- `tests/test_bdi_integration.py` - Added 4 integration tests (lines 375-723)
+- `CHANGELOG.md` - Documented Phase 2.1 belief extraction feature
 
-**Tests written:**
-- `test_llm_service.py` - 9 tests for LLMService (fallback, cost tracking, streaming)
-- `test_models.py` - 7 tests for data models and cost calculation
+**Key Features:**
+- LLM extracts structured beliefs from observations in SPO format
+- Comprehensive system prompt guides factual belief extraction
+- Evidence tracking (observation UUIDs in belief.evidence)
+- Automatic belief updates (no duplicates for same subject+predicate)
+- 73.73% coverage on empla/bdi/beliefs.py
+
+### Next Steps (Phase 2.1 Continuation)
+**Goal:** Complete BDI + LLM Integration
+
+**Priority tasks:**
+1. ✅ **Belief extraction** - Extract structured beliefs from observations using LLM (DONE)
+2. **Plan generation** - Generate action plans when no learned strategy exists
+   - Location: `empla/core/bdi/intentions.py`
+   - Feature: LLM generates step-by-step intention plans
+3. **Strategic planning** - Deep reasoning for long-term strategy
+   - Location: `empla/core/planning/strategic.py` (to be created)
+   - Feature: LLM generates strategic plans and approaches
 
 ### Blockers
-- None currently
+- None
 
-### Insights & Notes
-- Multi-provider abstraction enables A/B testing and resilience
-- Automatic fallback ensures empla keeps running during provider outages
-- Cost tracking will be critical for production optimization
-- Phase 2 has officially begun with LLM integration
-- Ready to integrate LLMService into BDI components (beliefs, plans, strategies)
+### Notes
+- Phase 2.1 belief extraction successfully implemented and tested
+- Ready to implement plan generation next
+- LLM integration pattern established (can reuse for intentions and planning)
+
+### Previous Session (2025-11-13) ✅
+- [x] Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
+- [x] Fixed streaming stop sequences bug (all 3 providers)
+- [x] Fixed unsupported provider error handling
+- [x] Made OpenAI embedding model configurable
+- [x] Updated Gemini model IDs and pricing
+- [x] Updated dependencies to latest versions
+- [x] All formatting and linting completed
+- [x] 64/64 tests passing, 64% coverage
+- [x] PR merged to main ✅
 
 ---
 
