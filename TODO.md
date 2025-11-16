@@ -81,13 +81,13 @@
 - [x] Write comprehensive unit tests (16 tests, 100% passing)
 - [x] Write ADR-008: Multi-Provider LLM Abstraction
 
-### Phase 2.1: BDI + LLM Integration (NEXT)
-- [ ] Integrate LLMService into belief extraction (`empla/core/bdi/beliefs.py`)
+### Phase 2.1: BDI + LLM Integration (IN PROGRESS)
+- [x] Integrate LLMService into belief extraction (`empla/bdi/beliefs.py`)
 - [ ] Integrate LLMService into plan generation (`empla/core/bdi/intentions.py`)
 - [ ] Integrate LLMService into strategic planning (`empla/core/planning/strategic.py`)
-- [ ] Add belief extraction from observations (text → structured beliefs)
+- [x] Add belief extraction from observations (text → structured beliefs)
 - [ ] Add plan generation when no learned strategy exists
-- [ ] Write integration tests with mocked LLM responses
+- [x] Write integration tests with mocked LLM responses (4 tests for belief extraction)
 
 ### Phase 2.2: Tool Execution & Capabilities (FUTURE)
 - [ ] Choose agent framework (Agno vs LangGraph vs custom)
@@ -130,17 +130,17 @@
 ### Immediate (Phase 2.1): BDI + LLM Integration
 **Priority:** Integrate LLMService into BDI components for autonomous decision-making
 
-1. **Belief extraction** - Use LLM to extract structured beliefs from observations
-   - Location: `empla/core/bdi/beliefs.py`
-   - Input: Raw observations (text, events)
-   - Output: Structured Belief objects with confidence scores
+1. ✅ **Belief extraction** - Use LLM to extract structured beliefs from observations (COMPLETE)
+   - Location: `empla/bdi/beliefs.py`
+   - Status: Implemented with 4 passing tests, 72.13% coverage
+   - Features: SPO extraction, evidence tracking, error handling
 
-2. **Plan generation** - Use LLM to generate action plans when no learned strategy exists
+2. **Plan generation** - Use LLM to generate action plans when no learned strategy exists (NEXT)
    - Location: `empla/core/bdi/intentions.py`
    - Input: Current goals, beliefs, context
    - Output: Step-by-step action plans (Intention objects)
 
-3. **Strategic planning** - Use LLM for deep reasoning and strategy generation
+3. **Strategic planning** - Use LLM for deep reasoning and strategy generation (FUTURE)
    - Location: `empla/core/planning/strategic.py` (to be created)
    - Input: Long-term goals, current situation, historical outcomes
    - Output: Strategic plans and approach recommendations
@@ -193,18 +193,21 @@ None currently - fresh start!
 - Week 3 (Proactive Loop): ✅ 100% complete
 - Week 4 (Memory System): ✅ 100% complete
 
-**Phase 2 (LLM Integration):** 🚧 10% complete (just started)
+**Phase 2 (LLM Integration):** 🚧 35% complete (belief extraction done)
 - Phase 2.0 (Multi-Provider LLM): ✅ 100% complete
-- Phase 2.1 (BDI + LLM Integration): 🔜 Not started
+- Phase 2.1 (BDI + LLM Integration): 🚧 33% complete (belief extraction ✅)
 - Phase 2.2 (Tool Execution): 🔜 Not started
 
 ### Test Coverage
-**Overall:** 64.09% coverage (64/64 tests passing)
+**Overall:** 34.08% coverage (68/68 tests passing)
 - Memory integration tests: 17/17 passing (100%)
 - Proactive loop unit tests: 23/23 passing (100%)
 - LLM unit tests: 16/16 passing (100%)
+- BDI integration tests: 12/12 passing (100%)
+  - Belief extraction tests: 4/4 passing ✅
 - Proactive loop coverage: 90.60%
 - LLM package coverage: 80.21%+
+- BDI beliefs coverage: 72.13%
 
 ### Current Status
 **Completed:**
@@ -213,16 +216,16 @@ None currently - fresh start!
 - ✅ Proactive execution loop
 - ✅ Memory systems (episodic, semantic, procedural, working)
 - ✅ Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
+- ✅ Belief extraction using LLM (Phase 2.1 first milestone)
 
 **In Progress:**
-- 🚧 Phase 2.1: BDI + LLM Integration
+- 🚧 Phase 2.1: BDI + LLM Integration (belief extraction ✅, plan generation next)
 
 **Next:**
-- 🔜 Belief extraction using LLM
 - 🔜 Plan generation using LLM
 - 🔜 Strategic planning using LLM
 
 ---
 
-**Last Updated:** 2025-11-12 (Multi-provider LLM abstraction complete)
-**Next Session Goal:** Integrate LLMService into BDI components (belief extraction, plan generation)
+**Last Updated:** 2025-11-14 (Belief extraction using LLM complete)
+**Next Session Goal:** Implement plan generation using LLM (Phase 2.1 continuation)
