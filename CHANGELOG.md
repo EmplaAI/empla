@@ -6,6 +6,544 @@
 
 ---
 
+## 2025-11-16 - Tool Execution Layer: Security & Reliability Fixes
+
+**Phase:** 2.2 - Tool Execution & Capabilities (Bug Fixes)
+
+### Fixed
+
+**Critical Security & Reliability Improvements to Tool Execution Layer:**
+
+Four critical fixes addressing security, type safety, validation completeness, and test reliability:
+
+**1. Protocol Signature Sync** (`empla/core/tools/base.py:142-144`)
+- **Issue:** `ToolExecutor` protocol signature didn't match `ToolExecutionEngine` implementation
+- **Impact:** Type checking would fail, protocols couldn't enforce correct interface
+- **Fix:** Added missing `implementation: ToolImplementation` parameter to protocol
+- **Details:**
+  - Used forward reference `"ToolImplementation"` to avoid import order issues
+  - Updated docstring example to show correct usage
+  - Now type checkers can verify executor implementations conform to protocol
+
+**2. PII/Secrets Security** (`empla/core/tools/executor.py:107-109`)
+- **Issue:** Parameter validation errors logged full `params` dict which could contain sensitive data
+- **Impact:** **CRITICAL** - User passwords, API keys, email content, PII could leak into logs
+- **Fix:** Removed `params` from log extra dict, replaced with `tool_name`
+- **Details:**
+  - Prevents accidental exposure of user-controlled input in application logs
+  - Logs still provide debugging context (tool_id, tool_name, error message)
+  - Complies with data protection best practices (GDPR, SOC2)
+
+**3. Unexpected Parameter Validation** (`empla/core/tools/executor.py:238-241`)
+- **Issue:** Docstring promised "No unexpected parameters" check but code allowed extra keys
+- **Impact:** Security gap - unexpected parameters could be injected and passed to tool implementations
+- **Fix:** Added validation loop rejecting parameters not in tool schema
+- **Details:**
+  - Returns clear error: `"Unexpected parameter: {param_name}"`
+  - Prevents parameter injection attacks
+  - Enforces tool schema contracts strictly
+  - Added comprehensive test: `test_parameter_validation_unexpected_parameter`
+
+**4. Test Flakiness Fix** (`tests/test_tool_execution.py:244`)
+- **Issue:** Brittle timing assertion `result.duration_ms < 500` caused CI failures
+- **Impact:** Intermittent test failures in slower CI environments
+- **Fix:** Removed upper bound timing assertion, kept lower bound validation
+- **Details:**
+  - Kept: `assert result.duration_ms >= 100` (verifies delay was applied)
+  - Removed: `assert result.duration_ms < 500` (flaky in CI)
+  - Test now robust across different execution environments
+
+### Test Results
+
+**All Tests Passing:**
+- **Total:** 93/93 tests passing (100% pass rate) ✅ (was 92/92)
+- **New test:** test_parameter_validation_unexpected_parameter (1/1 passing)
+- **Tool execution tests:** 21/21 passing (100%) ✅ (was 20/20)
+- **Coverage:**
+  - executor.py: 97.44% (was 97.33%)
+  - base.py: 94.59% (unchanged)
+  - registry.py: 94.67% (unchanged)
+
+### Security Impact
+
+**PII/Secrets Protection:**
+- **Before:** Params dict logged on validation errors
+  ```python
+  # ❌ SECURITY ISSUE - Leaked sensitive data
+  logger.warning(
+      f"Parameter validation failed",
+      extra={"params": {"password": "secret123", "api_key": "sk-..."}}
+  )
+  ```
+
+- **After:** Only tool metadata logged
+  ```python
+  # ✅ SECURE - No sensitive data in logs
+  logger.warning(
+      f"Parameter validation failed for send_email: Missing required parameter: to",
+      extra={"tool_id": "550e8400-...", "tool_name": "send_email"}
+  )
+  ```
+
+**Parameter Injection Prevention:**
+- **Before:** Unexpected parameters silently passed to tool implementations
+- **After:** Strict schema enforcement rejects unexpected parameters
+- **Example:** Prevents attackers from injecting `{"admin": true}` into tool calls
+
+### Files Modified
+
+**Core Implementation:**
+- `empla/core/tools/base.py` - Protocol signature fix (line 144)
+- `empla/core/tools/executor.py` - PII removal (lines 107-109), validation (lines 238-241)
+
+**Tests:**
+- `tests/test_tool_execution.py` - New test (lines 205-226), timing fix (line 244)
+
+### Next Steps
+
+**Phase 2.2 Continuation:**
+- Implement email capability (SendEmailTool, ReadEmailTool, ReplyToEmailTool)
+- Implement calendar capability (ScheduleMeetingTool, CheckAvailabilityTool)
+- Integrate tools with IntentionStack for autonomous execution
+- Write BDI integration tests (tool execution → observations → beliefs flow)
+
+**Security Validation:**
+- Audit all other logging statements for PII leakage
+- Add static analysis to detect sensitive data in logs (future)
+- Create security testing guide for tool implementations
+
+---
+
+## 2025-11-16 - Phase 2.2: Custom Tool Execution Infrastructure
+
+**Phase:** 2.2 - Tool Execution & Capabilities (First Milestone)
+
+### Added
+
+**Core Tool Execution System** (`empla/core/tools/`)
+
+Implemented custom tool execution infrastructure rather than adopting framework (Agno/LangGraph) based on Phase 2.1 learnings about our actual needs:
+
+- **Tool Base Definitions** (`base.py` - 94.59% coverage)
+  - `Tool` - Tool definition with parameters schema, required capabilities, metadata
+  - `ToolResult` - Execution outcome with success/error, timing, retry count
+  - `ToolExecutor` - Protocol for execution implementations (enables multiple strategies)
+  - `ToolImplementation` - Protocol for concrete tool implementations
+  - `ToolCapability` - Capability grouping for tool discovery and access control
+  - Structural subtyping via protocols (flexible, testable, swappable implementations)
+
+- **Tool Execution Engine** (`executor.py` - 97.33% coverage)
+  - `ToolExecutionEngine` - Executes tools with retry logic and error handling
+  - **Retry Logic:** Exponential backoff with jitter for transient failures
+  - **Error Classification:** Distinguishes transient (retry) vs permanent (fail) errors
+  - **Parameter Validation:** Schema-based validation before execution
+  - **Performance Tracking:** Execution timing, retry counts, metrics
+  - **Zero-Exception Guarantee:** Never raises - all errors captured in ToolResult
+  - **Features:**
+    - Max 3 retries (configurable)
+    - Exponential backoff: 100ms → 200ms → 400ms (with ±25% jitter)
+    - Conservative retry policy (only obvious transient errors)
+    - Structured error logging at each attempt
+    - Parameter type checking (string, number, boolean, array, object)
+
+- **Tool Registry** (`registry.py` - 94.67% coverage)
+  - `ToolRegistry` - Manages available tools and their implementations
+  - **Features:**
+    - Tool registration with implementation binding
+    - Capability management
+    - Tool discovery by name, capability, category, tag
+    - Employee-specific tool filtering (capabilities + credentials)
+    - Credential validation for capability requirements
+    - Dict-based for fast O(1) lookup
+
+- **Comprehensive Tests** (`tests/test_tool_execution.py`)
+  - **20 unit tests** covering all functionality (100% passing ✅)
+  - Test categories:
+    - Execution engine: 9/9 tests (success, failure, retry, validation, timing)
+    - Tool registry: 11/11 tests (registration, discovery, filtering, capabilities)
+  - **Mock implementations:** SuccessfulTool, FailingTool, FlakeyTool, SlowTool
+  - **Coverage:** 95.53%+ average across all tool modules
+
+### Decided
+
+**ADR-009: Custom Tool Execution Layer**
+
+Decision to build custom implementation rather than adopt framework (Agno/LangGraph):
+
+**Rationale:**
+1. **We now know our needs** (Phase 2.1 provided evidence):
+   - Tool patterns are simple: direct API calls to Microsoft Graph, Gmail, CRMs
+   - Complex orchestration already handled by BDI architecture + IntentionStack
+   - No need for complex tool workflows - BDI handles multi-step logic
+
+2. **We already have the hard parts:**
+   - Planning/reasoning: BDI + LLM plan generation
+   - Memory: Episodic, semantic, procedural, working
+   - Multi-step execution: IntentionStack with dependencies
+   - Decision-making: Goal evaluation, intention prioritization
+
+3. **Simple implementation for our use case:**
+   - Tool execution layer: ~300 lines of clean code
+   - Retry logic: Standard exponential backoff (20 lines)
+   - Error handling: Try/catch + logging (straightforward)
+   - Tool registry: Dict-based lookup (simple and fast)
+
+4. **Perfect BDI integration:**
+   - IntentionStack.execute_intention() → ToolExecutor.execute()
+   - ToolResult → Observation → BeliefSystem.update()
+   - Outcome → ProceduralMemory.store_strategy()
+   - Error → Replanning in next cycle
+
+5. **Zero framework lock-in:**
+   - No external dependencies (beyond API client libraries)
+   - Can swap implementation later if needed
+   - Can wrap Agno/LangGraph if we hit limitations
+   - Maximum flexibility maintained
+
+**Alternatives Considered:**
+- **Agno:** MCP-native, modern, but solves problems we don't have (we already have orchestration)
+- **LangGraph:** State graph model conflicts with BDI intentions model
+- **LangChain:** Known instability, heavy dependency
+- **Defer again:** We NOW have the information (completed Phase 2.1) - time to decide
+
+**Trade-offs Accepted:**
+- ❌ Build our own retry logic (but it's simple - 20 lines)
+- ❌ No pre-built community tools (but most don't fit BDI model anyway)
+- ❌ We own the code (but it's small, stable, and well-tested)
+
+### Design Decisions
+
+**Error Handling Philosophy:**
+- **execute() NEVER raises exceptions** - all errors captured in ToolResult
+- **Critical for autonomous operation:** Employees must handle failures gracefully
+- **Employee decides response:** Retry? Replan? Escalate? (not hardcoded)
+- **Example:** Rate limit error → Employee can back off, auth error → Reauthorize
+
+**Retry Policy:**
+- **Conservative approach:** Only retry obvious transient errors
+- **Transient indicators:** timeout, rate limit, 503, 429, network, connection
+- **Permanent indicators:** auth, forbidden, not found, invalid, validation, 400, 401, 403, 404
+- **Unknown errors:** Don't retry (let employee decide at higher level)
+
+**Protocol-Based Design:**
+- **ToolExecutor protocol:** Allows multiple implementations (mock, production, framework wrappers)
+- **ToolImplementation protocol:** Clean interface for concrete tools
+- **Benefits:** Testable, swappable, no hard dependencies
+- **Future-proof:** Can add AgnoToolExecutor, LangGraphToolExecutor later
+
+### Test Results
+
+**All Tests Passing:**
+- **Total:** 92/92 tests passing (100% pass rate) ✅ (was 71/71)
+- **New tool execution tests:** 20/20 passing (100%) ✅
+- **Overall coverage:** 69.38% (up from 35.11%)
+- **Tool execution coverage:**
+  - executor.py: 97.33%
+  - base.py: 94.59%
+  - registry.py: 94.67%
+  - Average: 95.53%+
+
+**Test execution time:** < 1 second for all tool tests
+
+### Example Usage
+
+```python
+from empla.core.tools import ToolExecutionEngine, ToolRegistry, Tool
+from empla.core.tools.capabilities.email import SendEmailTool
+
+# Register tool
+registry = ToolRegistry()
+email_tool = Tool(
+    name="send_email",
+    description="Send an email via Microsoft Graph API",
+    parameters_schema={
+        "to": {"type": "string", "required": True},
+        "subject": {"type": "string", "required": True},
+        "body": {"type": "string", "required": True},
+    },
+    required_capabilities=["email", "microsoft_graph"],
+    category="communication",
+    tags=["email", "priority"],
+)
+registry.register_tool(email_tool, SendEmailTool())
+
+# Execute tool
+engine = ToolExecutionEngine(max_retries=3)
+tool = registry.get_tool_by_name("send_email")
+impl = registry.get_implementation(tool.tool_id)
+
+result = await engine.execute(
+    tool=tool,
+    implementation=impl,
+    params={
+        "to": "customer@example.com",
+        "subject": "Follow-up from our conversation",
+        "body": "Thank you for your time today..."
+    }
+)
+
+if result.success:
+    print(f"Email sent: {result.output}")
+else:
+    # Employee decides how to handle failure
+    if "rate_limit" in result.error:
+        await asyncio.sleep(60)  # Back off
+    elif "auth" in result.error:
+        await reauthorize()  # Fix credentials
+    else:
+        await create_fallback_intention()  # Replan
+```
+
+### Integration with BDI
+
+Tool execution integrates seamlessly with existing BDI architecture:
+
+**Intention Execution Flow:**
+```python
+# 1. IntentionStack pops highest priority intention
+intention = await intention_stack.pop_highest_priority()
+
+# 2. Get tool from registry
+tool = tool_registry.get_tool(intention.tool_id)
+impl = tool_registry.get_implementation(intention.tool_id)
+
+# 3. Execute tool with retry logic
+result = await tool_executor.execute(tool, impl, intention.parameters)
+
+# 4. Convert result to observation
+observation = Observation(
+    observation_type="tool_execution",
+    source="tool_executor",
+    content={
+        "tool": tool.name,
+        "success": result.success,
+        "output": result.output,
+        "error": result.error,
+        "duration_ms": result.duration_ms,
+        "retries": result.retries,
+    }
+)
+
+# 5. Update beliefs from observation
+await belief_system.update([observation])
+
+# 6. Store outcome in procedural memory (learning)
+if result.success:
+    await procedural_memory.store_success(intention, result)
+else:
+    await procedural_memory.store_failure(intention, result)
+```
+
+### Phase 2.2 Status: 33% Complete
+
+**Completed:**
+1. ✅ **Agent framework decision** - Custom implementation (ADR-009)
+2. ✅ **Core tool infrastructure** - Engine, registry, protocols, tests
+
+**In Progress:**
+3. 🔜 **Email capability** - Send, read, reply (Microsoft Graph/Gmail API)
+4. 🔜 **Calendar capability** - Schedule meetings, check availability
+5. 🔜 **Research capability** - Web search, document analysis
+6. 🔜 **BDI integration** - Connect tools to IntentionStack execution
+7. 🔜 **Integration tests** - Tool execution → observations → beliefs flow
+
+### Next Steps
+
+**Immediate:**
+- Implement email capability (SendEmailTool, ReadEmailTool, ReplyToEmailTool)
+- Implement calendar capability (ScheduleMeetingTool, CheckAvailabilityTool)
+- Integrate tools with IntentionStack for autonomous execution
+- Write BDI integration tests (end-to-end tool execution flow)
+
+**Future:**
+- Implement research capability (web search, document analysis)
+- Add CRM capability (Salesforce, HubSpot integration)
+- Add communication capability (Slack, Teams integration)
+- Add MCP support for tool discovery
+
+---
+
+## 2025-11-16 - Phase 2.1: Plan Generation using LLM
+
+**Phase:** 2.1 - BDI + LLM Integration (Second Integration)
+
+### Added
+
+**LLM-Powered Plan Generation** (`empla/bdi/intentions.py`)
+
+Integrated LLMService into IntentionStack to enable autonomous generation of multi-step action plans for goals:
+
+- **Pydantic Models for Structured Plan Generation:**
+  - `IntentionType` - Type alias constraining intention_type to valid values: `action`, `tactic`, `strategy`
+  - `PlanStep` - Individual step in a plan with action, description, parameters, expected outcome, duration, capabilities
+  - `GeneratedIntention` - Single intention with type, description, priority, plan, reasoning, dependencies, capabilities
+    - Type-safe `intention_type` field using Literal type
+    - Field validator normalizing LLM output (lowercase, variant mapping, validation)
+  - `PlanGenerationResult` - Complete plan with intentions, strategy summary, assumptions, risks, success criteria
+
+- **IntentionStack.generate_plan_for_goal()** (lines 538-753)
+  - **Input:** Goal + Beliefs (context) + LLM Service + Capabilities
+  - **Process:** LLM analyzes goal and beliefs to generate structured multi-step plan
+  - **Output:** List of EmployeeIntention objects with proper dependency chain
+  - **Features:**
+    - Comprehensive system prompt guiding LLM to create executable plans
+    - Dependency resolution (LLM outputs indexes 0,1,2... resolved to actual UUIDs)
+    - Rich context tracking (reasoning, strategy, assumptions, risks, success criteria)
+    - Automatic intention creation via existing `add_intention` method
+    - Temperature 0.4 for balance between creativity and consistency
+    - Error handling (graceful degradation on LLM failure)
+
+- **Helper Method _format_beliefs_for_prompt()** (lines 726-753)
+  - Converts beliefs list to readable text format for LLM
+  - Limits to top 20 beliefs to avoid token overflow
+  - Formats as: "Subject → Predicate: Object (confidence)"
+
+**Type Safety & Validation**
+
+- `IntentionType = Literal["action", "tactic", "strategy"]` matches database constraints
+- Field validator handles LLM output variations:
+  - Normalizes capitalization: "Action" → "action", "TACTIC" → "tactic"
+  - Maps common variants: "task" → "action", "campaign" → "strategy", "approach" → "tactic"
+  - Raises ValidationError for invalid values before persistence
+
+**Comprehensive Tests** (`tests/test_bdi_integration.py`)
+
+Added 3 comprehensive integration tests covering all aspects of plan generation:
+
+- **test_plan_generation_from_goal** - Multi-step plan with dependencies
+  - Tests generation of 3 intentions from a single goal
+  - Verifies dependency resolution (indexes → UUIDs)
+  - Validates context metadata (reasoning, strategy, assumptions, risks)
+  - Confirms proper intention ordering (dependencies enforced)
+
+- **test_plan_generation_with_empty_result** - Empty plan handling
+  - Tests LLM returning no intentions (e.g., no action needed)
+  - Validates graceful handling of goals requiring no action
+
+- **test_intention_type_validation** - Type constraint validation
+  - Tests valid lowercase values pass through
+  - Verifies capitalization normalization
+  - Validates variant mapping (task→action, campaign→strategy)
+  - Confirms ValidationError for invalid values
+
+**Test Results:**
+- **All 3 tests passing** (100%) ✅
+- **Test execution time:** 1.10 seconds (fast with mocked LLM)
+- **Coverage:** 49.50% on empla/bdi/intentions.py (up from ~18%)
+
+### Design Decisions
+
+**LLM Prompt Design:**
+- **System prompt** guides structured plan creation with clear intention types
+- **Dependency specification** using 0-based indexes (intention 0, 1, 2, etc.)
+- **Realistic estimates** for time and capabilities
+- **Comprehensive metadata** (assumptions, risks, success criteria)
+
+**Dependency Resolution:**
+- **LLM outputs indexes** (0, 1, 2) for simplicity in structured output
+- **generate_plan_for_goal resolves** indexes to actual UUIDs during creation
+- **Invalid dependencies logged** and skipped (doesn't crash planning)
+- **Maintains execution order** through dependency chain
+
+**Integration Pattern:**
+- Plans generated via LLM are created using existing `add_intention()` method
+- This ensures consistency with manually-created intentions (same validation, lifecycle)
+- Rich context captures generation metadata for debugging and analysis
+- No special handling needed for LLM-generated intentions (same lifecycle as any intention)
+
+### Example Usage
+
+```python
+from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
+from empla.llm import LLMService, LLMConfig
+
+# Initialize
+llm_service = LLMService(LLMConfig(
+    primary_model="claude-sonnet-4",
+    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+))
+goals = GoalSystem(session, employee_id, tenant_id)
+intentions = IntentionStack(session, employee_id, tenant_id)
+beliefs = BeliefSystem(session, employee_id, tenant_id)
+
+# Get goal and beliefs
+goal = await goals.get_goal(goal_id)
+belief_list = await beliefs.get_all_beliefs(min_confidence=0.6)
+
+# Generate plan
+generated_intentions = await intentions.generate_plan_for_goal(
+    goal=goal,
+    beliefs=belief_list,
+    llm_service=llm_service,
+    capabilities=["email", "research", "calendar"]
+)
+
+# Result: LLM might generate a plan like:
+# 1. Intention: "Research account background" (no dependencies)
+# 2. Intention: "Prepare customized proposal" (depends on #1)
+# 3. Intention: "Send proposal and schedule follow-up" (depends on #2)
+```
+
+### Integration with Proactive Loop
+
+This feature enables the strategic planning phase to autonomously generate plans:
+
+**Before (Manual):**
+```python
+# Manual intention creation
+await intentions.add_intention(
+    goal_id=goal.id,
+    description="Research account",
+    plan={"steps": [{"action": "research", ...}]},
+    priority=8
+)
+```
+
+**After (Autonomous):**
+```python
+# Autonomous plan generation in strategic planning phase
+generated_intentions = await intentions.generate_plan_for_goal(
+    goal=goal,
+    beliefs=beliefs,
+    llm_service=llm_service
+)
+# LLM generates complete multi-step plan with:
+# - Multiple intentions with clear steps
+# - Proper dependency ordering
+# - Reasoning and metadata
+# - All created and ready to execute
+```
+
+### Phase 2.1 Status: 66% Complete
+
+**Completed Milestones:**
+1. ✅ **Belief Extraction** (PR #15) - Understand the world from observations
+2. ✅ **Plan Generation** (PR #16) - Decide what to do to achieve goals
+
+**Remaining:**
+3. **Strategic Planning** (OPTIONAL/FUTURE) - Deep reasoning for long-term strategy
+
+**Impact:**
+Employees can now autonomously:
+- **Perceive** → Extract structured beliefs from observations (LLM-powered)
+- **Plan** → Generate multi-step action plans for goals (LLM-powered)
+- **Ready for Phase 2.2** → Execute plans using tools and learn from outcomes
+
+### Next Steps
+
+**Option A: Complete Phase 2.1 (Strategic Planning)**
+- Implement strategic planning using LLM
+- Location: `empla/core/planning/strategic.py` (to be created)
+- Feature: Deep reasoning for long-term strategy
+
+**Option B: Start Phase 2.2 (Tool Execution & Capabilities)** ← RECOMMENDED
+- Choose agent framework (Agno vs LangGraph vs custom)
+- Implement tool execution layer
+- Add email capability (send, read, reply)
+- This unblocks autonomous action execution
+
+---
+
 ## 2025-11-14 - Phase 2.1: Belief Extraction using LLM
 
 **Phase:** 2.1 - BDI + LLM Integration (First Integration)

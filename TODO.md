@@ -6,53 +6,76 @@
 
 ---
 
-## 📋 Current Session: 2025-11-14
+## 📋 Current Session: 2025-11-16
 
-### ✅ Completed: Belief Extraction using LLM
-**Phase 2.1 First Milestone:** LLM-powered belief extraction from observations
+### ✅ Completed: Custom Tool Execution Layer (Phase 2.2)
+**Phase 2.2 First Milestone:** Core tool execution infrastructure
 
 ### This Session Completed ✅
-- [x] Reviewed BeliefSystem implementation
-- [x] Designed LLM integration approach for belief extraction
-- [x] Created Pydantic models (ExtractedBelief, BeliefExtractionResult)
-- [x] Implemented `extract_beliefs_from_observation()` method
-- [x] Wrote 4 comprehensive integration tests (all passing)
-- [x] Fixed database constraint issues (belief source values)
-- [x] Updated CHANGELOG.md with complete documentation
-- [x] **All tests passing:** 4/4 belief extraction tests ✅
+**Part 1: Plan Generation (PR #16 merged)**
+- [x] Implemented plan generation using LLM
+- [x] Created Pydantic models (PlanStep, GeneratedIntention, PlanGenerationResult)
+- [x] Implemented `generate_plan_for_goal()` method in IntentionStack
+- [x] Added type constraints and validation for intention_type
+- [x] Wrote 3 comprehensive integration tests (all passing)
+- [x] Dependency resolution (indexes → UUIDs)
+- [x] **Phase 2.1 now 66% complete** (belief extraction + plan generation)
+
+**Part 2: Tool Execution Infrastructure (committed 4edfca6)**
+- [x] Created ADR-009: Custom Tool Execution Layer decision
+- [x] Implemented Tool, ToolResult, ToolExecutor protocol, ToolCapability
+- [x] Implemented ToolExecutionEngine with retry logic and error handling
+- [x] Implemented ToolRegistry for tool management
+- [x] Wrote 20 comprehensive unit tests (all passing)
+- [x] **Phase 2.2 now 33% complete** (core infrastructure done)
+
+**Part 3: Security & Reliability Fixes (committed fae4eac)**
+- [x] Fixed ToolExecutor protocol signature mismatch (type safety)
+- [x] Removed PII/secrets from validation error logs (CRITICAL security fix)
+- [x] Implemented unexpected parameter validation (security hardening)
+- [x] Fixed brittle timing assertion (test reliability)
+- [x] Added new test: test_parameter_validation_unexpected_parameter
+- [x] All 93/93 tests passing (21/21 tool execution tests) ✅
 
 ### Implementation Details
-**Files Modified:**
-- `empla/bdi/beliefs.py` - Added belief extraction (lines 27-96, 512-657)
-- `tests/test_bdi_integration.py` - Added 4 integration tests (lines 375-723)
-- `CHANGELOG.md` - Documented Phase 2.1 belief extraction feature
+**Plan Generation (Part 1):**
+- `empla/bdi/intentions.py` - Added plan generation (lines 12-164, 538-753)
+- `tests/test_bdi_integration.py` - Added 3 integration tests (lines 802-1087)
+- Features: Multi-step plans, dependency resolution, type safety
+- 49.50% coverage on empla/bdi/intentions.py
 
-**Key Features:**
-- LLM extracts structured beliefs from observations in SPO format
-- Comprehensive system prompt guides factual belief extraction
-- Evidence tracking (observation UUIDs in belief.evidence)
-- Automatic belief updates (no duplicates for same subject+predicate)
-- 73.73% coverage on empla/bdi/beliefs.py
+**Tool Execution Infrastructure (Part 2):**
+- `empla/core/tools/base.py` - Tool, ToolResult, protocols (94.59% coverage)
+- `empla/core/tools/executor.py` - ToolExecutionEngine with retry (97.33% coverage)
+- `empla/core/tools/registry.py` - ToolRegistry (94.67% coverage)
+- `tests/test_tool_execution.py` - 20 unit tests (all passing)
+- Features: Retry logic, parameter validation, capability management
+- Decision: Custom implementation (ADR-009) over framework lock-in
 
-### Next Steps (Phase 2.1 Continuation)
-**Goal:** Complete BDI + LLM Integration
+### Next Steps
+**Goal:** Continue Phase 2.2 - Implement concrete capabilities
 
-**Priority tasks:**
-1. ✅ **Belief extraction** - Extract structured beliefs from observations using LLM (DONE)
-2. **Plan generation** - Generate action plans when no learned strategy exists
-   - Location: `empla/core/bdi/intentions.py`
-   - Feature: LLM generates step-by-step intention plans
-3. **Strategic planning** - Deep reasoning for long-term strategy
-   - Location: `empla/core/planning/strategic.py` (to be created)
-   - Feature: LLM generates strategic plans and approaches
+**Started Phase 2.2:**
+1. ✅ **Tool execution infrastructure** - Core engine, registry, protocols (committed)
+2. 🔜 **Email capability** - Send, read, reply (Microsoft Graph/Gmail API)
+3. 🔜 **Calendar capability** - Schedule meetings, check availability
+4. 🔜 **Research capability** - Web search, document analysis
+5. 🔜 **BDI integration** - Connect tools to IntentionStack execution
+
+**Deferred to Future:**
+- **Strategic planning** (Phase 2.1 optional milestone)
+  - Location: `empla/core/planning/strategic.py` (to be created)
+  - Feature: LLM generates strategic plans and high-level approaches
 
 ### Blockers
 - None
 
 ### Notes
-- Phase 2.1 belief extraction successfully implemented and tested
-- Ready to implement plan generation next
-- LLM integration pattern established (can reuse for intentions and planning)
+- **Phase 2.1:** Core milestones complete (belief extraction + plan generation)
+- **Phase 2.2:** Tool execution infrastructure complete (custom implementation decision)
+- Employees can now autonomously perceive (extract beliefs) and plan (generate intentions)
+- Next: Implement concrete capabilities (email, calendar, research)
+- Then: Integrate tools with IntentionStack for autonomous execution
 
 ### Previous Session (2025-11-13) ✅
 - [x] Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
@@ -81,20 +104,23 @@
 - [x] Write comprehensive unit tests (16 tests, 100% passing)
 - [x] Write ADR-008: Multi-Provider LLM Abstraction
 
-### Phase 2.1: BDI + LLM Integration (IN PROGRESS)
+### Phase 2.1: BDI + LLM Integration 🚧 66% COMPLETE
 - [x] Integrate LLMService into belief extraction (`empla/bdi/beliefs.py`)
-- [ ] Integrate LLMService into plan generation (`empla/core/bdi/intentions.py`)
-- [ ] Integrate LLMService into strategic planning (`empla/core/planning/strategic.py`)
+- [x] Integrate LLMService into plan generation (`empla/bdi/intentions.py`)
+- [ ] Integrate LLMService into strategic planning (`empla/core/planning/strategic.py`) - OPTIONAL
 - [x] Add belief extraction from observations (text → structured beliefs)
-- [ ] Add plan generation when no learned strategy exists
-- [x] Write integration tests with mocked LLM responses (4 tests for belief extraction)
+- [x] Add plan generation when no learned strategy exists
+- [x] Write integration tests with mocked LLM responses (7 tests total: 4 belief + 3 plan)
 
-### Phase 2.2: Tool Execution & Capabilities (FUTURE)
-- [ ] Choose agent framework (Agno vs LangGraph vs custom)
-- [ ] Implement tool execution layer
+### Phase 2.2: Tool Execution & Capabilities 🚧 33% COMPLETE
+- [x] Choose agent framework (Agno vs LangGraph vs custom) - **CUSTOM (ADR-009)**
+- [x] Implement tool execution layer (engine, registry, protocols)
+- [x] Write comprehensive tests (20 tests, 95%+ coverage)
 - [ ] Add email capability (send, read, reply)
 - [ ] Add calendar capability (schedule, check availability)
 - [ ] Add research capability (web search, document analysis)
+- [ ] Integrate tools with IntentionStack execution
+- [ ] Add BDI integration tests (tool execution → observations → beliefs)
 
 ---
 
@@ -127,23 +153,30 @@
 
 ## 📅 Next Steps
 
-### Immediate (Phase 2.1): BDI + LLM Integration
-**Priority:** Integrate LLMService into BDI components for autonomous decision-making
+### Immediate: Choose Next Direction
 
-1. ✅ **Belief extraction** - Use LLM to extract structured beliefs from observations (COMPLETE)
+**Option A: Complete Phase 2.1 (Strategic Planning)**
+- Implement strategic planning using LLM
+- Location: `empla/core/planning/strategic.py` (to be created)
+- Input: Long-term goals, current situation, historical outcomes
+- Output: Strategic plans and approach recommendations
+
+**Option B: Start Phase 2.2 (Tool Execution & Capabilities)** ← RECOMMENDED
+- Choose agent framework (Agno vs LangGraph vs custom)
+- Implement tool execution layer
+- Add email capability (send, read, reply)
+- This unblocks autonomous action execution
+
+**Completed Phase 2.1 Milestones:**
+1. ✅ **Belief extraction** - Extract structured beliefs from observations
    - Location: `empla/bdi/beliefs.py`
-   - Status: Implemented with 4 passing tests, 72.13% coverage
-   - Features: SPO extraction, evidence tracking, error handling
+   - Status: Implemented with 5 passing tests (including validation), 74.07% coverage
+   - Features: SPO extraction, evidence tracking, type safety, error handling
 
-2. **Plan generation** - Use LLM to generate action plans when no learned strategy exists (NEXT)
-   - Location: `empla/core/bdi/intentions.py`
-   - Input: Current goals, beliefs, context
-   - Output: Step-by-step action plans (Intention objects)
-
-3. **Strategic planning** - Use LLM for deep reasoning and strategy generation (FUTURE)
-   - Location: `empla/core/planning/strategic.py` (to be created)
-   - Input: Long-term goals, current situation, historical outcomes
-   - Output: Strategic plans and approach recommendations
+2. ✅ **Plan generation** - Generate action plans when no learned strategy exists
+   - Location: `empla/bdi/intentions.py`
+   - Status: Implemented with 3 passing tests, 49.50% coverage
+   - Features: Multi-step plans, dependency resolution, type safety, error handling
 
 ### Future (Phase 2.2): Tool Execution & Capabilities
 - Choose agent framework (Agno vs LangGraph vs custom) - **DECISION NEEDED**
@@ -193,21 +226,25 @@ None currently - fresh start!
 - Week 3 (Proactive Loop): ✅ 100% complete
 - Week 4 (Memory System): ✅ 100% complete
 
-**Phase 2 (LLM Integration):** 🚧 35% complete (belief extraction done)
+**Phase 2 (LLM Integration & Capabilities):** 🚧 67% complete
 - Phase 2.0 (Multi-Provider LLM): ✅ 100% complete
-- Phase 2.1 (BDI + LLM Integration): 🚧 33% complete (belief extraction ✅)
-- Phase 2.2 (Tool Execution): 🔜 Not started
+- Phase 2.1 (BDI + LLM Integration): 🚧 66% complete (belief ✅, plan ✅, strategic future)
+- Phase 2.2 (Tool Execution & Capabilities): 🚧 33% complete (infrastructure ✅, capabilities pending)
 
 ### Test Coverage
-**Overall:** 34.08% coverage (68/68 tests passing)
+**Overall:** 69.38% coverage (92/92 tests passing ✅)
 - Memory integration tests: 17/17 passing (100%)
 - Proactive loop unit tests: 23/23 passing (100%)
 - LLM unit tests: 16/16 passing (100%)
-- BDI integration tests: 12/12 passing (100%)
-  - Belief extraction tests: 4/4 passing ✅
-- Proactive loop coverage: 90.60%
-- LLM package coverage: 80.21%+
-- BDI beliefs coverage: 72.13%
+- BDI integration tests: 13/13 passing (100%)
+  - Belief extraction tests: 5/5 passing ✅ (including validation)
+  - Plan generation tests: 3/3 passing ✅ (including validation)
+- **Tool execution tests: 20/20 passing (100%) 🆕**
+- Proactive loop coverage: 90.06%
+- LLM package coverage: 79.59%
+- **Tool execution coverage: 95.53%+ (base 94.59%, executor 97.33%, registry 94.67%) 🆕**
+- BDI beliefs coverage: 74.07%
+- BDI intentions coverage: 65.84%
 
 ### Current Status
 **Completed:**
@@ -216,16 +253,23 @@ None currently - fresh start!
 - ✅ Proactive execution loop
 - ✅ Memory systems (episodic, semantic, procedural, working)
 - ✅ Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
-- ✅ Belief extraction using LLM (Phase 2.1 first milestone)
+- ✅ Belief extraction using LLM (Phase 2.1 first milestone - PR #15)
+- ✅ Plan generation using LLM (Phase 2.1 second milestone - PR #16)
+- ✅ Tool execution infrastructure (Phase 2.2 first milestone - commit 4edfca6)
 
 **In Progress:**
-- 🚧 Phase 2.1: BDI + LLM Integration (belief extraction ✅, plan generation next)
+- 🚧 Phase 2.2: Tool Execution & Capabilities (33% complete)
+  - ✅ Core infrastructure (engine, registry, protocols, tests)
+  - 🔜 Email capability implementation
+  - 🔜 Calendar capability implementation
+  - 🔜 BDI integration (tools ↔ intentions ↔ observations ↔ beliefs)
 
 **Next:**
-- 🔜 Plan generation using LLM
-- 🔜 Strategic planning using LLM
+- 🔜 Implement email capability (send, read, reply)
+- 🔜 Implement calendar capability (schedule, check availability)
+- 🔜 Integrate tools with IntentionStack execution
 
 ---
 
-**Last Updated:** 2025-11-14 (Belief extraction using LLM complete)
-**Next Session Goal:** Implement plan generation using LLM (Phase 2.1 continuation)
+**Last Updated:** 2025-11-16 (Security & reliability fixes complete - commit fae4eac)
+**Next Session Goal:** Implement email capability and integrate with IntentionStack
