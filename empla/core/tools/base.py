@@ -128,18 +128,26 @@ class ToolExecutor(Protocol):
 
     Example:
         >>> class MyExecutor:
-        ...     async def execute(self, tool: Tool, params: dict[str, Any]) -> ToolResult:
+        ...     async def execute(
+        ...         self,
+        ...         tool: Tool,
+        ...         implementation: ToolImplementation,
+        ...         params: dict[str, Any]
+        ...     ) -> ToolResult:
         ...         # Implementation here
         ...         pass
         >>> executor: ToolExecutor = MyExecutor()  # Type checks!
     """
 
-    async def execute(self, tool: Tool, params: dict[str, Any]) -> ToolResult:
+    async def execute(
+        self, tool: Tool, implementation: "ToolImplementation", params: dict[str, Any]
+    ) -> ToolResult:
         """
         Execute a tool with given parameters.
 
         Args:
             tool: Tool to execute
+            implementation: Concrete tool implementation
             params: Parameters matching tool's parameters_schema
 
         Returns:

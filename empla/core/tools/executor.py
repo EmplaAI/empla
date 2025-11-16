@@ -106,7 +106,7 @@ class ToolExecutionEngine:
         if validation_error:
             logger.warning(
                 f"Parameter validation failed for {tool.name}: {validation_error}",
-                extra={"tool_id": str(tool.tool_id), "params": params},
+                extra={"tool_id": str(tool.tool_id), "tool_name": tool.name},
             )
             return ToolResult(
                 tool_id=tool.tool_id,
@@ -234,6 +234,11 @@ class ToolExecutionEngine:
             if isinstance(param_spec, dict) and param_spec.get("required", False):
                 if param_name not in params:
                     return f"Missing required parameter: {param_name}"
+
+        # Check for unexpected parameters
+        for param_name in params.keys():
+            if param_name not in schema:
+                return f"Unexpected parameter: {param_name}"
 
         # Basic type checking (detailed validation in implementation)
         for param_name, param_value in params.items():

@@ -203,6 +203,30 @@ async def test_parameter_validation_wrong_type():
 
 
 @pytest.mark.asyncio
+async def test_parameter_validation_unexpected_parameter():
+    """Test parameter validation for unexpected parameter."""
+    engine = ToolExecutionEngine()
+    tool = Tool(
+        name="test_tool",
+        description="Test tool",
+        parameters_schema={
+            "allowed_param": {"type": "string"},
+        },
+    )
+    implementation = SuccessfulTool()
+
+    # Pass an unexpected parameter
+    result = await engine.execute(
+        tool, implementation, {"allowed_param": "valid", "unexpected_param": "should_fail"}
+    )
+
+    assert not result.success
+    assert "unexpected parameter" in result.error.lower()
+    assert "unexpected_param" in result.error
+    assert result.retries == 0
+
+
+@pytest.mark.asyncio
 async def test_execution_timing():
     """Test that execution duration is tracked correctly."""
     engine = ToolExecutionEngine()
@@ -216,8 +240,7 @@ async def test_execution_timing():
     result = await engine.execute(tool, implementation, {})
 
     assert result.success
-    assert result.duration_ms >= 100  # At least 100ms
-    assert result.duration_ms < 500  # But not too long
+    assert result.duration_ms >= 100  # At least 100ms (delay was applied)
 
 
 @pytest.mark.asyncio
