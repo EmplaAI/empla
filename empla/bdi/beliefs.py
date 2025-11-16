@@ -11,16 +11,19 @@ BDI Belief System implementation:
 
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from empla.models.belief import Belief, BeliefHistory
 
 logger = logging.getLogger(__name__)
+
+# Allowed belief types (must match database constraint)
+BeliefType = Literal["state", "event", "causal", "evaluative"]
 
 if TYPE_CHECKING:
     from empla.core.loop.models import Observation
@@ -68,10 +71,57 @@ class ExtractedBelief(BaseModel):
         description="Explanation of why this belief was extracted from the observation",
         min_length=1,
     )
-    belief_type: str = Field(
+    belief_type: BeliefType = Field(
         default="state",
         description="Type of belief (state, event, causal, evaluative)",
     )
+
+    @field_validator("belief_type", mode="before")
+    @classmethod
+    def normalize_belief_type(cls, v: str | BeliefType) -> str:
+        """
+        Normalize belief_type to lowercase and validate against allowed values.
+
+        This handles variations in LLM output (capitalization, common synonyms)
+        and ensures the value matches database constraints.
+
+        Args:
+            v: Raw belief_type value from LLM
+
+        Returns:
+            Normalized belief_type value
+
+        Raises:
+            ValueError: If belief_type is not valid
+        """
+        if not isinstance(v, str):
+            return v  # Already validated by Literal type
+
+        # Normalize to lowercase
+        normalized = v.lower().strip()
+
+        # Map common variants to canonical values
+        variant_map = {
+            "status": "state",
+            "condition": "state",
+            "action": "event",
+            "occurrence": "event",
+            "cause": "causal",
+            "cause-effect": "causal",
+            "assessment": "evaluative",
+            "evaluation": "evaluative",
+            "judgment": "evaluative",
+        }
+        normalized = variant_map.get(normalized, normalized)
+
+        # Validate against allowed values
+        allowed: set[str] = {"state", "event", "causal", "evaluative"}
+        if normalized not in allowed:
+            raise ValueError(
+                f"Invalid belief_type '{v}'. Must be one of: {', '.join(sorted(allowed))}"
+            )
+
+        return normalized
 
 
 class BeliefExtractionResult(BaseModel):

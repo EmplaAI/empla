@@ -723,5 +723,81 @@ async def test_belief_extraction_evidence_tracking(session, employee, tenant):
     await session.commit()
 
 
+@pytest.mark.asyncio
+async def test_belief_type_validation():
+    """Test belief_type validation and normalization in ExtractedBelief."""
+    from pydantic import ValidationError
+
+    # Valid lowercase values should pass
+    valid_types = ["state", "event", "causal", "evaluative"]
+    for belief_type in valid_types:
+        belief = ExtractedBelief(
+            subject="Test",
+            predicate="test",
+            object={"value": "test"},
+            confidence=0.8,
+            reasoning="test",
+            belief_type=belief_type,
+        )
+        assert belief.belief_type == belief_type
+
+    # Capitalized values should be normalized to lowercase
+    capitalized_tests = [
+        ("State", "state"),
+        ("EVENT", "event"),
+        ("Causal", "causal"),
+        ("EVALUATIVE", "evaluative"),
+        ("  state  ", "state"),  # With whitespace
+    ]
+    for input_val, expected in capitalized_tests:
+        belief = ExtractedBelief(
+            subject="Test",
+            predicate="test",
+            object={"value": "test"},
+            confidence=0.8,
+            reasoning="test",
+            belief_type=input_val,
+        )
+        assert belief.belief_type == expected
+
+    # Common variants should be mapped to canonical values
+    variant_tests = [
+        ("status", "state"),
+        ("condition", "state"),
+        ("action", "event"),
+        ("occurrence", "event"),
+        ("cause", "causal"),
+        ("cause-effect", "causal"),
+        ("assessment", "evaluative"),
+        ("evaluation", "evaluative"),
+        ("judgment", "evaluative"),
+    ]
+    for input_val, expected in variant_tests:
+        belief = ExtractedBelief(
+            subject="Test",
+            predicate="test",
+            object={"value": "test"},
+            confidence=0.8,
+            reasoning="test",
+            belief_type=input_val,
+        )
+        assert belief.belief_type == expected
+
+    # Invalid values should raise ValidationError
+    invalid_types = ["invalid", "unknown", "random", "xyz"]
+    for invalid_type in invalid_types:
+        with pytest.raises(ValidationError) as exc_info:
+            ExtractedBelief(
+                subject="Test",
+                predicate="test",
+                object={"value": "test"},
+                confidence=0.8,
+                reasoning="test",
+                belief_type=invalid_type,
+            )
+        # Verify error message mentions the invalid value
+        assert "belief_type" in str(exc_info.value).lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
