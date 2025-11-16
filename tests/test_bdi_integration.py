@@ -799,5 +799,292 @@ async def test_belief_type_validation():
         assert "belief_type" in str(exc_info.value).lower()
 
 
+@pytest.mark.asyncio
+async def test_plan_generation_from_goal(session, employee, tenant):
+    """Test generating a plan for a goal using LLM."""
+    from empla.bdi.intentions import GeneratedIntention, PlanGenerationResult
+
+    goals = GoalSystem(session, employee.id, tenant.id)
+    intentions = IntentionStack(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id)
+
+    # Create a goal
+    goal = await goals.add_goal(
+        goal_type="achievement",
+        description="Close deal with Acme Corp by end of month",
+        priority=9,
+        target={"metric": "deal_closed", "account": "Acme Corp", "deadline": "2025-12-31"},
+    )
+
+    # Create some relevant beliefs for context
+    await beliefs.update_belief(
+        subject="Acme Corp",
+        predicate="interest_level",
+        object={"level": "high", "reason": "requested demo"},
+        confidence=0.85,
+        source="observation",
+    )
+
+    # Get beliefs for planning context
+    belief_list = await beliefs.get_all_beliefs()
+
+    # Create mock LLM service
+    mock_llm = AsyncMock()
+
+    # Define the plan the LLM should generate
+    plan_result = PlanGenerationResult(
+        intentions=[
+            GeneratedIntention(
+                intention_type="tactic",
+                description="Research Acme Corp background and competitors",
+                priority=8,
+                plan={
+                    "steps": [
+                        {
+                            "action": "research_company",
+                            "description": "Research Acme Corp",
+                            "parameters": {"company": "Acme Corp"},
+                            "expected_outcome": "Company profile with key info",
+                        }
+                    ]
+                },
+                reasoning="Need context before crafting proposal",
+                estimated_duration_minutes=30,
+                dependencies=[],
+                required_capabilities=["research"],
+            ),
+            GeneratedIntention(
+                intention_type="action",
+                description="Prepare customized proposal for Acme Corp",
+                priority=9,
+                plan={
+                    "steps": [
+                        {
+                            "action": "create_proposal",
+                            "description": "Create proposal",
+                            "parameters": {"account": "Acme Corp", "template": "enterprise"},
+                            "expected_outcome": "Customized proposal document",
+                        }
+                    ]
+                },
+                reasoning="Customized proposal increases close rate",
+                estimated_duration_minutes=60,
+                dependencies=[0],  # Depends on research
+                required_capabilities=["document_generation"],
+            ),
+            GeneratedIntention(
+                intention_type="action",
+                description="Send proposal and schedule follow-up call",
+                priority=9,
+                plan={
+                    "steps": [
+                        {
+                            "action": "send_email",
+                            "description": "Send proposal email",
+                            "parameters": {"to": "ceo@acmecorp.com", "attach_proposal": True},
+                            "expected_outcome": "Proposal sent",
+                        },
+                        {
+                            "action": "schedule_followup",
+                            "description": "Schedule follow-up",
+                            "parameters": {"days_after": 2},
+                            "expected_outcome": "Follow-up scheduled",
+                        },
+                    ]
+                },
+                reasoning="Quick follow-up maintains momentum",
+                estimated_duration_minutes=15,
+                dependencies=[1],  # Depends on proposal
+                required_capabilities=["email", "calendar"],
+            ),
+        ],
+        strategy_summary="Research-driven customized proposal with timely follow-up",
+        assumptions=["Decision maker accessible", "Budget available"],
+        risks=["Competitor timing", "May need multiple follow-ups"],
+        success_criteria=["Proposal sent", "Follow-up call scheduled", "Deal closed"],
+    )
+
+    mock_response = LLMResponse(
+        content="",
+        model="claude-sonnet-4",
+        usage=TokenUsage(input_tokens=200, output_tokens=150, total_tokens=350),
+        finish_reason="stop",
+        structured_output=plan_result,
+    )
+
+    mock_llm.generate_structured = AsyncMock(return_value=(mock_response, plan_result))
+
+    # Generate plan
+    generated_intentions = await intentions.generate_plan_for_goal(
+        goal=goal,
+        beliefs=belief_list,
+        llm_service=mock_llm,
+        capabilities=["research", "document_generation", "email", "calendar"],
+    )
+
+    # Verify intentions were created
+    assert len(generated_intentions) == 3
+
+    # Verify first intention (research, no dependencies)
+    int1 = generated_intentions[0]
+    assert int1.intention_type == "tactic"
+    assert int1.description == "Research Acme Corp background and competitors"
+    assert int1.priority == 8
+    assert int1.goal_id == goal.id
+    assert int1.status == "planned"
+    assert len(int1.dependencies) == 0
+    assert int1.context["reasoning"] == "Need context before crafting proposal"
+    assert int1.context["strategy_summary"] == plan_result.strategy_summary
+
+    # Verify second intention (proposal, depends on research)
+    int2 = generated_intentions[1]
+    assert int2.intention_type == "action"
+    assert int2.description == "Prepare customized proposal for Acme Corp"
+    assert int2.priority == 9
+    assert len(int2.dependencies) == 1
+    assert int2.dependencies[0] == int1.id  # Depends on research
+
+    # Verify third intention (send, depends on proposal)
+    int3 = generated_intentions[2]
+    assert int3.intention_type == "action"
+    assert int3.description == "Send proposal and schedule follow-up call"
+    assert len(int3.dependencies) == 1
+    assert int3.dependencies[0] == int2.id  # Depends on proposal
+
+    # Verify all intentions are in database
+    all_intentions = await intentions.get_intentions_for_goal(goal.id)
+    assert len(all_intentions) == 3
+
+    # Verify generation metadata is captured
+    assert "generation_metadata" in int1.context
+    assert "assumptions" in int1.context["generation_metadata"]
+    assert len(int1.context["generation_metadata"]["assumptions"]) == 2
+
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_plan_generation_with_empty_result(session, employee, tenant):
+    """Test plan generation when LLM returns no intentions."""
+    from empla.bdi.intentions import PlanGenerationResult
+
+    goals = GoalSystem(session, employee.id, tenant.id)
+    intentions = IntentionStack(session, employee.id, tenant.id)
+
+    # Create a goal
+    goal = await goals.add_goal(
+        goal_type="maintenance",
+        description="Monitor system health",
+        priority=3,
+        target={"metric": "uptime", "value": 99.9},
+    )
+
+    # Mock LLM to return no intentions
+    mock_llm = AsyncMock()
+    plan_result = PlanGenerationResult(
+        intentions=[],  # No intentions
+        strategy_summary="No action needed, system is healthy",
+        assumptions=[],
+        risks=[],
+        success_criteria=["System remains healthy"],
+    )
+
+    mock_llm.generate_structured = AsyncMock(
+        return_value=(
+            LLMResponse(
+                content="",
+                model="claude-sonnet-4",
+                usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
+                finish_reason="stop",
+                structured_output=plan_result,
+            ),
+            plan_result,
+        )
+    )
+
+    # Generate plan
+    generated_intentions = await intentions.generate_plan_for_goal(
+        goal=goal, beliefs=[], llm_service=mock_llm
+    )
+
+    # Should return empty list
+    assert len(generated_intentions) == 0
+
+    # Should not have created any intentions
+    all_intentions = await intentions.get_intentions_for_goal(goal.id)
+    assert len(all_intentions) == 0
+
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_intention_type_validation():
+    """Test intention_type validation and normalization in GeneratedIntention."""
+    from pydantic import ValidationError
+
+    from empla.bdi.intentions import GeneratedIntention
+
+    # Valid lowercase values should pass
+    valid_types = ["action", "tactic", "strategy"]
+    for intention_type in valid_types:
+        intention = GeneratedIntention(
+            intention_type=intention_type,
+            description="Test intention",
+            priority=5,
+            plan={"steps": []},
+            reasoning="test",
+        )
+        assert intention.intention_type == intention_type
+
+    # Capitalized values should be normalized
+    capitalized_tests = [
+        ("Action", "action"),
+        ("TACTIC", "tactic"),
+        ("Strategy", "strategy"),
+        ("  action  ", "action"),
+    ]
+    for input_val, expected in capitalized_tests:
+        intention = GeneratedIntention(
+            intention_type=input_val,
+            description="Test",
+            priority=5,
+            plan={"steps": []},
+            reasoning="test",
+        )
+        assert intention.intention_type == expected
+
+    # Common variants should be mapped
+    variant_tests = [
+        ("task", "action"),
+        ("step", "action"),
+        ("approach", "tactic"),
+        ("method", "tactic"),
+        ("plan", "strategy"),
+        ("campaign", "strategy"),
+    ]
+    for input_val, expected in variant_tests:
+        intention = GeneratedIntention(
+            intention_type=input_val,
+            description="Test",
+            priority=5,
+            plan={"steps": []},
+            reasoning="test",
+        )
+        assert intention.intention_type == expected
+
+    # Invalid values should raise ValidationError
+    invalid_types = ["invalid", "unknown", "random"]
+    for invalid_type in invalid_types:
+        with pytest.raises(ValidationError) as exc_info:
+            GeneratedIntention(
+                intention_type=invalid_type,
+                description="Test",
+                priority=5,
+                plan={"steps": []},
+                reasoning="test",
+            )
+        assert "intention_type" in str(exc_info.value).lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
