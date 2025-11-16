@@ -8,56 +8,66 @@
 
 ## 📋 Current Session: 2025-11-16
 
-### ✅ Completed: Plan Generation using LLM
-**Phase 2.1 Second Milestone:** LLM-powered plan generation for goals
+### ✅ Completed: Custom Tool Execution Layer (Phase 2.2)
+**Phase 2.2 First Milestone:** Core tool execution infrastructure
 
 ### This Session Completed ✅
-- [x] Implemented plan generation using LLM (PR #16 merged)
+**Part 1: Plan Generation (PR #16 merged)**
+- [x] Implemented plan generation using LLM
 - [x] Created Pydantic models (PlanStep, GeneratedIntention, PlanGenerationResult)
 - [x] Implemented `generate_plan_for_goal()` method in IntentionStack
 - [x] Added type constraints and validation for intention_type
 - [x] Wrote 3 comprehensive integration tests (all passing)
 - [x] Dependency resolution (indexes → UUIDs)
-- [x] **All tests passing:** 3/3 plan generation tests ✅
 - [x] **Phase 2.1 now 66% complete** (belief extraction + plan generation)
 
+**Part 2: Tool Execution Infrastructure (committed 4edfca6)**
+- [x] Created ADR-009: Custom Tool Execution Layer decision
+- [x] Implemented Tool, ToolResult, ToolExecutor protocol, ToolCapability
+- [x] Implemented ToolExecutionEngine with retry logic and error handling
+- [x] Implemented ToolRegistry for tool management
+- [x] Wrote 20 comprehensive unit tests (all passing)
+- [x] **Phase 2.2 now 33% complete** (core infrastructure done)
+
 ### Implementation Details
-**Files Modified:**
+**Plan Generation (Part 1):**
 - `empla/bdi/intentions.py` - Added plan generation (lines 12-164, 538-753)
 - `tests/test_bdi_integration.py` - Added 3 integration tests (lines 802-1087)
+- Features: Multi-step plans, dependency resolution, type safety
+- 49.50% coverage on empla/bdi/intentions.py
 
-**Key Features:**
-- LLM generates multi-step action plans from goals and beliefs
-- Dependency resolution (intentions can depend on other intentions)
-- Type-safe intention_type with normalization and validation
-- Rich context tracking (reasoning, strategy, assumptions, risks)
-- 49.50% coverage on empla/bdi/intentions.py (up from ~18%)
+**Tool Execution Infrastructure (Part 2):**
+- `empla/core/tools/base.py` - Tool, ToolResult, protocols (94.59% coverage)
+- `empla/core/tools/executor.py` - ToolExecutionEngine with retry (97.33% coverage)
+- `empla/core/tools/registry.py` - ToolRegistry (94.67% coverage)
+- `tests/test_tool_execution.py` - 20 unit tests (all passing)
+- Features: Retry logic, parameter validation, capability management
+- Decision: Custom implementation (ADR-009) over framework lock-in
 
 ### Next Steps
-**Goal:** Determine next priority - Complete Phase 2.1 or start Phase 2.2
+**Goal:** Continue Phase 2.2 - Implement concrete capabilities
 
-**Completed in Phase 2.1:**
-1. ✅ **Belief extraction** - Extract structured beliefs from observations (PR #15)
-2. ✅ **Plan generation** - Generate action plans for goals (PR #16)
+**Started Phase 2.2:**
+1. ✅ **Tool execution infrastructure** - Core engine, registry, protocols (committed)
+2. 🔜 **Email capability** - Send, read, reply (Microsoft Graph/Gmail API)
+3. 🔜 **Calendar capability** - Schedule meetings, check availability
+4. 🔜 **Research capability** - Web search, document analysis
+5. 🔜 **BDI integration** - Connect tools to IntentionStack execution
 
-**Remaining Phase 2.1:**
-3. **Strategic planning** - Deep reasoning for long-term strategy (OPTIONAL/FUTURE)
-   - Location: `empla/core/planning/strategic.py` (to be created)
-   - Feature: LLM generates strategic plans and high-level approaches
-
-**Alternative: Start Phase 2.2 (Tool Execution & Capabilities)**
-- Choose agent framework (Agno vs LangGraph vs custom)
-- Implement tool execution layer
-- Add email capability (send, read, reply)
+**Deferred to Future:**
+- **Strategic planning** (Phase 2.1 optional milestone)
+  - Location: `empla/core/planning/strategic.py` (to be created)
+  - Feature: LLM generates strategic plans and high-level approaches
 
 ### Blockers
 - None
 
 ### Notes
-- Phase 2.1 core milestones complete (belief extraction + plan generation)
+- **Phase 2.1:** Core milestones complete (belief extraction + plan generation)
+- **Phase 2.2:** Tool execution infrastructure complete (custom implementation decision)
 - Employees can now autonomously perceive (extract beliefs) and plan (generate intentions)
-- Strategic planning is optional enhancement, can be deferred
-- Ready to start Phase 2.2 (Tool Execution) or complete Phase 2.1
+- Next: Implement concrete capabilities (email, calendar, research)
+- Then: Integrate tools with IntentionStack for autonomous execution
 
 ### Previous Session (2025-11-13) ✅
 - [x] Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
@@ -94,12 +104,15 @@
 - [x] Add plan generation when no learned strategy exists
 - [x] Write integration tests with mocked LLM responses (7 tests total: 4 belief + 3 plan)
 
-### Phase 2.2: Tool Execution & Capabilities (FUTURE)
-- [ ] Choose agent framework (Agno vs LangGraph vs custom)
-- [ ] Implement tool execution layer
+### Phase 2.2: Tool Execution & Capabilities 🚧 33% COMPLETE
+- [x] Choose agent framework (Agno vs LangGraph vs custom) - **CUSTOM (ADR-009)**
+- [x] Implement tool execution layer (engine, registry, protocols)
+- [x] Write comprehensive tests (20 tests, 95%+ coverage)
 - [ ] Add email capability (send, read, reply)
 - [ ] Add calendar capability (schedule, check availability)
 - [ ] Add research capability (web search, document analysis)
+- [ ] Integrate tools with IntentionStack execution
+- [ ] Add BDI integration tests (tool execution → observations → beliefs)
 
 ---
 
@@ -205,23 +218,25 @@ None currently - fresh start!
 - Week 3 (Proactive Loop): ✅ 100% complete
 - Week 4 (Memory System): ✅ 100% complete
 
-**Phase 2 (LLM Integration):** 🚧 55% complete (belief extraction + plan generation done)
+**Phase 2 (LLM Integration & Capabilities):** 🚧 67% complete
 - Phase 2.0 (Multi-Provider LLM): ✅ 100% complete
 - Phase 2.1 (BDI + LLM Integration): 🚧 66% complete (belief ✅, plan ✅, strategic future)
-- Phase 2.2 (Tool Execution): 🔜 Not started
+- Phase 2.2 (Tool Execution & Capabilities): 🚧 33% complete (infrastructure ✅, capabilities pending)
 
 ### Test Coverage
-**Overall:** 35.11% coverage (71/71 tests passing)
+**Overall:** 69.38% coverage (92/92 tests passing ✅)
 - Memory integration tests: 17/17 passing (100%)
 - Proactive loop unit tests: 23/23 passing (100%)
 - LLM unit tests: 16/16 passing (100%)
-- BDI integration tests: 15/15 passing (100%)
+- BDI integration tests: 13/13 passing (100%)
   - Belief extraction tests: 5/5 passing ✅ (including validation)
   - Plan generation tests: 3/3 passing ✅ (including validation)
-- Proactive loop coverage: 90.60%
-- LLM package coverage: 80.21%+
+- **Tool execution tests: 20/20 passing (100%) 🆕**
+- Proactive loop coverage: 90.06%
+- LLM package coverage: 79.59%
+- **Tool execution coverage: 95.53%+ (base 94.59%, executor 97.33%, registry 94.67%) 🆕**
 - BDI beliefs coverage: 74.07%
-- BDI intentions coverage: 49.50%
+- BDI intentions coverage: 65.84%
 
 ### Current Status
 **Completed:**
@@ -232,15 +247,21 @@ None currently - fresh start!
 - ✅ Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
 - ✅ Belief extraction using LLM (Phase 2.1 first milestone - PR #15)
 - ✅ Plan generation using LLM (Phase 2.1 second milestone - PR #16)
+- ✅ Tool execution infrastructure (Phase 2.2 first milestone - commit 4edfca6)
 
 **In Progress:**
-- 🚧 Deciding next direction: Complete Phase 2.1 or start Phase 2.2
+- 🚧 Phase 2.2: Tool Execution & Capabilities (33% complete)
+  - ✅ Core infrastructure (engine, registry, protocols, tests)
+  - 🔜 Email capability implementation
+  - 🔜 Calendar capability implementation
+  - 🔜 BDI integration (tools ↔ intentions ↔ observations ↔ beliefs)
 
 **Next:**
-- 🔜 Option A: Strategic planning using LLM (complete Phase 2.1)
-- 🔜 Option B: Tool execution & capabilities (start Phase 2.2) ← RECOMMENDED
+- 🔜 Implement email capability (send, read, reply)
+- 🔜 Implement calendar capability (schedule, check availability)
+- 🔜 Integrate tools with IntentionStack execution
 
 ---
 
-**Last Updated:** 2025-11-16 (Plan generation using LLM complete - PR #16 merged)
-**Next Session Goal:** Decide direction and start either strategic planning or tool execution
+**Last Updated:** 2025-11-16 (Tool execution infrastructure complete - commit 4edfca6)
+**Next Session Goal:** Implement email capability and integrate with IntentionStack

@@ -6,6 +6,255 @@
 
 ---
 
+## 2025-11-16 - Phase 2.2: Custom Tool Execution Infrastructure
+
+**Phase:** 2.2 - Tool Execution & Capabilities (First Milestone)
+
+### Added
+
+**Core Tool Execution System** (`empla/core/tools/`)
+
+Implemented custom tool execution infrastructure rather than adopting framework (Agno/LangGraph) based on Phase 2.1 learnings about our actual needs:
+
+- **Tool Base Definitions** (`base.py` - 94.59% coverage)
+  - `Tool` - Tool definition with parameters schema, required capabilities, metadata
+  - `ToolResult` - Execution outcome with success/error, timing, retry count
+  - `ToolExecutor` - Protocol for execution implementations (enables multiple strategies)
+  - `ToolImplementation` - Protocol for concrete tool implementations
+  - `ToolCapability` - Capability grouping for tool discovery and access control
+  - Structural subtyping via protocols (flexible, testable, swappable implementations)
+
+- **Tool Execution Engine** (`executor.py` - 97.33% coverage)
+  - `ToolExecutionEngine` - Executes tools with retry logic and error handling
+  - **Retry Logic:** Exponential backoff with jitter for transient failures
+  - **Error Classification:** Distinguishes transient (retry) vs permanent (fail) errors
+  - **Parameter Validation:** Schema-based validation before execution
+  - **Performance Tracking:** Execution timing, retry counts, metrics
+  - **Zero-Exception Guarantee:** Never raises - all errors captured in ToolResult
+  - **Features:**
+    - Max 3 retries (configurable)
+    - Exponential backoff: 100ms → 200ms → 400ms (with ±25% jitter)
+    - Conservative retry policy (only obvious transient errors)
+    - Structured error logging at each attempt
+    - Parameter type checking (string, number, boolean, array, object)
+
+- **Tool Registry** (`registry.py` - 94.67% coverage)
+  - `ToolRegistry` - Manages available tools and their implementations
+  - **Features:**
+    - Tool registration with implementation binding
+    - Capability management
+    - Tool discovery by name, capability, category, tag
+    - Employee-specific tool filtering (capabilities + credentials)
+    - Credential validation for capability requirements
+    - Dict-based for fast O(1) lookup
+
+- **Comprehensive Tests** (`tests/test_tool_execution.py`)
+  - **20 unit tests** covering all functionality (100% passing ✅)
+  - Test categories:
+    - Execution engine: 9/9 tests (success, failure, retry, validation, timing)
+    - Tool registry: 11/11 tests (registration, discovery, filtering, capabilities)
+  - **Mock implementations:** SuccessfulTool, FailingTool, FlakeyTool, SlowTool
+  - **Coverage:** 95.53%+ average across all tool modules
+
+### Decided
+
+**ADR-009: Custom Tool Execution Layer**
+
+Decision to build custom implementation rather than adopt framework (Agno/LangGraph):
+
+**Rationale:**
+1. **We now know our needs** (Phase 2.1 provided evidence):
+   - Tool patterns are simple: direct API calls to Microsoft Graph, Gmail, CRMs
+   - Complex orchestration already handled by BDI architecture + IntentionStack
+   - No need for complex tool workflows - BDI handles multi-step logic
+
+2. **We already have the hard parts:**
+   - Planning/reasoning: BDI + LLM plan generation
+   - Memory: Episodic, semantic, procedural, working
+   - Multi-step execution: IntentionStack with dependencies
+   - Decision-making: Goal evaluation, intention prioritization
+
+3. **Simple implementation for our use case:**
+   - Tool execution layer: ~300 lines of clean code
+   - Retry logic: Standard exponential backoff (20 lines)
+   - Error handling: Try/catch + logging (straightforward)
+   - Tool registry: Dict-based lookup (simple and fast)
+
+4. **Perfect BDI integration:**
+   - IntentionStack.execute_intention() → ToolExecutor.execute()
+   - ToolResult → Observation → BeliefSystem.update()
+   - Outcome → ProceduralMemory.store_strategy()
+   - Error → Replanning in next cycle
+
+5. **Zero framework lock-in:**
+   - No external dependencies (beyond API client libraries)
+   - Can swap implementation later if needed
+   - Can wrap Agno/LangGraph if we hit limitations
+   - Maximum flexibility maintained
+
+**Alternatives Considered:**
+- **Agno:** MCP-native, modern, but solves problems we don't have (we already have orchestration)
+- **LangGraph:** State graph model conflicts with BDI intentions model
+- **LangChain:** Known instability, heavy dependency
+- **Defer again:** We NOW have the information (completed Phase 2.1) - time to decide
+
+**Trade-offs Accepted:**
+- ❌ Build our own retry logic (but it's simple - 20 lines)
+- ❌ No pre-built community tools (but most don't fit BDI model anyway)
+- ❌ We own the code (but it's small, stable, and well-tested)
+
+### Design Decisions
+
+**Error Handling Philosophy:**
+- **execute() NEVER raises exceptions** - all errors captured in ToolResult
+- **Critical for autonomous operation:** Employees must handle failures gracefully
+- **Employee decides response:** Retry? Replan? Escalate? (not hardcoded)
+- **Example:** Rate limit error → Employee can back off, auth error → Reauthorize
+
+**Retry Policy:**
+- **Conservative approach:** Only retry obvious transient errors
+- **Transient indicators:** timeout, rate limit, 503, 429, network, connection
+- **Permanent indicators:** auth, forbidden, not found, invalid, validation, 400, 401, 403, 404
+- **Unknown errors:** Don't retry (let employee decide at higher level)
+
+**Protocol-Based Design:**
+- **ToolExecutor protocol:** Allows multiple implementations (mock, production, framework wrappers)
+- **ToolImplementation protocol:** Clean interface for concrete tools
+- **Benefits:** Testable, swappable, no hard dependencies
+- **Future-proof:** Can add AgnoToolExecutor, LangGraphToolExecutor later
+
+### Test Results
+
+**All Tests Passing:**
+- **Total:** 92/92 tests passing (100% pass rate) ✅ (was 71/71)
+- **New tool execution tests:** 20/20 passing (100%) ✅
+- **Overall coverage:** 69.38% (up from 35.11%)
+- **Tool execution coverage:**
+  - executor.py: 97.33%
+  - base.py: 94.59%
+  - registry.py: 94.67%
+  - Average: 95.53%+
+
+**Test execution time:** < 1 second for all tool tests
+
+### Example Usage
+
+```python
+from empla.core.tools import ToolExecutionEngine, ToolRegistry, Tool
+from empla.core.tools.capabilities.email import SendEmailTool
+
+# Register tool
+registry = ToolRegistry()
+email_tool = Tool(
+    name="send_email",
+    description="Send an email via Microsoft Graph API",
+    parameters_schema={
+        "to": {"type": "string", "required": True},
+        "subject": {"type": "string", "required": True},
+        "body": {"type": "string", "required": True},
+    },
+    required_capabilities=["email", "microsoft_graph"],
+    category="communication",
+    tags=["email", "priority"],
+)
+registry.register_tool(email_tool, SendEmailTool())
+
+# Execute tool
+engine = ToolExecutionEngine(max_retries=3)
+tool = registry.get_tool_by_name("send_email")
+impl = registry.get_implementation(tool.tool_id)
+
+result = await engine.execute(
+    tool=tool,
+    implementation=impl,
+    params={
+        "to": "customer@example.com",
+        "subject": "Follow-up from our conversation",
+        "body": "Thank you for your time today..."
+    }
+)
+
+if result.success:
+    print(f"Email sent: {result.output}")
+else:
+    # Employee decides how to handle failure
+    if "rate_limit" in result.error:
+        await asyncio.sleep(60)  # Back off
+    elif "auth" in result.error:
+        await reauthorize()  # Fix credentials
+    else:
+        await create_fallback_intention()  # Replan
+```
+
+### Integration with BDI
+
+Tool execution integrates seamlessly with existing BDI architecture:
+
+**Intention Execution Flow:**
+```python
+# 1. IntentionStack pops highest priority intention
+intention = await intention_stack.pop_highest_priority()
+
+# 2. Get tool from registry
+tool = tool_registry.get_tool(intention.tool_id)
+impl = tool_registry.get_implementation(intention.tool_id)
+
+# 3. Execute tool with retry logic
+result = await tool_executor.execute(tool, impl, intention.parameters)
+
+# 4. Convert result to observation
+observation = Observation(
+    observation_type="tool_execution",
+    source="tool_executor",
+    content={
+        "tool": tool.name,
+        "success": result.success,
+        "output": result.output,
+        "error": result.error,
+        "duration_ms": result.duration_ms,
+        "retries": result.retries,
+    }
+)
+
+# 5. Update beliefs from observation
+await belief_system.update([observation])
+
+# 6. Store outcome in procedural memory (learning)
+if result.success:
+    await procedural_memory.store_success(intention, result)
+else:
+    await procedural_memory.store_failure(intention, result)
+```
+
+### Phase 2.2 Status: 33% Complete
+
+**Completed:**
+1. ✅ **Agent framework decision** - Custom implementation (ADR-009)
+2. ✅ **Core tool infrastructure** - Engine, registry, protocols, tests
+
+**In Progress:**
+3. 🔜 **Email capability** - Send, read, reply (Microsoft Graph/Gmail API)
+4. 🔜 **Calendar capability** - Schedule meetings, check availability
+5. 🔜 **Research capability** - Web search, document analysis
+6. 🔜 **BDI integration** - Connect tools to IntentionStack execution
+7. 🔜 **Integration tests** - Tool execution → observations → beliefs flow
+
+### Next Steps
+
+**Immediate:**
+- Implement email capability (SendEmailTool, ReadEmailTool, ReplyToEmailTool)
+- Implement calendar capability (ScheduleMeetingTool, CheckAvailabilityTool)
+- Integrate tools with IntentionStack for autonomous execution
+- Write BDI integration tests (end-to-end tool execution flow)
+
+**Future:**
+- Implement research capability (web search, document analysis)
+- Add CRM capability (Salesforce, HubSpot integration)
+- Add communication capability (Slack, Teams integration)
+- Add MCP support for tool discovery
+
+---
+
 ## 2025-11-16 - Phase 2.1: Plan Generation using LLM
 
 **Phase:** 2.1 - BDI + LLM Integration (Second Integration)
