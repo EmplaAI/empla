@@ -9,6 +9,7 @@ BDI Belief System implementation:
 - Extracts beliefs from observations using LLM
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -18,6 +19,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from empla.models.belief import Belief, BeliefHistory
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from empla.core.loop.models import Observation
@@ -556,10 +559,6 @@ class BeliefSystem:
             The observation's content should be structured enough for the LLM to extract
             meaningful beliefs. Raw unstructured text may need preprocessing.
         """
-        # Import here to avoid circular dependencies
-        from empla.core.loop.models import Observation  # noqa: F401
-        from empla.llm import LLMService  # noqa: F401
-
         # Build prompt for LLM
         system_prompt = """You are an AI assistant helping a digital employee extract structured beliefs from observations.
 
@@ -595,13 +594,27 @@ Content:
 
 Extract all relevant beliefs from this observation. Focus on actionable information that would help the employee make decisions."""
 
-        # Use LLM to extract beliefs
-        _, extraction_result = await llm_service.generate_structured(
-            prompt=user_prompt,
-            system=system_prompt,
-            response_format=BeliefExtractionResult,
-            temperature=0.3,  # Lower temperature for more consistent extraction
-        )
+        # Use LLM to extract beliefs with error handling
+        try:
+            _, extraction_result = await llm_service.generate_structured(
+                prompt=user_prompt,
+                system=system_prompt,
+                response_format=BeliefExtractionResult,
+                temperature=0.3,  # Lower temperature for more consistent extraction
+            )
+        except Exception as e:
+            logger.error(
+                f"LLM belief extraction failed for observation {observation.observation_id}: {e}",
+                exc_info=True,
+                extra={
+                    "observation_id": str(observation.observation_id),
+                    "observation_type": observation.observation_type,
+                    "source": observation.source,
+                    "employee_id": str(self.employee_id),
+                },
+            )
+            # Return empty list on LLM failure to prevent perception loop crash
+            return []
 
         # Process extracted beliefs
         created_beliefs: list[Belief] = []
