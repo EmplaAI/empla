@@ -6,50 +6,64 @@
 
 ---
 
-## 📋 Current Session: 2025-11-12
+## 📋 Current Session: 2025-11-14
 
-### Today's Goal
-Implement multi-provider LLM abstraction (Anthropic, OpenAI, Google Vertex AI)
+### ✅ Completed: Belief Extraction using LLM
+**Phase 2.1 First Milestone:** LLM-powered belief extraction from observations
 
-### Completed ✅
-- [x] Designed multi-provider LLM architecture with automatic fallback
-- [x] Implemented abstract provider base and factory pattern
-- [x] Implemented Anthropic provider (Claude Sonnet 4, Opus, Haiku)
-- [x] Implemented OpenAI provider (GPT-4o, GPT-4o-mini, o1, o3-mini)
-- [x] Implemented Google Vertex AI provider (Gemini 1.5 Pro, Flash)
-- [x] Implemented main LLMService with automatic fallback logic
-- [x] Added comprehensive cost tracking across all providers
-- [x] Wrote 16 unit tests for LLM package (100% passing)
-- [x] Ran full test suite: 64/64 tests passing (100%)
-- [x] Achieved 64.09% overall coverage (LLM package: 80%+)
-- [x] Wrote comprehensive ADR-008: Multi-Provider LLM Abstraction
-- [x] Updated pyproject.toml with LLM provider dependencies
-- [x] Updated CHANGELOG.md with implementation details
-- [x] Updated TODO.md to reflect current status
+### This Session Completed ✅
+- [x] Reviewed BeliefSystem implementation
+- [x] Designed LLM integration approach for belief extraction
+- [x] Created Pydantic models (ExtractedBelief, BeliefExtractionResult)
+- [x] Implemented `extract_beliefs_from_observation()` method
+- [x] Wrote 4 comprehensive integration tests (all passing)
+- [x] Fixed database constraint issues (belief source values)
+- [x] Updated CHANGELOG.md with complete documentation
+- [x] **All tests passing:** 4/4 belief extraction tests ✅
 
-### Implementation Summary
-**Created empla/llm/ package (7 files, 830+ lines):**
-- `models.py` - Shared data models (LLMRequest, LLMResponse, TokenUsage)
-- `provider.py` - Abstract base class and factory
-- `config.py` - Configuration and pre-configured models with pricing
-- `anthropic.py` - Anthropic Claude provider
-- `openai.py` - OpenAI GPT provider
-- `vertex.py` - Google Vertex AI / Gemini provider
-- `__init__.py` - Main LLMService with fallback and cost tracking
+### Implementation Details
+**Files Modified:**
+- `empla/bdi/beliefs.py` - Added belief extraction (lines 27-96, 512-657)
+- `tests/test_bdi_integration.py` - Added 4 integration tests (lines 375-723)
+- `CHANGELOG.md` - Documented Phase 2.1 belief extraction feature
 
-**Tests written:**
-- `test_llm_service.py` - 9 tests for LLMService (fallback, cost tracking, streaming)
-- `test_models.py` - 7 tests for data models and cost calculation
+**Key Features:**
+- LLM extracts structured beliefs from observations in SPO format
+- Comprehensive system prompt guides factual belief extraction
+- Evidence tracking (observation UUIDs in belief.evidence)
+- Automatic belief updates (no duplicates for same subject+predicate)
+- 73.73% coverage on empla/bdi/beliefs.py
+
+### Next Steps (Phase 2.1 Continuation)
+**Goal:** Complete BDI + LLM Integration
+
+**Priority tasks:**
+1. ✅ **Belief extraction** - Extract structured beliefs from observations using LLM (DONE)
+2. **Plan generation** - Generate action plans when no learned strategy exists
+   - Location: `empla/core/bdi/intentions.py`
+   - Feature: LLM generates step-by-step intention plans
+3. **Strategic planning** - Deep reasoning for long-term strategy
+   - Location: `empla/core/planning/strategic.py` (to be created)
+   - Feature: LLM generates strategic plans and approaches
 
 ### Blockers
-- None currently
+- None
 
-### Insights & Notes
-- Multi-provider abstraction enables A/B testing and resilience
-- Automatic fallback ensures empla keeps running during provider outages
-- Cost tracking will be critical for production optimization
-- Phase 2 has officially begun with LLM integration
-- Ready to integrate LLMService into BDI components (beliefs, plans, strategies)
+### Notes
+- Phase 2.1 belief extraction successfully implemented and tested
+- Ready to implement plan generation next
+- LLM integration pattern established (can reuse for intentions and planning)
+
+### Previous Session (2025-11-13) ✅
+- [x] Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
+- [x] Fixed streaming stop sequences bug (all 3 providers)
+- [x] Fixed unsupported provider error handling
+- [x] Made OpenAI embedding model configurable
+- [x] Updated Gemini model IDs and pricing
+- [x] Updated dependencies to latest versions
+- [x] All formatting and linting completed
+- [x] 64/64 tests passing, 64% coverage
+- [x] PR merged to main ✅
 
 ---
 
@@ -67,13 +81,13 @@ Implement multi-provider LLM abstraction (Anthropic, OpenAI, Google Vertex AI)
 - [x] Write comprehensive unit tests (16 tests, 100% passing)
 - [x] Write ADR-008: Multi-Provider LLM Abstraction
 
-### Phase 2.1: BDI + LLM Integration (NEXT)
-- [ ] Integrate LLMService into belief extraction (`empla/core/bdi/beliefs.py`)
+### Phase 2.1: BDI + LLM Integration (IN PROGRESS)
+- [x] Integrate LLMService into belief extraction (`empla/bdi/beliefs.py`)
 - [ ] Integrate LLMService into plan generation (`empla/core/bdi/intentions.py`)
 - [ ] Integrate LLMService into strategic planning (`empla/core/planning/strategic.py`)
-- [ ] Add belief extraction from observations (text → structured beliefs)
+- [x] Add belief extraction from observations (text → structured beliefs)
 - [ ] Add plan generation when no learned strategy exists
-- [ ] Write integration tests with mocked LLM responses
+- [x] Write integration tests with mocked LLM responses (4 tests for belief extraction)
 
 ### Phase 2.2: Tool Execution & Capabilities (FUTURE)
 - [ ] Choose agent framework (Agno vs LangGraph vs custom)
@@ -116,17 +130,17 @@ Implement multi-provider LLM abstraction (Anthropic, OpenAI, Google Vertex AI)
 ### Immediate (Phase 2.1): BDI + LLM Integration
 **Priority:** Integrate LLMService into BDI components for autonomous decision-making
 
-1. **Belief extraction** - Use LLM to extract structured beliefs from observations
-   - Location: `empla/core/bdi/beliefs.py`
-   - Input: Raw observations (text, events)
-   - Output: Structured Belief objects with confidence scores
+1. ✅ **Belief extraction** - Use LLM to extract structured beliefs from observations (COMPLETE)
+   - Location: `empla/bdi/beliefs.py`
+   - Status: Implemented with 4 passing tests, 72.13% coverage
+   - Features: SPO extraction, evidence tracking, error handling
 
-2. **Plan generation** - Use LLM to generate action plans when no learned strategy exists
+2. **Plan generation** - Use LLM to generate action plans when no learned strategy exists (NEXT)
    - Location: `empla/core/bdi/intentions.py`
    - Input: Current goals, beliefs, context
    - Output: Step-by-step action plans (Intention objects)
 
-3. **Strategic planning** - Use LLM for deep reasoning and strategy generation
+3. **Strategic planning** - Use LLM for deep reasoning and strategy generation (FUTURE)
    - Location: `empla/core/planning/strategic.py` (to be created)
    - Input: Long-term goals, current situation, historical outcomes
    - Output: Strategic plans and approach recommendations
@@ -179,18 +193,21 @@ None currently - fresh start!
 - Week 3 (Proactive Loop): ✅ 100% complete
 - Week 4 (Memory System): ✅ 100% complete
 
-**Phase 2 (LLM Integration):** 🚧 10% complete (just started)
+**Phase 2 (LLM Integration):** 🚧 35% complete (belief extraction done)
 - Phase 2.0 (Multi-Provider LLM): ✅ 100% complete
-- Phase 2.1 (BDI + LLM Integration): 🔜 Not started
+- Phase 2.1 (BDI + LLM Integration): 🚧 33% complete (belief extraction ✅)
 - Phase 2.2 (Tool Execution): 🔜 Not started
 
 ### Test Coverage
-**Overall:** 64.09% coverage (64/64 tests passing)
+**Overall:** 34.08% coverage (68/68 tests passing)
 - Memory integration tests: 17/17 passing (100%)
 - Proactive loop unit tests: 23/23 passing (100%)
 - LLM unit tests: 16/16 passing (100%)
+- BDI integration tests: 12/12 passing (100%)
+  - Belief extraction tests: 4/4 passing ✅
 - Proactive loop coverage: 90.60%
 - LLM package coverage: 80.21%+
+- BDI beliefs coverage: 72.13%
 
 ### Current Status
 **Completed:**
@@ -199,16 +216,16 @@ None currently - fresh start!
 - ✅ Proactive execution loop
 - ✅ Memory systems (episodic, semantic, procedural, working)
 - ✅ Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
+- ✅ Belief extraction using LLM (Phase 2.1 first milestone)
 
 **In Progress:**
-- 🚧 Phase 2.1: BDI + LLM Integration
+- 🚧 Phase 2.1: BDI + LLM Integration (belief extraction ✅, plan generation next)
 
 **Next:**
-- 🔜 Belief extraction using LLM
 - 🔜 Plan generation using LLM
 - 🔜 Strategic planning using LLM
 
 ---
 
-**Last Updated:** 2025-11-12 (Multi-provider LLM abstraction complete)
-**Next Session Goal:** Integrate LLMService into BDI components (belief extraction, plan generation)
+**Last Updated:** 2025-11-14 (Belief extraction using LLM complete)
+**Next Session Goal:** Implement plan generation using LLM (Phase 2.1 continuation)

@@ -6,6 +6,177 @@
 
 ---
 
+## 2025-11-14 - Phase 2.1: Belief Extraction using LLM
+
+**Phase:** 2.1 - BDI + LLM Integration (First Integration)
+
+### Added
+
+**LLM-Powered Belief Extraction** (`empla/bdi/beliefs.py`)
+
+Integrated LLMService into BeliefSystem to enable autonomous extraction of structured beliefs from observations:
+
+- **Pydantic Models for Structured Extraction:**
+  - `ExtractedBelief` - Single belief with subject, predicate, object, confidence, reasoning, belief_type
+  - `BeliefExtractionResult` - Collection of extracted beliefs plus observation summary
+
+- **BeliefSystem.extract_beliefs_from_observation()** (lines 512-657)
+  - **Input:** Observation object (from perception cycle)
+  - **Process:** LLM analyzes observation content and extracts structured beliefs in SPO format
+  - **Output:** List of Belief objects (created or updated via existing update_belief method)
+  - **Features:**
+    - Comprehensive system prompt guiding LLM to extract factual beliefs
+    - Formatted observation content for optimal LLM understanding
+    - Evidence tracking (observation UUID stored in belief.evidence)
+    - Automatic belief update (no duplicates - same subject+predicate gets updated)
+    - Lower temperature (0.3) for consistent extraction
+
+- **Helper Method _format_observation_content()** (lines 629-657)
+  - Converts observation content dict to readable text format
+  - Handles nested dicts, lists, and simple values
+  - Makes observations clear and actionable for LLM
+
+**Comprehensive Tests** (`tests/test_bdi_integration.py`)
+
+Added 4 comprehensive integration tests covering all aspects of belief extraction:
+
+- **test_belief_extraction_from_observation** - Basic extraction with multiple beliefs
+  - Tests extraction of 3 beliefs from a single observation
+  - Verifies subject, predicate, object, confidence, source, evidence tracking
+  - Validates different belief types (state, evaluative, event)
+
+- **test_belief_extraction_updates_existing_beliefs** - Update behavior
+  - Tests that existing beliefs are updated rather than duplicated
+  - Verifies same belief ID after update
+  - Validates belief history tracking (created + updated events)
+
+- **test_belief_extraction_with_empty_result** - Empty extraction handling
+  - Tests LLM returning no beliefs (e.g., automated out-of-office reply)
+  - Validates graceful handling of observations with no actionable content
+
+- **test_belief_extraction_evidence_tracking** - Multi-observation evidence
+  - Tests beliefs updated from multiple observations
+  - Verifies evidence list accumulates observation UUIDs
+  - Validates confidence and value updates from new observations
+
+**Test Results:**
+- **All 4 tests passing** (100%) ✅
+- **Test execution time:** 1.37 seconds (fast with mocked LLM)
+- **Coverage:** 73.73% on empla/bdi/beliefs.py (up from ~60%)
+
+### Design Decisions
+
+**LLM Prompt Design:**
+- **System prompt** emphasizes factual belief extraction (no assumptions or speculation)
+- **Subject-Predicate-Object format** enforced through clear examples
+- **Confidence scoring** based on observation strength (not speculation)
+- **Reasoning required** for each extracted belief (helps debug extractions)
+- **Belief types** clearly defined (state, event, causal, evaluative)
+
+**Source Attribution:**
+- **Decision:** Use `"observation"` as source for LLM-extracted beliefs
+- **Rationale:** Beliefs are extracted FROM observations; LLM is just the extraction mechanism
+- **Alternative considered:** `"llm_extraction:{observation.source}"` - rejected due to database constraint
+- **Database constraint:** Source must be one of: `observation`, `inference`, `told_by_human`, `prior`
+
+**Integration Pattern:**
+- Beliefs extracted via LLM are created/updated using existing `update_belief()` method
+- This ensures consistency with manually-created beliefs (same validation, history tracking, decay)
+- Evidence tracking automatic (observation UUID added to belief.evidence list)
+- No special handling needed for LLM-extracted beliefs (same lifecycle as any belief)
+
+### Example Usage
+
+```python
+from empla.bdi import BeliefSystem
+from empla.core.loop.models import Observation
+from empla.llm import LLMService, LLMConfig
+from datetime import UTC, datetime
+from uuid import uuid4
+
+# Initialize
+llm_service = LLMService(LLMConfig(
+    primary_model="claude-sonnet-4",
+    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+))
+belief_system = BeliefSystem(session, employee_id, tenant_id)
+
+# Create observation from email
+observation = Observation(
+    observation_id=uuid4(),
+    employee_id=employee_id,
+    tenant_id=tenant_id,
+    observation_type="email_received",
+    source="email",
+    content={
+        "from": "ceo@acmecorp.com",
+        "subject": "Ready to close $100k deal",
+        "body": "We're excited to move forward. Send the contract!",
+    },
+    timestamp=datetime.now(UTC),
+    priority=8,
+)
+
+# Extract beliefs
+beliefs = await belief_system.extract_beliefs_from_observation(
+    observation, llm_service
+)
+
+# Result: LLM might extract beliefs like:
+# - ("Acme Corp", "deal_stage", {"stage": "contract_review", "amount": 100000})
+# - ("Acme Corp", "sentiment", {"sentiment": "positive", "reason": "expressed excitement"})
+# - ("Acme Corp", "next_action", {"action": "send_contract", "urgency": "high"})
+```
+
+### Integration with Proactive Loop
+
+This feature enables the perception phase of the proactive loop to convert raw observations into structured beliefs:
+
+**Before (Manual):**
+```python
+# Manual belief creation from observation
+await belief_system.update_belief(
+    subject="Acme Corp",
+    predicate="deal_stage",
+    object={"stage": "negotiation"},
+    confidence=0.8,
+    source="observation"
+)
+```
+
+**After (Autonomous):**
+```python
+# Autonomous belief extraction in perception phase
+for observation in observations:
+    beliefs = await belief_system.extract_beliefs_from_observation(
+        observation, llm_service
+    )
+    # Multiple beliefs extracted automatically from single observation
+```
+
+### Next Steps
+
+**Phase 2.1 Continuation:**
+1. **Plan Generation** - Integrate LLMService into IntentionStack for plan generation
+   - Location: `empla/core/bdi/intentions.py`
+   - Feature: Generate action plans when no learned strategy exists
+   - Input: Current goals, beliefs, context
+   - Output: Step-by-step intention plans
+
+2. **Strategic Planning** - Integrate LLMService into strategic planning
+   - Location: `empla/core/planning/strategic.py` (to be created)
+   - Feature: Deep reasoning for long-term strategy
+   - Input: Long-term goals, current situation, historical outcomes
+   - Output: Strategic plans and approach recommendations
+
+**Future Improvements:**
+- Add belief extraction quality metrics (track confidence distribution, extraction time)
+- Implement belief extraction caching (avoid re-extracting same observation)
+- Add configurable extraction prompts per employee role
+- Implement multi-turn belief refinement (LLM asks clarifying questions)
+
+---
+
 ## 2025-11-13 - LLM Provider Bug Fixes & Improvements
 
 **Phase:** 2 - LLM Integration (Bug Fixes & Configuration Updates)
