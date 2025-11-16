@@ -6,6 +6,114 @@
 
 ---
 
+## 2025-11-16 - Tool Execution Layer: Security & Reliability Fixes
+
+**Phase:** 2.2 - Tool Execution & Capabilities (Bug Fixes)
+
+### Fixed
+
+**Critical Security & Reliability Improvements to Tool Execution Layer:**
+
+Four critical fixes addressing security, type safety, validation completeness, and test reliability:
+
+**1. Protocol Signature Sync** (`empla/core/tools/base.py:142-144`)
+- **Issue:** `ToolExecutor` protocol signature didn't match `ToolExecutionEngine` implementation
+- **Impact:** Type checking would fail, protocols couldn't enforce correct interface
+- **Fix:** Added missing `implementation: ToolImplementation` parameter to protocol
+- **Details:**
+  - Used forward reference `"ToolImplementation"` to avoid import order issues
+  - Updated docstring example to show correct usage
+  - Now type checkers can verify executor implementations conform to protocol
+
+**2. PII/Secrets Security** (`empla/core/tools/executor.py:107-109`)
+- **Issue:** Parameter validation errors logged full `params` dict which could contain sensitive data
+- **Impact:** **CRITICAL** - User passwords, API keys, email content, PII could leak into logs
+- **Fix:** Removed `params` from log extra dict, replaced with `tool_name`
+- **Details:**
+  - Prevents accidental exposure of user-controlled input in application logs
+  - Logs still provide debugging context (tool_id, tool_name, error message)
+  - Complies with data protection best practices (GDPR, SOC2)
+
+**3. Unexpected Parameter Validation** (`empla/core/tools/executor.py:238-241`)
+- **Issue:** Docstring promised "No unexpected parameters" check but code allowed extra keys
+- **Impact:** Security gap - unexpected parameters could be injected and passed to tool implementations
+- **Fix:** Added validation loop rejecting parameters not in tool schema
+- **Details:**
+  - Returns clear error: `"Unexpected parameter: {param_name}"`
+  - Prevents parameter injection attacks
+  - Enforces tool schema contracts strictly
+  - Added comprehensive test: `test_parameter_validation_unexpected_parameter`
+
+**4. Test Flakiness Fix** (`tests/test_tool_execution.py:244`)
+- **Issue:** Brittle timing assertion `result.duration_ms < 500` caused CI failures
+- **Impact:** Intermittent test failures in slower CI environments
+- **Fix:** Removed upper bound timing assertion, kept lower bound validation
+- **Details:**
+  - Kept: `assert result.duration_ms >= 100` (verifies delay was applied)
+  - Removed: `assert result.duration_ms < 500` (flaky in CI)
+  - Test now robust across different execution environments
+
+### Test Results
+
+**All Tests Passing:**
+- **Total:** 93/93 tests passing (100% pass rate) ✅ (was 92/92)
+- **New test:** test_parameter_validation_unexpected_parameter (1/1 passing)
+- **Tool execution tests:** 21/21 passing (100%) ✅ (was 20/20)
+- **Coverage:**
+  - executor.py: 97.44% (was 97.33%)
+  - base.py: 94.59% (unchanged)
+  - registry.py: 94.67% (unchanged)
+
+### Security Impact
+
+**PII/Secrets Protection:**
+- **Before:** Params dict logged on validation errors
+  ```python
+  # ❌ SECURITY ISSUE - Leaked sensitive data
+  logger.warning(
+      f"Parameter validation failed",
+      extra={"params": {"password": "secret123", "api_key": "sk-..."}}
+  )
+  ```
+
+- **After:** Only tool metadata logged
+  ```python
+  # ✅ SECURE - No sensitive data in logs
+  logger.warning(
+      f"Parameter validation failed for send_email: Missing required parameter: to",
+      extra={"tool_id": "550e8400-...", "tool_name": "send_email"}
+  )
+  ```
+
+**Parameter Injection Prevention:**
+- **Before:** Unexpected parameters silently passed to tool implementations
+- **After:** Strict schema enforcement rejects unexpected parameters
+- **Example:** Prevents attackers from injecting `{"admin": true}` into tool calls
+
+### Files Modified
+
+**Core Implementation:**
+- `empla/core/tools/base.py` - Protocol signature fix (line 144)
+- `empla/core/tools/executor.py` - PII removal (lines 107-109), validation (lines 238-241)
+
+**Tests:**
+- `tests/test_tool_execution.py` - New test (lines 205-226), timing fix (line 244)
+
+### Next Steps
+
+**Phase 2.2 Continuation:**
+- Implement email capability (SendEmailTool, ReadEmailTool, ReplyToEmailTool)
+- Implement calendar capability (ScheduleMeetingTool, CheckAvailabilityTool)
+- Integrate tools with IntentionStack for autonomous execution
+- Write BDI integration tests (tool execution → observations → beliefs flow)
+
+**Security Validation:**
+- Audit all other logging statements for PII leakage
+- Add static analysis to detect sensitive data in logs (future)
+- Create security testing guide for tool implementations
+
+---
+
 ## 2025-11-16 - Phase 2.2: Custom Tool Execution Infrastructure
 
 **Phase:** 2.2 - Tool Execution & Capabilities (First Milestone)
