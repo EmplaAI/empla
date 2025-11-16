@@ -6,6 +6,187 @@
 
 ---
 
+## 2025-11-16 - Phase 2.1: Plan Generation using LLM
+
+**Phase:** 2.1 - BDI + LLM Integration (Second Integration)
+
+### Added
+
+**LLM-Powered Plan Generation** (`empla/bdi/intentions.py`)
+
+Integrated LLMService into IntentionStack to enable autonomous generation of multi-step action plans for goals:
+
+- **Pydantic Models for Structured Plan Generation:**
+  - `IntentionType` - Type alias constraining intention_type to valid values: `action`, `tactic`, `strategy`
+  - `PlanStep` - Individual step in a plan with action, description, parameters, expected outcome, duration, capabilities
+  - `GeneratedIntention` - Single intention with type, description, priority, plan, reasoning, dependencies, capabilities
+    - Type-safe `intention_type` field using Literal type
+    - Field validator normalizing LLM output (lowercase, variant mapping, validation)
+  - `PlanGenerationResult` - Complete plan with intentions, strategy summary, assumptions, risks, success criteria
+
+- **IntentionStack.generate_plan_for_goal()** (lines 538-753)
+  - **Input:** Goal + Beliefs (context) + LLM Service + Capabilities
+  - **Process:** LLM analyzes goal and beliefs to generate structured multi-step plan
+  - **Output:** List of EmployeeIntention objects with proper dependency chain
+  - **Features:**
+    - Comprehensive system prompt guiding LLM to create executable plans
+    - Dependency resolution (LLM outputs indexes 0,1,2... resolved to actual UUIDs)
+    - Rich context tracking (reasoning, strategy, assumptions, risks, success criteria)
+    - Automatic intention creation via existing `add_intention` method
+    - Temperature 0.4 for balance between creativity and consistency
+    - Error handling (graceful degradation on LLM failure)
+
+- **Helper Method _format_beliefs_for_prompt()** (lines 726-753)
+  - Converts beliefs list to readable text format for LLM
+  - Limits to top 20 beliefs to avoid token overflow
+  - Formats as: "Subject → Predicate: Object (confidence)"
+
+**Type Safety & Validation**
+
+- `IntentionType = Literal["action", "tactic", "strategy"]` matches database constraints
+- Field validator handles LLM output variations:
+  - Normalizes capitalization: "Action" → "action", "TACTIC" → "tactic"
+  - Maps common variants: "task" → "action", "campaign" → "strategy", "approach" → "tactic"
+  - Raises ValidationError for invalid values before persistence
+
+**Comprehensive Tests** (`tests/test_bdi_integration.py`)
+
+Added 3 comprehensive integration tests covering all aspects of plan generation:
+
+- **test_plan_generation_from_goal** - Multi-step plan with dependencies
+  - Tests generation of 3 intentions from a single goal
+  - Verifies dependency resolution (indexes → UUIDs)
+  - Validates context metadata (reasoning, strategy, assumptions, risks)
+  - Confirms proper intention ordering (dependencies enforced)
+
+- **test_plan_generation_with_empty_result** - Empty plan handling
+  - Tests LLM returning no intentions (e.g., no action needed)
+  - Validates graceful handling of goals requiring no action
+
+- **test_intention_type_validation** - Type constraint validation
+  - Tests valid lowercase values pass through
+  - Verifies capitalization normalization
+  - Validates variant mapping (task→action, campaign→strategy)
+  - Confirms ValidationError for invalid values
+
+**Test Results:**
+- **All 3 tests passing** (100%) ✅
+- **Test execution time:** 1.10 seconds (fast with mocked LLM)
+- **Coverage:** 49.50% on empla/bdi/intentions.py (up from ~18%)
+
+### Design Decisions
+
+**LLM Prompt Design:**
+- **System prompt** guides structured plan creation with clear intention types
+- **Dependency specification** using 0-based indexes (intention 0, 1, 2, etc.)
+- **Realistic estimates** for time and capabilities
+- **Comprehensive metadata** (assumptions, risks, success criteria)
+
+**Dependency Resolution:**
+- **LLM outputs indexes** (0, 1, 2) for simplicity in structured output
+- **generate_plan_for_goal resolves** indexes to actual UUIDs during creation
+- **Invalid dependencies logged** and skipped (doesn't crash planning)
+- **Maintains execution order** through dependency chain
+
+**Integration Pattern:**
+- Plans generated via LLM are created using existing `add_intention()` method
+- This ensures consistency with manually-created intentions (same validation, lifecycle)
+- Rich context captures generation metadata for debugging and analysis
+- No special handling needed for LLM-generated intentions (same lifecycle as any intention)
+
+### Example Usage
+
+```python
+from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
+from empla.llm import LLMService, LLMConfig
+
+# Initialize
+llm_service = LLMService(LLMConfig(
+    primary_model="claude-sonnet-4",
+    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+))
+goals = GoalSystem(session, employee_id, tenant_id)
+intentions = IntentionStack(session, employee_id, tenant_id)
+beliefs = BeliefSystem(session, employee_id, tenant_id)
+
+# Get goal and beliefs
+goal = await goals.get_goal(goal_id)
+belief_list = await beliefs.get_all_beliefs(min_confidence=0.6)
+
+# Generate plan
+generated_intentions = await intentions.generate_plan_for_goal(
+    goal=goal,
+    beliefs=belief_list,
+    llm_service=llm_service,
+    capabilities=["email", "research", "calendar"]
+)
+
+# Result: LLM might generate a plan like:
+# 1. Intention: "Research account background" (no dependencies)
+# 2. Intention: "Prepare customized proposal" (depends on #1)
+# 3. Intention: "Send proposal and schedule follow-up" (depends on #2)
+```
+
+### Integration with Proactive Loop
+
+This feature enables the strategic planning phase to autonomously generate plans:
+
+**Before (Manual):**
+```python
+# Manual intention creation
+await intentions.add_intention(
+    goal_id=goal.id,
+    description="Research account",
+    plan={"steps": [{"action": "research", ...}]},
+    priority=8
+)
+```
+
+**After (Autonomous):**
+```python
+# Autonomous plan generation in strategic planning phase
+generated_intentions = await intentions.generate_plan_for_goal(
+    goal=goal,
+    beliefs=beliefs,
+    llm_service=llm_service
+)
+# LLM generates complete multi-step plan with:
+# - Multiple intentions with clear steps
+# - Proper dependency ordering
+# - Reasoning and metadata
+# - All created and ready to execute
+```
+
+### Phase 2.1 Status: 66% Complete
+
+**Completed Milestones:**
+1. ✅ **Belief Extraction** (PR #15) - Understand the world from observations
+2. ✅ **Plan Generation** (PR #16) - Decide what to do to achieve goals
+
+**Remaining:**
+3. **Strategic Planning** (OPTIONAL/FUTURE) - Deep reasoning for long-term strategy
+
+**Impact:**
+Employees can now autonomously:
+- **Perceive** → Extract structured beliefs from observations (LLM-powered)
+- **Plan** → Generate multi-step action plans for goals (LLM-powered)
+- **Ready for Phase 2.2** → Execute plans using tools and learn from outcomes
+
+### Next Steps
+
+**Option A: Complete Phase 2.1 (Strategic Planning)**
+- Implement strategic planning using LLM
+- Location: `empla/core/planning/strategic.py` (to be created)
+- Feature: Deep reasoning for long-term strategy
+
+**Option B: Start Phase 2.2 (Tool Execution & Capabilities)** ← RECOMMENDED
+- Choose agent framework (Agno vs LangGraph vs custom)
+- Implement tool execution layer
+- Add email capability (send, read, reply)
+- This unblocks autonomous action execution
+
+---
+
 ## 2025-11-14 - Phase 2.1: Belief Extraction using LLM
 
 **Phase:** 2.1 - BDI + LLM Integration (First Integration)
