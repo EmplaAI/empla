@@ -25,6 +25,7 @@ Merge learnings from Tool Execution Layer (impl_6) into Capability Framework (im
 - [x] Wrote ADR-010: Capability-Tool Execution Architecture Convergence (~400 lines)
 - [x] Updated CHANGELOG.md with today's work
 - [x] Updated TODO.md (this file)
+- [x] Merged from main (resolved conflicts in TODO.md and CHANGELOG.md)
 
 ### Key Enhancements
 **BaseCapability Execution Robustness:**
