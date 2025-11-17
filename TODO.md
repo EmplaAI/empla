@@ -101,7 +101,7 @@ Implement EmailCapability (Phase 2.2) with comprehensive triage logic and email 
 - Implement CalendarCapability class
 - Event monitoring and notifications
 - Meeting scheduling logic
-- Optimal time finding algorithm
+- Optimal-time-finding algorithm
 
 ---
 
@@ -131,7 +131,7 @@ Implement EmailCapability (Phase 2.2) with comprehensive triage logic and email 
 - [ ] Implement CalendarCapability class
 - [ ] Event monitoring and notifications
 - [ ] Meeting scheduling logic
-- [ ] Optimal time finding algorithm
+- [ ] Optimal-time-finding algorithm
 - [ ] Unit and integration tests
 
 ### Phase 2.4 - Additional Capabilities

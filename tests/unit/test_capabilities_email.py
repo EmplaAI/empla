@@ -610,6 +610,150 @@ async def test_email_action_unknown_operation():
     assert "Unknown operation" in result.error
 
 
+# Test PII Redaction
+
+
+def test_pii_redaction_hash_value():
+    """Test _hash_value produces stable SHA256 hashes"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.MICROSOFT_GRAPH,
+        email_address="test@example.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+
+    # Hash should be stable (same input = same output)
+    hash1 = capability._hash_value("test@example.com")
+    hash2 = capability._hash_value("test@example.com")
+    assert hash1 == hash2
+
+    # Hash should be 8 characters
+    assert len(hash1) == 8
+
+    # Different inputs should produce different hashes
+    hash3 = capability._hash_value("different@example.com")
+    assert hash1 != hash3
+
+
+def test_pii_redaction_extract_domains():
+    """Test _extract_domains extracts unique domains from email addresses"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.MICROSOFT_GRAPH,
+        email_address="test@example.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+
+    # Single domain
+    domains = capability._extract_domains(["user1@example.com"])
+    assert domains == ["example.com"]
+
+    # Multiple addresses, same domain
+    domains = capability._extract_domains(
+        ["user1@example.com", "user2@example.com"]
+    )
+    assert domains == ["example.com"]
+
+    # Multiple domains
+    domains = capability._extract_domains(
+        [
+            "user1@example.com",
+            "user2@test.com",
+            "user3@example.com",
+            "user4@another.org",
+        ]
+    )
+    assert sorted(domains) == ["another.org", "example.com", "test.com"]
+
+    # Empty list
+    domains = capability._extract_domains([])
+    assert domains == []
+
+
+def test_pii_redaction_redact_email_address():
+    """Test _redact_email_address returns domain only"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.MICROSOFT_GRAPH,
+        email_address="test@example.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+
+    # Normal email address
+    redacted = capability._redact_email_address("user@example.com")
+    assert redacted == "example.com"
+
+    # Invalid email (no @)
+    redacted = capability._redact_email_address("notanemail")
+    assert redacted == "[redacted]"
+
+
+def test_pii_redaction_redact_email_id():
+    """Test _redact_email_id returns 8-char hash"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.MICROSOFT_GRAPH,
+        email_address="test@example.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+
+    redacted = capability._redact_email_id("message-id-12345")
+    assert len(redacted) == 8
+    assert redacted == capability._hash_value("message-id-12345")
+
+
+def test_pii_redaction_redact_subject():
+    """Test _redact_subject returns 8-char hash"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.MICROSOFT_GRAPH,
+        email_address="test@example.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+
+    redacted = capability._redact_subject("Confidential meeting notes")
+    assert len(redacted) == 8
+    assert redacted == capability._hash_value("Confidential meeting notes")
+
+
+def test_email_config_log_pii_default():
+    """Test EmailConfig defaults to log_pii=False"""
+    config = EmailConfig(
+        provider=EmailProvider.MICROSOFT_GRAPH,
+        email_address="test@example.com",
+        credentials={},
+    )
+
+    assert config.log_pii is False
+
+
+def test_email_config_log_pii_explicit():
+    """Test EmailConfig can enable log_pii=True"""
+    config = EmailConfig(
+        provider=EmailProvider.MICROSOFT_GRAPH,
+        email_address="test@example.com",
+        credentials={},
+        log_pii=True,
+    )
+
+    assert config.log_pii is True
+
+
 def test_email_capability_repr():
     """Test EmailCapability string representation"""
     tenant_id = uuid4()

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID
 import logging
+import hashlib
 
 from empla.capabilities.base import (
     BaseCapability,
@@ -80,6 +81,9 @@ class EmailConfig(CapabilityConfig):
     # Response settings
     auto_respond: bool = False  # Require approval before sending
     signature: Optional[str] = None
+
+    # Privacy settings
+    log_pii: bool = False  # If True, log full PII (email addresses, subjects, etc.)
 
     def __init__(self, **data):
         """Initialize with sensible defaults"""
@@ -151,7 +155,11 @@ class EmailCapability(BaseCapability):
             "Email capability initialized",
             extra={
                 "employee_id": str(self.employee_id),
-                "email": self.config.email_address,
+                "email": (
+                    self.config.email_address
+                    if self.config.log_pii
+                    else self._redact_email_address(self.config.email_address)
+                ),
                 "provider": self.config.provider,
             },
         )
@@ -303,7 +311,11 @@ class EmailCapability(BaseCapability):
                     f"Email triaged as {priority} based on keywords",
                     extra={
                         "employee_id": str(self.employee_id),
-                        "email_id": email.id,
+                        "email_id_hash": (
+                            email.id
+                            if self.config.log_pii
+                            else self._redact_email_id(email.id)
+                        ),
                         "priority": priority,
                     },
                 )
@@ -320,7 +332,11 @@ class EmailCapability(BaseCapability):
             "Email triaged as MEDIUM (default)",
             extra={
                 "employee_id": str(self.employee_id),
-                "email_id": email.id,
+                "email_id_hash": (
+                    email.id
+                    if self.config.log_pii
+                    else self._redact_email_id(email.id)
+                ),
             },
         )
         return EmailPriority.MEDIUM
@@ -374,6 +390,74 @@ class EmailCapability(BaseCapability):
             EmailPriority.SPAM: 1,
         }
         return mapping.get(priority, 5)
+
+    # PII Redaction Helpers
+
+    def _hash_value(self, value: str) -> str:
+        """
+        Compute stable SHA256 hash of a value for PII-safe logging.
+
+        Parameters:
+            value (str): Value to hash
+
+        Returns:
+            str: First 8 characters of SHA256 hex digest
+        """
+        return hashlib.sha256(value.encode()).hexdigest()[:8]
+
+    def _extract_domains(self, addresses: List[str]) -> List[str]:
+        """
+        Extract unique domains from email addresses.
+
+        Parameters:
+            addresses (List[str]): Email addresses
+
+        Returns:
+            List[str]: Unique domain names
+        """
+        domains = set()
+        for addr in addresses:
+            if "@" in addr:
+                domains.add(addr.split("@")[1])
+        return sorted(list(domains))
+
+    def _redact_email_id(self, email_id: str) -> str:
+        """
+        Redact email ID for PII-safe logging.
+
+        Parameters:
+            email_id (str): Email ID
+
+        Returns:
+            str: Hashed email ID (first 8 chars of SHA256)
+        """
+        return self._hash_value(email_id)
+
+    def _redact_subject(self, subject: str) -> str:
+        """
+        Redact email subject for PII-safe logging.
+
+        Parameters:
+            subject (str): Email subject
+
+        Returns:
+            str: Hashed subject (first 8 chars of SHA256)
+        """
+        return self._hash_value(subject)
+
+    def _redact_email_address(self, email: str) -> str:
+        """
+        Redact email address for PII-safe logging.
+
+        Parameters:
+            email (str): Email address
+
+        Returns:
+            str: Domain only (e.g., "user@example.com" -> "example.com")
+        """
+        if "@" in email:
+            return email.split("@")[1]
+        return "[redacted]"
 
     async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
@@ -463,8 +547,17 @@ class EmailCapability(BaseCapability):
             "Email sent (placeholder)",
             extra={
                 "employee_id": str(self.employee_id),
-                "to": to,
-                "subject": subject,
+                "recipient_count": len(to),
+                "recipient_domains": (
+                    to if self.config.log_pii else self._extract_domains(to)
+                ),
+                "subject_hash": (
+                    subject
+                    if self.config.log_pii
+                    else self._redact_subject(subject)
+                ),
+                "cc_count": len(cc) if cc else 0,
+                "has_attachments": bool(attachments),
             },
         )
 
@@ -494,7 +587,12 @@ class EmailCapability(BaseCapability):
             "Email reply (placeholder)",
             extra={
                 "employee_id": str(self.employee_id),
-                "email_id": email_id,
+                "email_id_hash": (
+                    email_id
+                    if self.config.log_pii
+                    else self._redact_email_id(email_id)
+                ),
+                "cc_count": len(cc) if cc else 0,
             },
         )
 
@@ -527,8 +625,16 @@ class EmailCapability(BaseCapability):
             "Email forward (placeholder)",
             extra={
                 "employee_id": str(self.employee_id),
-                "email_id": email_id,
-                "to": to,
+                "email_id_hash": (
+                    email_id
+                    if self.config.log_pii
+                    else self._redact_email_id(email_id)
+                ),
+                "recipient_count": len(to),
+                "recipient_domains": (
+                    to if self.config.log_pii else self._extract_domains(to)
+                ),
+                "has_comment": comment is not None,
             },
         )
 
@@ -556,7 +662,11 @@ class EmailCapability(BaseCapability):
             "Email marked as read (placeholder)",
             extra={
                 "employee_id": str(self.employee_id),
-                "email_id": email_id,
+                "email_id_hash": (
+                    email_id
+                    if self.config.log_pii
+                    else self._redact_email_id(email_id)
+                ),
             },
         )
 
@@ -579,7 +689,11 @@ class EmailCapability(BaseCapability):
             "Email archived (placeholder)",
             extra={
                 "employee_id": str(self.employee_id),
-                "email_id": email_id,
+                "email_id_hash": (
+                    email_id
+                    if self.config.log_pii
+                    else self._redact_email_id(email_id)
+                ),
             },
         )
 
