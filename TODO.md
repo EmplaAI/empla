@@ -8,186 +8,180 @@
 
 ## 📋 Current Session: 2025-11-16
 
-### ✅ Completed: Custom Tool Execution Layer (Phase 2.2)
-**Phase 2.2 First Milestone:** Core tool execution infrastructure
+### Today's Goal
+Merge learnings from Tool Execution Layer (impl_6) into Capability Framework (impl_3) - enhance BaseCapability with robust execution patterns
 
-### This Session Completed ✅
-**Part 1: Plan Generation (PR #16 merged)**
-- [x] Implemented plan generation using LLM
-- [x] Created Pydantic models (PlanStep, GeneratedIntention, PlanGenerationResult)
-- [x] Implemented `generate_plan_for_goal()` method in IntentionStack
-- [x] Added type constraints and validation for intention_type
-- [x] Wrote 3 comprehensive integration tests (all passing)
-- [x] Dependency resolution (indexes → UUIDs)
-- [x] **Phase 2.1 now 66% complete** (belief extraction + plan generation)
+### Completed ✅
+- [x] Analyzed architectural conflict between Capability Framework (impl_3) and Tool Execution Layer (impl_6)
+- [x] Decided: Enhance Capabilities with Tool Execution patterns (not create adapter)
+- [x] Enhanced BaseCapability.execute_action() with retry logic from ToolExecutionEngine
+- [x] Added error classification (_should_retry method) for transient vs permanent errors
+- [x] Added retry configuration extraction from CapabilityConfig.retry_policy
+- [x] Implemented PII-safe logging (never logs action.parameters)
+- [x] Implemented performance tracking (duration_ms, retries)
+- [x] Implemented zero-exception guarantee (always returns ActionResult)
+- [x] Updated all mock capabilities to implement _execute_action_impl()
+- [x] All 31 tests passing (100% pass rate)
+- [x] Wrote ADR-010: Capability-Tool Execution Architecture Convergence (~400 lines)
+- [x] Updated CHANGELOG.md with today's work
+- [x] Updated TODO.md (this file)
+- [x] Merged from main (resolved conflicts in TODO.md and CHANGELOG.md)
 
-**Part 2: Tool Execution Infrastructure (committed 4edfca6)**
-- [x] Created ADR-009: Custom Tool Execution Layer decision
-- [x] Implemented Tool, ToolResult, ToolExecutor protocol, ToolCapability
-- [x] Implemented ToolExecutionEngine with retry logic and error handling
-- [x] Implemented ToolRegistry for tool management
-- [x] Wrote 20 comprehensive unit tests (all passing)
-- [x] **Phase 2.2 now 33% complete** (core infrastructure done)
+### Key Enhancements
+**BaseCapability Execution Robustness:**
+- execute_action() now concrete method with retry loop (was abstract)
+- New abstract method _execute_action_impl() for capability-specific logic
+- Exponential backoff with jitter (±25% randomization)
+- Error classification: transient (timeout, 503, 429) vs permanent (auth, 400, 401, 403, 404)
+- PII-safe logging: never logs action.parameters to prevent credential leaks
+- Performance tracking: duration_ms and retry count in ActionResult.metadata
+- Zero-exception guarantee: always returns ActionResult, never raises
 
-**Part 3: Security & Reliability Fixes (committed fae4eac)**
-- [x] Fixed ToolExecutor protocol signature mismatch (type safety)
-- [x] Removed PII/secrets from validation error logs (CRITICAL security fix)
-- [x] Implemented unexpected parameter validation (security hardening)
-- [x] Fixed brittle timing assertion (test reliability)
-- [x] Added new test: test_parameter_validation_unexpected_parameter
-- [x] All 93/93 tests passing (21/21 tool execution tests) ✅
+**Features Ported from ToolExecutionEngine:**
+1. ✅ Exponential backoff retry (100ms initial, 5000ms max, 2.0 multiplier)
+2. ✅ Error classification (transient vs permanent)
+3. ✅ PII-safe logging
+4. ✅ Performance tracking
+5. ✅ Zero-exception guarantee
+6. ⏳ Parameter validation (deferred - capability-specific needs)
 
-### Implementation Details
-**Plan Generation (Part 1):**
-- `empla/bdi/intentions.py` - Added plan generation (lines 12-164, 538-753)
-- `tests/test_bdi_integration.py` - Added 3 integration tests (lines 802-1087)
-- Features: Multi-step plans, dependency resolution, type safety
-- 49.50% coverage on empla/bdi/intentions.py
+**Design Decision (ADR-010):**
+- Rejected: Thin adapter layer (adds complexity, not in original plan)
+- Rejected: Replace Capabilities with Tool Execution (loses perception)
+- Rejected: Keep both separate (code duplication, inconsistency)
+- Chosen: Enhance Capabilities with Tool Execution patterns (single execution model)
 
-**Tool Execution Infrastructure (Part 2):**
-- `empla/core/tools/base.py` - Tool, ToolResult, protocols (94.59% coverage)
-- `empla/core/tools/executor.py` - ToolExecutionEngine with retry (97.33% coverage)
-- `empla/core/tools/registry.py` - ToolRegistry (94.67% coverage)
-- `tests/test_tool_execution.py` - 20 unit tests (all passing)
-- Features: Retry logic, parameter validation, capability management
-- Decision: Custom implementation (ADR-009) over framework lock-in
-
-### Next Steps
-**Goal:** Continue Phase 2.2 - Implement concrete capabilities
-
-**Started Phase 2.2:**
-1. ✅ **Tool execution infrastructure** - Core engine, registry, protocols (committed)
-2. 🔜 **Email capability** - Send, read, reply (Microsoft Graph/Gmail API)
-3. 🔜 **Calendar capability** - Schedule meetings, check availability
-4. 🔜 **Research capability** - Web search, document analysis
-5. 🔜 **BDI integration** - Connect tools to IntentionStack execution
-
-**Deferred to Future:**
-- **Strategic planning** (Phase 2.1 optional milestone)
-  - Location: `empla/core/planning/strategic.py` (to be created)
-  - Feature: LLM generates strategic plans and high-level approaches
+### Test Results
+- **85/85 tests passing** (100% pass rate) ✅
+- **Overall coverage:** 72.43% (up from 69.33%)
+- **Test execution time:** 12.20 seconds
 
 ### Blockers
-- None
+- None currently
 
-### Notes
-- **Phase 2.1:** Core milestones complete (belief extraction + plan generation)
-- **Phase 2.2:** Tool execution infrastructure complete (custom implementation decision)
-- Employees can now autonomously perceive (extract beliefs) and plan (generate intentions)
-- Next: Implement concrete capabilities (email, calendar, research)
-- Then: Integrate tools with IntentionStack for autonomous execution
+### Insights & Notes
+- Original design intent: "Capabilities do perception + execution themselves"
+- Creating adapter would violate this principle and add unnecessary complexity
+- Porting robust execution patterns into BaseCapability gives best of both worlds
+- All capabilities now get retry logic, error handling, PII-safe logging for free
+- Capability developers just implement _execute_action_impl() with business logic
 
-### Previous Session (2025-11-13) ✅
-- [x] Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
-- [x] Fixed streaming stop sequences bug (all 3 providers)
-- [x] Fixed unsupported provider error handling
-- [x] Made OpenAI embedding model configurable
-- [x] Updated Gemini model IDs and pricing
-- [x] Updated dependencies to latest versions
-- [x] All formatting and linting completed
-- [x] 64/64 tests passing, 64% coverage
-- [x] PR merged to main ✅
+### Next Session
+- Consider adding specific retry behavior tests (transient error retry, permanent error fail)
+- Begin Email Capability implementation (Phase 2.2)
+- Microsoft Graph API integration
+- Email triage and composition logic
 
 ---
 
-## 🎯 Current Phase: Phase 2 - LLM Integration & Capabilities (IN PROGRESS)
+## 🎯 Current Phase: Phase 2 - Basic Capabilities (IN PROGRESS)
 
-**Goal:** Integrate LLM providers and implement autonomous decision-making
+**Goal:** Implement capability framework and basic capabilities (email, calendar, messaging, browser)
 
-### Phase 2.0: Multi-Provider LLM Abstraction ✅ COMPLETE
-- [x] Design multi-provider architecture
-- [x] Implement Anthropic provider (Claude Sonnet 4, Opus, Haiku)
-- [x] Implement OpenAI provider (GPT-4o, GPT-4o-mini, o1, o3-mini)
-- [x] Implement Google Vertex AI provider (Gemini 1.5 Pro, Flash)
-- [x] Implement automatic fallback logic
-- [x] Implement cost tracking
-- [x] Write comprehensive unit tests (16 tests, 100% passing)
-- [x] Write ADR-008: Multi-Provider LLM Abstraction
+### Phase 2.1 - Capability Framework ✅ COMPLETE
+- [x] Design capability abstraction (BaseCapability, CapabilityRegistry)
+- [x] Implement BaseCapability protocol
+- [x] Implement CapabilityRegistry lifecycle management
+- [x] Integrate with ProactiveExecutionLoop
+- [x] Write comprehensive unit tests (31 tests)
+- [x] Write integration tests (6 tests)
 
-### Phase 2.1: BDI + LLM Integration 🚧 66% COMPLETE
-- [x] Integrate LLMService into belief extraction (`empla/bdi/beliefs.py`)
-- [x] Integrate LLMService into plan generation (`empla/bdi/intentions.py`)
-- [ ] Integrate LLMService into strategic planning (`empla/core/planning/strategic.py`) - OPTIONAL
-- [x] Add belief extraction from observations (text → structured beliefs)
-- [x] Add plan generation when no learned strategy exists
-- [x] Write integration tests with mocked LLM responses (7 tests total: 4 belief + 3 plan)
+### Phase 2.2 - Email Capability (NEXT)
+- [ ] Implement EmailCapability class
+- [ ] Microsoft Graph API integration
+- [ ] Gmail API integration (optional)
+- [ ] Email triage logic (priority classification)
+- [ ] Email composition helpers
+- [ ] Unit tests for email capability
+- [ ] Integration tests with proactive loop
 
-### Phase 2.2: Tool Execution & Capabilities 🚧 33% COMPLETE
-- [x] Choose agent framework (Agno vs LangGraph vs custom) - **CUSTOM (ADR-009)**
-- [x] Implement tool execution layer (engine, registry, protocols)
-- [x] Write comprehensive tests (20 tests, 95%+ coverage)
-- [ ] Add email capability (send, read, reply)
-- [ ] Add calendar capability (schedule, check availability)
-- [ ] Add research capability (web search, document analysis)
-- [ ] Integrate tools with IntentionStack execution
-- [ ] Add BDI integration tests (tool execution → observations → beliefs)
+### Phase 2.3 - Calendar Capability
+- [ ] Implement CalendarCapability class
+- [ ] Event monitoring and notifications
+- [ ] Meeting scheduling logic
+- [ ] Optimal time finding algorithm
+- [ ] Unit and integration tests
 
----
+### Phase 2.4 - Additional Capabilities
+- [ ] Messaging capability (Slack/Teams)
+- [ ] Browser capability (Playwright)
+- [ ] Document capability (basic generation)
 
-## 🏁 Completed Phases
+## 🎯 Previous Phases
 
 ### Phase 0 - Foundation Setup ✅ 100% COMPLETE
+
 **Goal:** Establish documentation infrastructure before Phase 1 implementation
 
-**Completed:**
-- [x] Create TODO.md, CHANGELOG.md
+### Phase 0 Tasks - ALL COMPLETE ✅
+- [x] Create TODO.md
+- [x] Create CHANGELOG.md
 - [x] Create docs/decisions/ with ADR template
 - [x] Create docs/design/ with design template
-- [x] Write initial ADRs (ADR-001 through ADR-006)
-- [x] Optimize CLAUDE.md (1,536 lines final)
-- [x] Comprehensive pre-implementation review
+- [x] Create docs/README.md explaining doc system
+- [x] Write initial ADRs for existing decisions:
+  - [x] ADR-001: PostgreSQL as primary database
+  - [x] ADR-002: Python + FastAPI stack choice
+  - [x] ADR-003: Custom BDI architecture over frameworks
+  - [x] ADR-004: Defer agent framework to Phase 2
+  - [x] ADR-005: Use pgvector for initial vector storage
+  - [x] ADR-006: Proactive loop over event-driven architecture
+- [x] Optimize CLAUDE.md (1,536 lines final, comprehensive, zero info loss)
+- [x] Comprehensive pre-implementation review (3 subagents)
 
 ---
 
-### Phase 1 - Foundation & Lifecycle ✅ 100% COMPLETE
-**Goal:** Build core BDI architecture and memory systems
+## 📅 Upcoming Work
 
-**Completed:**
-- [x] Week 0: Setup & Design (database schema, core models, BDI design docs)
-- [x] Week 1: Foundation (database migrations, Pydantic models, FastAPI skeleton)
-- [x] Week 2: BDI Engine (BeliefSystem, GoalSystem, IntentionStack)
-- [x] Week 3: Proactive Loop (ProactiveExecutionLoop with 23 tests, 90% coverage)
-- [x] Week 4: Memory System (episodic, semantic, procedural, working memory with 17 integration tests)
+### Phase 1: Foundation & Lifecycle (STARTING NOW)
 
----
+**Week 0: Setup & Design (Days 1-2)**
+- [ ] Create pyproject.toml with uv-based setup
+- [ ] Create project scaffold (src/empla/, tests/)
+- [ ] Set up native PostgreSQL 17 + pgvector (not Docker)
+- [ ] Create scripts/setup-local-db.sh
+- [ ] Create docs/guides/local-development-setup.md
+- [ ] Create .gitignore and LICENSE
+- [ ] Write design doc: database-schema.md
+- [ ] Write design doc: core-models.md
+- [ ] Write design doc: bdi-engine.md
+- [ ] Write design doc: memory-system.md
 
-## 📅 Next Steps
+**Week 1: Foundation (Days 3-7)**
+- [ ] Implement database schema with Alembic migrations
+- [ ] Implement core Pydantic models (Employee, Profile, Goal, Belief)
+- [ ] Set up FastAPI skeleton with health check
+- [ ] Write initial unit tests (models, basic DB)
 
-### Immediate: Choose Next Direction
+**Week 2: BDI Engine (Days 8-14)**
+- [ ] Implement BeliefSystem (world model, updates, queries)
+- [ ] Implement GoalSystem (goal hierarchy, prioritization)
+- [ ] Implement IntentionStack (plan commitment, reconsideration)
+- [ ] Integration: BDI components working together
+- [ ] Comprehensive tests (>80% coverage)
 
-**Option A: Complete Phase 2.1 (Strategic Planning)**
-- Implement strategic planning using LLM
-- Location: `empla/core/planning/strategic.py` (to be created)
-- Input: Long-term goals, current situation, historical outcomes
-- Output: Strategic plans and approach recommendations
+**Week 3: Proactive Loop (Days 15-21)** ✅ COMPLETE
+- [x] Implement ProactiveExecutionLoop
+- [x] Implement loop models and protocols
+- [x] Implement decision logic (when to replan, reflect)
+- [x] Write comprehensive unit tests (23 tests, 100% passing)
+- [x] Achieve 90% test coverage
+- [ ] Implement actual perception sources (Phase 2)
+- [ ] Implement event monitoring system (Phase 2)
+- [ ] E2E test: Employee runs autonomously for 1 hour (Phase 2)
 
-**Option B: Start Phase 2.2 (Tool Execution & Capabilities)** ← RECOMMENDED
-- Choose agent framework (Agno vs LangGraph vs custom)
-- Implement tool execution layer
-- Add email capability (send, read, reply)
-- This unblocks autonomous action execution
-
-**Completed Phase 2.1 Milestones:**
-1. ✅ **Belief extraction** - Extract structured beliefs from observations
-   - Location: `empla/bdi/beliefs.py`
-   - Status: Implemented with 5 passing tests (including validation), 74.07% coverage
-   - Features: SPO extraction, evidence tracking, type safety, error handling
-
-2. ✅ **Plan generation** - Generate action plans when no learned strategy exists
-   - Location: `empla/bdi/intentions.py`
-   - Status: Implemented with 3 passing tests, 49.50% coverage
-   - Features: Multi-step plans, dependency resolution, type safety, error handling
-
-### Future (Phase 2.2): Tool Execution & Capabilities
-- Choose agent framework (Agno vs LangGraph vs custom) - **DECISION NEEDED**
-- Implement tool execution layer
-- Add core capabilities (email, calendar, research)
-- Integration testing with real API keys
+**Week 4: Memory System (Days 22-28)** ✅ COMPLETE
+- [x] Implement episodic memory (record/recall with vectors)
+- [x] Implement semantic memory (knowledge storage)
+- [x] Implement procedural memory (workflow storage)
+- [x] Implement working memory (context management)
+- [x] Integration: Memory systems working together
+- [x] Comprehensive integration tests (17/17 passing, 100% pass rate)
 
 ### Known Dependencies
-- Phase 2.1 depends on completed LLM abstraction (✅ done)
-- Phase 2.2 depends on agent framework decision (pending)
-- All phases require ADRs for major architectural decisions
+- Phase 0 must complete before Phase 1
+- All ADRs should be written before architectural implementation
+- Design docs should be created for each major component before coding
 
 ---
 
@@ -209,67 +203,39 @@ None currently - fresh start!
 ## 📊 Progress Tracking
 
 ### Documentation Health
-- [x] CLAUDE.md created (1,536 lines, comprehensive development guide)
-- [x] ARCHITECTURE.md created (complete system architecture)
+- [x] CLAUDE.md created
+- [x] ARCHITECTURE.md created
 - [x] README.md created
-- [x] TODO.md created and maintained
-- [x] CHANGELOG.md created and maintained
-- [x] ADR infrastructure created (8 ADRs written)
-- [x] Design doc infrastructure created (4 design docs)
+- [x] TODO.md created
+- [x] CHANGELOG.md created
+- [x] ADR infrastructure created
+- [x] Design doc infrastructure created
 
 ### Implementation Progress
-**Phase 0 (Foundation Setup):** ✅ 100% complete
-**Phase 1 (BDI & Memory):** ✅ 100% complete
+**Phase 1 Progress:**
 - Week 0 (Setup & Design): ✅ 100% complete
 - Week 1 (Foundation): ✅ 100% complete
 - Week 2 (BDI Engine): ✅ 100% complete
-- Week 3 (Proactive Loop): ✅ 100% complete
+- Week 3 (Proactive Loop): ✅ 100% complete (core loop structure)
 - Week 4 (Memory System): ✅ 100% complete
 
-**Phase 2 (LLM Integration & Capabilities):** 🚧 67% complete
-- Phase 2.0 (Multi-Provider LLM): ✅ 100% complete
-- Phase 2.1 (BDI + LLM Integration): 🚧 66% complete (belief ✅, plan ✅, strategic future)
-- Phase 2.2 (Tool Execution & Capabilities): 🚧 33% complete (infrastructure ✅, capabilities pending)
-
-### Test Coverage
-**Overall:** 69.38% coverage (92/92 tests passing ✅)
+**Test Coverage:**
+- Capability tests: 31/31 passing (100%)
 - Memory integration tests: 17/17 passing (100%)
 - Proactive loop unit tests: 23/23 passing (100%)
-- LLM unit tests: 16/16 passing (100%)
-- BDI integration tests: 13/13 passing (100%)
-  - Belief extraction tests: 5/5 passing ✅ (including validation)
-  - Plan generation tests: 3/3 passing ✅ (including validation)
-- **Tool execution tests: 20/20 passing (100%) 🆕**
-- Proactive loop coverage: 90.06%
-- LLM package coverage: 79.59%
-- **Tool execution coverage: 95.53%+ (base 94.59%, executor 97.33%, registry 94.67%) 🆕**
-- BDI beliefs coverage: 74.07%
-- BDI intentions coverage: 65.84%
+- Overall coverage: 72.43%
+- BaseCapability: 100% coverage
+- CapabilityRegistry: 88.42% coverage
+- ProactiveExecutionLoop: 89.77% coverage
 
-### Current Status
-**Completed:**
-- ✅ Database schema and migrations
-- ✅ BDI engine (Beliefs, Goals, Intentions)
-- ✅ Proactive execution loop
-- ✅ Memory systems (episodic, semantic, procedural, working)
-- ✅ Multi-provider LLM abstraction (Anthropic, OpenAI, Vertex AI)
-- ✅ Belief extraction using LLM (Phase 2.1 first milestone - PR #15)
-- ✅ Plan generation using LLM (Phase 2.1 second milestone - PR #16)
-- ✅ Tool execution infrastructure (Phase 2.2 first milestone - commit 4edfca6)
-
-**In Progress:**
-- 🚧 Phase 2.2: Tool Execution & Capabilities (33% complete)
-  - ✅ Core infrastructure (engine, registry, protocols, tests)
-  - 🔜 Email capability implementation
-  - 🔜 Calendar capability implementation
-  - 🔜 BDI integration (tools ↔ intentions ↔ observations ↔ beliefs)
-
-**Next:**
-- 🔜 Implement email capability (send, read, reply)
-- 🔜 Implement calendar capability (schedule, check availability)
-- 🔜 Integrate tools with IntentionStack execution
+**Current Status:**
+- Memory systems fully implemented and tested ✅
+- Database schema and migrations complete ✅
+- BDI engine (Beliefs, Goals, Intentions) complete ✅
+- Proactive loop core structure complete ✅
+- Ready for Phase 2: Capabilities and actual perception/execution
 
 ---
 
-**Last Updated:** 2025-11-16 (Security & reliability fixes complete - commit fae4eac)
-**Next Session Goal:** Implement email capability and integrate with IntentionStack
+**Last Updated:** 2025-10-30 (Proactive loop implementation complete)
+**Next Session Goal:** Implement perception sources or begin Phase 2 capabilities

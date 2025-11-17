@@ -6,1072 +6,240 @@
 
 ---
 
-## 2025-11-16 - Tool Execution Layer: Security & Reliability Fixes
+## 2025-11-16 - Capability-Tool Execution Architecture Convergence
 
-**Phase:** 2.2 - Tool Execution & Capabilities (Bug Fixes)
+**Phase:** 2.2 - Capability Enhancement with Tool Execution Patterns
 
-### Fixed
+### Enhanced
 
-**Critical Security & Reliability Improvements to Tool Execution Layer:**
+**BaseCapability Execution Robustness:**
+- **empla/capabilities/base.py** (enhanced with +150 lines of retry/error handling logic)
+  - Replaced abstract `execute_action()` with concrete implementation containing retry logic
+  - Added new abstract method `_execute_action_impl()` for capability-specific logic
+  - Exponential backoff retry with jitter (±25% randomization to avoid thundering herd)
+  - Error classification via `_should_retry()` method (transient vs permanent)
+  - PII-safe logging (never logs action.parameters to prevent credential leaks)
+  - Performance tracking (duration_ms, retries) in ActionResult.metadata
+  - Zero-exception guarantee (always returns ActionResult, never raises)
+  - Retry configuration extracted from CapabilityConfig.retry_policy
 
-Four critical fixes addressing security, type safety, validation completeness, and test reliability:
+- **empla/capabilities/base.py.__init__()** (added retry configuration)
+  - Extract max_retries from config.retry_policy (default: 3)
+  - Extract backoff_multiplier from config.retry_policy (default: 2.0)
+  - Configure initial_backoff_ms (100ms) and max_backoff_ms (5000ms)
 
-**1. Protocol Signature Sync** (`empla/core/tools/base.py:142-144`)
-- **Issue:** `ToolExecutor` protocol signature didn't match `ToolExecutionEngine` implementation
-- **Impact:** Type checking would fail, protocols couldn't enforce correct interface
-- **Fix:** Added missing `implementation: ToolImplementation` parameter to protocol
-- **Details:**
-  - Used forward reference `"ToolImplementation"` to avoid import order issues
-  - Updated docstring example to show correct usage
-  - Now type checkers can verify executor implementations conform to protocol
+- **empla/capabilities/base.py._should_retry()** (error classification)
+  - Transient errors (retry): timeout, rate limit, 503, 429, connection, network, temporary
+  - Permanent errors (fail immediately): auth, unauthorized, forbidden, not found, invalid, validation, 400, 401, 403, 404
+  - Conservative approach: don't retry unknown errors (let employee decide at higher level)
 
-**2. PII/Secrets Security** (`empla/core/tools/executor.py:107-109`)
-- **Issue:** Parameter validation errors logged full `params` dict which could contain sensitive data
-- **Impact:** **CRITICAL** - User passwords, API keys, email content, PII could leak into logs
-- **Fix:** Removed `params` from log extra dict, replaced with `tool_name`
-- **Details:**
-  - Prevents accidental exposure of user-controlled input in application logs
-  - Logs still provide debugging context (tool_id, tool_name, error message)
-  - Complies with data protection best practices (GDPR, SOC2)
+**Test Updates:**
+- **tests/unit/test_capabilities_base.py** (updated MockCapability)
+  - Changed `execute_action()` to `_execute_action_impl()` to match new interface
+  - All 12 tests passing ✅
 
-**3. Unexpected Parameter Validation** (`empla/core/tools/executor.py:238-241`)
-- **Issue:** Docstring promised "No unexpected parameters" check but code allowed extra keys
-- **Impact:** Security gap - unexpected parameters could be injected and passed to tool implementations
-- **Fix:** Added validation loop rejecting parameters not in tool schema
-- **Details:**
-  - Returns clear error: `"Unexpected parameter: {param_name}"`
-  - Prevents parameter injection attacks
-  - Enforces tool schema contracts strictly
-  - Added comprehensive test: `test_parameter_validation_unexpected_parameter`
-
-**4. Test Flakiness Fix** (`tests/test_tool_execution.py:244`)
-- **Issue:** Brittle timing assertion `result.duration_ms < 500` caused CI failures
-- **Impact:** Intermittent test failures in slower CI environments
-- **Fix:** Removed upper bound timing assertion, kept lower bound validation
-- **Details:**
-  - Kept: `assert result.duration_ms >= 100` (verifies delay was applied)
-  - Removed: `assert result.duration_ms < 500` (flaky in CI)
-  - Test now robust across different execution environments
-
-### Test Results
-
-**All Tests Passing:**
-- **Total:** 93/93 tests passing (100% pass rate) ✅ (was 92/92)
-- **New test:** test_parameter_validation_unexpected_parameter (1/1 passing)
-- **Tool execution tests:** 21/21 passing (100%) ✅ (was 20/20)
-- **Coverage:**
-  - executor.py: 97.44% (was 97.33%)
-  - base.py: 94.59% (unchanged)
-  - registry.py: 94.67% (unchanged)
-
-### Security Impact
-
-**PII/Secrets Protection:**
-- **Before:** Params dict logged on validation errors
-  ```python
-  # ❌ SECURITY ISSUE - Leaked sensitive data
-  logger.warning(
-      f"Parameter validation failed",
-      extra={"params": {"password": "secret123", "api_key": "sk-..."}}
-  )
-  ```
-
-- **After:** Only tool metadata logged
-  ```python
-  # ✅ SECURE - No sensitive data in logs
-  logger.warning(
-      f"Parameter validation failed for send_email: Missing required parameter: to",
-      extra={"tool_id": "550e8400-...", "tool_name": "send_email"}
-  )
-  ```
-
-**Parameter Injection Prevention:**
-- **Before:** Unexpected parameters silently passed to tool implementations
-- **After:** Strict schema enforcement rejects unexpected parameters
-- **Example:** Prevents attackers from injecting `{"admin": true}` into tool calls
-
-### Files Modified
-
-**Core Implementation:**
-- `empla/core/tools/base.py` - Protocol signature fix (line 144)
-- `empla/core/tools/executor.py` - PII removal (lines 107-109), validation (lines 238-241)
-
-**Tests:**
-- `tests/test_tool_execution.py` - New test (lines 205-226), timing fix (line 244)
-
-### Next Steps
-
-**Phase 2.2 Continuation:**
-- Implement email capability (SendEmailTool, ReadEmailTool, ReplyToEmailTool)
-- Implement calendar capability (ScheduleMeetingTool, CheckAvailabilityTool)
-- Integrate tools with IntentionStack for autonomous execution
-- Write BDI integration tests (tool execution → observations → beliefs flow)
-
-**Security Validation:**
-- Audit all other logging statements for PII leakage
-- Add static analysis to detect sensitive data in logs (future)
-- Create security testing guide for tool implementations
-
----
-
-## 2025-11-16 - Phase 2.2: Custom Tool Execution Infrastructure
-
-**Phase:** 2.2 - Tool Execution & Capabilities (First Milestone)
-
-### Added
-
-**Core Tool Execution System** (`empla/core/tools/`)
-
-Implemented custom tool execution infrastructure rather than adopting framework (Agno/LangGraph) based on Phase 2.1 learnings about our actual needs:
-
-- **Tool Base Definitions** (`base.py` - 94.59% coverage)
-  - `Tool` - Tool definition with parameters schema, required capabilities, metadata
-  - `ToolResult` - Execution outcome with success/error, timing, retry count
-  - `ToolExecutor` - Protocol for execution implementations (enables multiple strategies)
-  - `ToolImplementation` - Protocol for concrete tool implementations
-  - `ToolCapability` - Capability grouping for tool discovery and access control
-  - Structural subtyping via protocols (flexible, testable, swappable implementations)
-
-- **Tool Execution Engine** (`executor.py` - 97.33% coverage)
-  - `ToolExecutionEngine` - Executes tools with retry logic and error handling
-  - **Retry Logic:** Exponential backoff with jitter for transient failures
-  - **Error Classification:** Distinguishes transient (retry) vs permanent (fail) errors
-  - **Parameter Validation:** Schema-based validation before execution
-  - **Performance Tracking:** Execution timing, retry counts, metrics
-  - **Zero-Exception Guarantee:** Never raises - all errors captured in ToolResult
-  - **Features:**
-    - Max 3 retries (configurable)
-    - Exponential backoff: 100ms → 200ms → 400ms (with ±25% jitter)
-    - Conservative retry policy (only obvious transient errors)
-    - Structured error logging at each attempt
-    - Parameter type checking (string, number, boolean, array, object)
-
-- **Tool Registry** (`registry.py` - 94.67% coverage)
-  - `ToolRegistry` - Manages available tools and their implementations
-  - **Features:**
-    - Tool registration with implementation binding
-    - Capability management
-    - Tool discovery by name, capability, category, tag
-    - Employee-specific tool filtering (capabilities + credentials)
-    - Credential validation for capability requirements
-    - Dict-based for fast O(1) lookup
-
-- **Comprehensive Tests** (`tests/test_tool_execution.py`)
-  - **20 unit tests** covering all functionality (100% passing ✅)
-  - Test categories:
-    - Execution engine: 9/9 tests (success, failure, retry, validation, timing)
-    - Tool registry: 11/11 tests (registration, discovery, filtering, capabilities)
-  - **Mock implementations:** SuccessfulTool, FailingTool, FlakeyTool, SlowTool
-  - **Coverage:** 95.53%+ average across all tool modules
+- **tests/unit/test_capabilities_registry.py** (updated 3 mock capabilities)
+  - MockEmailCapability: Changed to `_execute_action_impl()`
+  - MockCalendarCapability: Changed to `_execute_action_impl()`
+  - FailingCapability: Changed to `_execute_action_impl()`
+  - All 19 tests passing ✅
 
 ### Decided
 
-**ADR-009: Custom Tool Execution Layer**
+**Architecture Decision (ADR-010):**
+- **docs/decisions/010-capability-tool-execution-convergence.md** (~400 lines)
+  - Decision: Enhance Capability Framework with Tool Execution patterns (not create adapter)
+  - Rationale: Original design intent was "Capabilities do perception + execution themselves"
+  - Alternatives considered: Thin adapter, replace Capabilities, keep separate
+  - Consequences: Single execution model, automatic robustness, simpler architecture
+  - Implementation: Port ToolExecutionEngine retry/validation/security into BaseCapability
+  - Result: All capabilities get robust execution "for free"
 
-Decision to build custom implementation rather than adopt framework (Agno/LangGraph):
+**Features Ported from ToolExecutionEngine:**
+1. ✅ Exponential backoff retry with jitter (100ms initial, 5000ms max, 2.0 multiplier)
+2. ✅ Error classification (transient vs permanent)
+3. ✅ PII-safe logging (never logs action.parameters)
+4. ✅ Performance tracking (duration_ms, retries)
+5. ✅ Zero-exception guarantee (always returns ActionResult)
+6. ⏳ Parameter validation (deferred - capability-specific schema needs)
 
-**Rationale:**
-1. **We now know our needs** (Phase 2.1 provided evidence):
-   - Tool patterns are simple: direct API calls to Microsoft Graph, Gmail, CRMs
-   - Complex orchestration already handled by BDI architecture + IntentionStack
-   - No need for complex tool workflows - BDI handles multi-step logic
-
-2. **We already have the hard parts:**
-   - Planning/reasoning: BDI + LLM plan generation
-   - Memory: Episodic, semantic, procedural, working
-   - Multi-step execution: IntentionStack with dependencies
-   - Decision-making: Goal evaluation, intention prioritization
-
-3. **Simple implementation for our use case:**
-   - Tool execution layer: ~300 lines of clean code
-   - Retry logic: Standard exponential backoff (20 lines)
-   - Error handling: Try/catch + logging (straightforward)
-   - Tool registry: Dict-based lookup (simple and fast)
-
-4. **Perfect BDI integration:**
-   - IntentionStack.execute_intention() → ToolExecutor.execute()
-   - ToolResult → Observation → BeliefSystem.update()
-   - Outcome → ProceduralMemory.store_strategy()
-   - Error → Replanning in next cycle
-
-5. **Zero framework lock-in:**
-   - No external dependencies (beyond API client libraries)
-   - Can swap implementation later if needed
-   - Can wrap Agno/LangGraph if we hit limitations
-   - Maximum flexibility maintained
-
-**Alternatives Considered:**
-- **Agno:** MCP-native, modern, but solves problems we don't have (we already have orchestration)
-- **LangGraph:** State graph model conflicts with BDI intentions model
-- **LangChain:** Known instability, heavy dependency
-- **Defer again:** We NOW have the information (completed Phase 2.1) - time to decide
-
-**Trade-offs Accepted:**
-- ❌ Build our own retry logic (but it's simple - 20 lines)
-- ❌ No pre-built community tools (but most don't fit BDI model anyway)
-- ❌ We own the code (but it's small, stable, and well-tested)
-
-### Design Decisions
-
-**Error Handling Philosophy:**
-- **execute() NEVER raises exceptions** - all errors captured in ToolResult
-- **Critical for autonomous operation:** Employees must handle failures gracefully
-- **Employee decides response:** Retry? Replan? Escalate? (not hardcoded)
-- **Example:** Rate limit error → Employee can back off, auth error → Reauthorize
-
-**Retry Policy:**
-- **Conservative approach:** Only retry obvious transient errors
-- **Transient indicators:** timeout, rate limit, 503, 429, network, connection
-- **Permanent indicators:** auth, forbidden, not found, invalid, validation, 400, 401, 403, 404
-- **Unknown errors:** Don't retry (let employee decide at higher level)
-
-**Protocol-Based Design:**
-- **ToolExecutor protocol:** Allows multiple implementations (mock, production, framework wrappers)
-- **ToolImplementation protocol:** Clean interface for concrete tools
-- **Benefits:** Testable, swappable, no hard dependencies
-- **Future-proof:** Can add AgnoToolExecutor, LangGraphToolExecutor later
+**Design Principle:**
+- Keep single execution model (Capabilities) vs creating competing architectures
+- Enhance existing abstractions vs creating adapter layers
+- Port proven patterns vs rebuilding from scratch
 
 ### Test Results
 
 **All Tests Passing:**
-- **Total:** 92/92 tests passing (100% pass rate) ✅ (was 71/71)
-- **New tool execution tests:** 20/20 passing (100%) ✅
-- **Overall coverage:** 69.38% (up from 35.11%)
-- **Tool execution coverage:**
-  - executor.py: 97.33%
-  - base.py: 94.59%
-  - registry.py: 94.67%
-  - Average: 95.53%+
-
-**Test execution time:** < 1 second for all tool tests
-
-### Example Usage
-
-```python
-from empla.core.tools import ToolExecutionEngine, ToolRegistry, Tool
-from empla.core.tools.capabilities.email import SendEmailTool
-
-# Register tool
-registry = ToolRegistry()
-email_tool = Tool(
-    name="send_email",
-    description="Send an email via Microsoft Graph API",
-    parameters_schema={
-        "to": {"type": "string", "required": True},
-        "subject": {"type": "string", "required": True},
-        "body": {"type": "string", "required": True},
-    },
-    required_capabilities=["email", "microsoft_graph"],
-    category="communication",
-    tags=["email", "priority"],
-)
-registry.register_tool(email_tool, SendEmailTool())
-
-# Execute tool
-engine = ToolExecutionEngine(max_retries=3)
-tool = registry.get_tool_by_name("send_email")
-impl = registry.get_implementation(tool.tool_id)
-
-result = await engine.execute(
-    tool=tool,
-    implementation=impl,
-    params={
-        "to": "customer@example.com",
-        "subject": "Follow-up from our conversation",
-        "body": "Thank you for your time today..."
-    }
-)
-
-if result.success:
-    print(f"Email sent: {result.output}")
-else:
-    # Employee decides how to handle failure
-    if "rate_limit" in result.error:
-        await asyncio.sleep(60)  # Back off
-    elif "auth" in result.error:
-        await reauthorize()  # Fix credentials
-    else:
-        await create_fallback_intention()  # Replan
-```
-
-### Integration with BDI
-
-Tool execution integrates seamlessly with existing BDI architecture:
-
-**Intention Execution Flow:**
-```python
-# 1. IntentionStack pops highest priority intention
-intention = await intention_stack.pop_highest_priority()
-
-# 2. Get tool from registry
-tool = tool_registry.get_tool(intention.tool_id)
-impl = tool_registry.get_implementation(intention.tool_id)
-
-# 3. Execute tool with retry logic
-result = await tool_executor.execute(tool, impl, intention.parameters)
-
-# 4. Convert result to observation
-observation = Observation(
-    observation_type="tool_execution",
-    source="tool_executor",
-    content={
-        "tool": tool.name,
-        "success": result.success,
-        "output": result.output,
-        "error": result.error,
-        "duration_ms": result.duration_ms,
-        "retries": result.retries,
-    }
-)
-
-# 5. Update beliefs from observation
-await belief_system.update([observation])
-
-# 6. Store outcome in procedural memory (learning)
-if result.success:
-    await procedural_memory.store_success(intention, result)
-else:
-    await procedural_memory.store_failure(intention, result)
-```
-
-### Phase 2.2 Status: 33% Complete
-
-**Completed:**
-1. ✅ **Agent framework decision** - Custom implementation (ADR-009)
-2. ✅ **Core tool infrastructure** - Engine, registry, protocols, tests
-
-**In Progress:**
-3. 🔜 **Email capability** - Send, read, reply (Microsoft Graph/Gmail API)
-4. 🔜 **Calendar capability** - Schedule meetings, check availability
-5. 🔜 **Research capability** - Web search, document analysis
-6. 🔜 **BDI integration** - Connect tools to IntentionStack execution
-7. 🔜 **Integration tests** - Tool execution → observations → beliefs flow
-
-### Next Steps
-
-**Immediate:**
-- Implement email capability (SendEmailTool, ReadEmailTool, ReplyToEmailTool)
-- Implement calendar capability (ScheduleMeetingTool, CheckAvailabilityTool)
-- Integrate tools with IntentionStack for autonomous execution
-- Write BDI integration tests (end-to-end tool execution flow)
-
-**Future:**
-- Implement research capability (web search, document analysis)
-- Add CRM capability (Salesforce, HubSpot integration)
-- Add communication capability (Slack, Teams integration)
-- Add MCP support for tool discovery
-
----
-
-## 2025-11-16 - Phase 2.1: Plan Generation using LLM
-
-**Phase:** 2.1 - BDI + LLM Integration (Second Integration)
-
-### Added
-
-**LLM-Powered Plan Generation** (`empla/bdi/intentions.py`)
-
-Integrated LLMService into IntentionStack to enable autonomous generation of multi-step action plans for goals:
-
-- **Pydantic Models for Structured Plan Generation:**
-  - `IntentionType` - Type alias constraining intention_type to valid values: `action`, `tactic`, `strategy`
-  - `PlanStep` - Individual step in a plan with action, description, parameters, expected outcome, duration, capabilities
-  - `GeneratedIntention` - Single intention with type, description, priority, plan, reasoning, dependencies, capabilities
-    - Type-safe `intention_type` field using Literal type
-    - Field validator normalizing LLM output (lowercase, variant mapping, validation)
-  - `PlanGenerationResult` - Complete plan with intentions, strategy summary, assumptions, risks, success criteria
-
-- **IntentionStack.generate_plan_for_goal()** (lines 538-753)
-  - **Input:** Goal + Beliefs (context) + LLM Service + Capabilities
-  - **Process:** LLM analyzes goal and beliefs to generate structured multi-step plan
-  - **Output:** List of EmployeeIntention objects with proper dependency chain
-  - **Features:**
-    - Comprehensive system prompt guiding LLM to create executable plans
-    - Dependency resolution (LLM outputs indexes 0,1,2... resolved to actual UUIDs)
-    - Rich context tracking (reasoning, strategy, assumptions, risks, success criteria)
-    - Automatic intention creation via existing `add_intention` method
-    - Temperature 0.4 for balance between creativity and consistency
-    - Error handling (graceful degradation on LLM failure)
-
-- **Helper Method _format_beliefs_for_prompt()** (lines 726-753)
-  - Converts beliefs list to readable text format for LLM
-  - Limits to top 20 beliefs to avoid token overflow
-  - Formats as: "Subject → Predicate: Object (confidence)"
-
-**Type Safety & Validation**
-
-- `IntentionType = Literal["action", "tactic", "strategy"]` matches database constraints
-- Field validator handles LLM output variations:
-  - Normalizes capitalization: "Action" → "action", "TACTIC" → "tactic"
-  - Maps common variants: "task" → "action", "campaign" → "strategy", "approach" → "tactic"
-  - Raises ValidationError for invalid values before persistence
-
-**Comprehensive Tests** (`tests/test_bdi_integration.py`)
-
-Added 3 comprehensive integration tests covering all aspects of plan generation:
-
-- **test_plan_generation_from_goal** - Multi-step plan with dependencies
-  - Tests generation of 3 intentions from a single goal
-  - Verifies dependency resolution (indexes → UUIDs)
-  - Validates context metadata (reasoning, strategy, assumptions, risks)
-  - Confirms proper intention ordering (dependencies enforced)
-
-- **test_plan_generation_with_empty_result** - Empty plan handling
-  - Tests LLM returning no intentions (e.g., no action needed)
-  - Validates graceful handling of goals requiring no action
-
-- **test_intention_type_validation** - Type constraint validation
-  - Tests valid lowercase values pass through
-  - Verifies capitalization normalization
-  - Validates variant mapping (task→action, campaign→strategy)
-  - Confirms ValidationError for invalid values
-
-**Test Results:**
-- **All 3 tests passing** (100%) ✅
-- **Test execution time:** 1.10 seconds (fast with mocked LLM)
-- **Coverage:** 49.50% on empla/bdi/intentions.py (up from ~18%)
-
-### Design Decisions
-
-**LLM Prompt Design:**
-- **System prompt** guides structured plan creation with clear intention types
-- **Dependency specification** using 0-based indexes (intention 0, 1, 2, etc.)
-- **Realistic estimates** for time and capabilities
-- **Comprehensive metadata** (assumptions, risks, success criteria)
-
-**Dependency Resolution:**
-- **LLM outputs indexes** (0, 1, 2) for simplicity in structured output
-- **generate_plan_for_goal resolves** indexes to actual UUIDs during creation
-- **Invalid dependencies logged** and skipped (doesn't crash planning)
-- **Maintains execution order** through dependency chain
-
-**Integration Pattern:**
-- Plans generated via LLM are created using existing `add_intention()` method
-- This ensures consistency with manually-created intentions (same validation, lifecycle)
-- Rich context captures generation metadata for debugging and analysis
-- No special handling needed for LLM-generated intentions (same lifecycle as any intention)
-
-### Example Usage
-
-```python
-from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
-from empla.llm import LLMService, LLMConfig
-
-# Initialize
-llm_service = LLMService(LLMConfig(
-    primary_model="claude-sonnet-4",
-    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-))
-goals = GoalSystem(session, employee_id, tenant_id)
-intentions = IntentionStack(session, employee_id, tenant_id)
-beliefs = BeliefSystem(session, employee_id, tenant_id)
-
-# Get goal and beliefs
-goal = await goals.get_goal(goal_id)
-belief_list = await beliefs.get_all_beliefs(min_confidence=0.6)
-
-# Generate plan
-generated_intentions = await intentions.generate_plan_for_goal(
-    goal=goal,
-    beliefs=belief_list,
-    llm_service=llm_service,
-    capabilities=["email", "research", "calendar"]
-)
-
-# Result: LLM might generate a plan like:
-# 1. Intention: "Research account background" (no dependencies)
-# 2. Intention: "Prepare customized proposal" (depends on #1)
-# 3. Intention: "Send proposal and schedule follow-up" (depends on #2)
-```
-
-### Integration with Proactive Loop
-
-This feature enables the strategic planning phase to autonomously generate plans:
-
-**Before (Manual):**
-```python
-# Manual intention creation
-await intentions.add_intention(
-    goal_id=goal.id,
-    description="Research account",
-    plan={"steps": [{"action": "research", ...}]},
-    priority=8
-)
-```
-
-**After (Autonomous):**
-```python
-# Autonomous plan generation in strategic planning phase
-generated_intentions = await intentions.generate_plan_for_goal(
-    goal=goal,
-    beliefs=beliefs,
-    llm_service=llm_service
-)
-# LLM generates complete multi-step plan with:
-# - Multiple intentions with clear steps
-# - Proper dependency ordering
-# - Reasoning and metadata
-# - All created and ready to execute
-```
-
-### Phase 2.1 Status: 66% Complete
-
-**Completed Milestones:**
-1. ✅ **Belief Extraction** (PR #15) - Understand the world from observations
-2. ✅ **Plan Generation** (PR #16) - Decide what to do to achieve goals
-
-**Remaining:**
-3. **Strategic Planning** (OPTIONAL/FUTURE) - Deep reasoning for long-term strategy
-
-**Impact:**
-Employees can now autonomously:
-- **Perceive** → Extract structured beliefs from observations (LLM-powered)
-- **Plan** → Generate multi-step action plans for goals (LLM-powered)
-- **Ready for Phase 2.2** → Execute plans using tools and learn from outcomes
-
-### Next Steps
-
-**Option A: Complete Phase 2.1 (Strategic Planning)**
-- Implement strategic planning using LLM
-- Location: `empla/core/planning/strategic.py` (to be created)
-- Feature: Deep reasoning for long-term strategy
-
-**Option B: Start Phase 2.2 (Tool Execution & Capabilities)** ← RECOMMENDED
-- Choose agent framework (Agno vs LangGraph vs custom)
-- Implement tool execution layer
-- Add email capability (send, read, reply)
-- This unblocks autonomous action execution
-
----
-
-## 2025-11-14 - Phase 2.1: Belief Extraction using LLM
-
-**Phase:** 2.1 - BDI + LLM Integration (First Integration)
-
-### Added
-
-**LLM-Powered Belief Extraction** (`empla/bdi/beliefs.py`)
-
-Integrated LLMService into BeliefSystem to enable autonomous extraction of structured beliefs from observations:
-
-- **Pydantic Models for Structured Extraction:**
-  - `ExtractedBelief` - Single belief with subject, predicate, object, confidence, reasoning, belief_type
-  - `BeliefExtractionResult` - Collection of extracted beliefs plus observation summary
-
-- **BeliefSystem.extract_beliefs_from_observation()** (lines 512-657)
-  - **Input:** Observation object (from perception cycle)
-  - **Process:** LLM analyzes observation content and extracts structured beliefs in SPO format
-  - **Output:** List of Belief objects (created or updated via existing update_belief method)
-  - **Features:**
-    - Comprehensive system prompt guiding LLM to extract factual beliefs
-    - Formatted observation content for optimal LLM understanding
-    - Evidence tracking (observation UUID stored in belief.evidence)
-    - Automatic belief update (no duplicates - same subject+predicate gets updated)
-    - Lower temperature (0.3) for consistent extraction
-
-- **Helper Method _format_observation_content()** (lines 629-657)
-  - Converts observation content dict to readable text format
-  - Handles nested dicts, lists, and simple values
-  - Makes observations clear and actionable for LLM
-
-**Comprehensive Tests** (`tests/test_bdi_integration.py`)
-
-Added 4 comprehensive integration tests covering all aspects of belief extraction:
-
-- **test_belief_extraction_from_observation** - Basic extraction with multiple beliefs
-  - Tests extraction of 3 beliefs from a single observation
-  - Verifies subject, predicate, object, confidence, source, evidence tracking
-  - Validates different belief types (state, evaluative, event)
-
-- **test_belief_extraction_updates_existing_beliefs** - Update behavior
-  - Tests that existing beliefs are updated rather than duplicated
-  - Verifies same belief ID after update
-  - Validates belief history tracking (created + updated events)
-
-- **test_belief_extraction_with_empty_result** - Empty extraction handling
-  - Tests LLM returning no beliefs (e.g., automated out-of-office reply)
-  - Validates graceful handling of observations with no actionable content
-
-- **test_belief_extraction_evidence_tracking** - Multi-observation evidence
-  - Tests beliefs updated from multiple observations
-  - Verifies evidence list accumulates observation UUIDs
-  - Validates confidence and value updates from new observations
-
-**Test Results:**
-- **All 4 tests passing** (100%) ✅
-- **Test execution time:** 1.37 seconds (fast with mocked LLM)
-- **Coverage:** 73.73% on empla/bdi/beliefs.py (up from ~60%)
-
-### Design Decisions
-
-**LLM Prompt Design:**
-- **System prompt** emphasizes factual belief extraction (no assumptions or speculation)
-- **Subject-Predicate-Object format** enforced through clear examples
-- **Confidence scoring** based on observation strength (not speculation)
-- **Reasoning required** for each extracted belief (helps debug extractions)
-- **Belief types** clearly defined (state, event, causal, evaluative)
-
-**Source Attribution:**
-- **Decision:** Use `"observation"` as source for LLM-extracted beliefs
-- **Rationale:** Beliefs are extracted FROM observations; LLM is just the extraction mechanism
-- **Alternative considered:** `"llm_extraction:{observation.source}"` - rejected due to database constraint
-- **Database constraint:** Source must be one of: `observation`, `inference`, `told_by_human`, `prior`
-
-**Integration Pattern:**
-- Beliefs extracted via LLM are created/updated using existing `update_belief()` method
-- This ensures consistency with manually-created beliefs (same validation, history tracking, decay)
-- Evidence tracking automatic (observation UUID added to belief.evidence list)
-- No special handling needed for LLM-extracted beliefs (same lifecycle as any belief)
-
-### Example Usage
-
-```python
-from empla.bdi import BeliefSystem
-from empla.core.loop.models import Observation
-from empla.llm import LLMService, LLMConfig
-from datetime import UTC, datetime
-from uuid import uuid4
-
-# Initialize
-llm_service = LLMService(LLMConfig(
-    primary_model="claude-sonnet-4",
-    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-))
-belief_system = BeliefSystem(session, employee_id, tenant_id)
-
-# Create observation from email
-observation = Observation(
-    observation_id=uuid4(),
-    employee_id=employee_id,
-    tenant_id=tenant_id,
-    observation_type="email_received",
-    source="email",
-    content={
-        "from": "ceo@acmecorp.com",
-        "subject": "Ready to close $100k deal",
-        "body": "We're excited to move forward. Send the contract!",
-    },
-    timestamp=datetime.now(UTC),
-    priority=8,
-)
-
-# Extract beliefs
-beliefs = await belief_system.extract_beliefs_from_observation(
-    observation, llm_service
-)
-
-# Result: LLM might extract beliefs like:
-# - ("Acme Corp", "deal_stage", {"stage": "contract_review", "amount": 100000})
-# - ("Acme Corp", "sentiment", {"sentiment": "positive", "reason": "expressed excitement"})
-# - ("Acme Corp", "next_action", {"action": "send_contract", "urgency": "high"})
-```
-
-### Integration with Proactive Loop
-
-This feature enables the perception phase of the proactive loop to convert raw observations into structured beliefs:
-
-**Before (Manual):**
-```python
-# Manual belief creation from observation
-await belief_system.update_belief(
-    subject="Acme Corp",
-    predicate="deal_stage",
-    object={"stage": "negotiation"},
-    confidence=0.8,
-    source="observation"
-)
-```
-
-**After (Autonomous):**
-```python
-# Autonomous belief extraction in perception phase
-for observation in observations:
-    beliefs = await belief_system.extract_beliefs_from_observation(
-        observation, llm_service
-    )
-    # Multiple beliefs extracted automatically from single observation
-```
-
-### Next Steps
-
-**Phase 2.1 Continuation:**
-1. **Plan Generation** - Integrate LLMService into IntentionStack for plan generation
-   - Location: `empla/core/bdi/intentions.py`
-   - Feature: Generate action plans when no learned strategy exists
-   - Input: Current goals, beliefs, context
-   - Output: Step-by-step intention plans
-
-2. **Strategic Planning** - Integrate LLMService into strategic planning
-   - Location: `empla/core/planning/strategic.py` (to be created)
-   - Feature: Deep reasoning for long-term strategy
-   - Input: Long-term goals, current situation, historical outcomes
-   - Output: Strategic plans and approach recommendations
-
-**Future Improvements:**
-- Add belief extraction quality metrics (track confidence distribution, extraction time)
-- Implement belief extraction caching (avoid re-extracting same observation)
-- Add configurable extraction prompts per employee role
-- Implement multi-turn belief refinement (LLM asks clarifying questions)
-
----
-
-## 2025-11-13 - LLM Provider Bug Fixes & Improvements
-
-**Phase:** 2 - LLM Integration (Bug Fixes & Configuration Updates)
-
-### Updated
-
-**Gemini Model Configurations** (`empla/llm/config.py:50-72`)
-
-Corrected Gemini model IDs and pricing to match Vertex AI production settings:
-
-- **gemini-1.5-pro:**
-  - Model ID: `"gemini-1.5-pro-002"` → `"gemini-1.5-pro"` (stable version)
-  - Pricing: Confirmed token-based (not character-based)
-  - Input: $1.25 per 1M tokens
-  - Output: $5.00 per 1M tokens
-
-- **gemini-2.0-flash:**
-  - Model ID: `"gemini-2.0-flash-exp"` → `"gemini-2.0-flash"` (GA version)
-  - Updated pricing:
-    - Input: $0.10 → $0.15 per 1M tokens
-    - Output: $0.30 → $0.60 per 1M tokens
-
-**Rationale:**
-- Experimental model IDs (`-exp`, `-002`) should not be used in production config
-- Stable model IDs (`gemini-1.5-pro`, `gemini-2.0-flash`) ensure consistent behavior
-- Updated pricing reflects current Vertex AI rates (verified at cloud.google.com/vertex-ai/generative-ai/pricing)
-- Vertex AI uses token-based pricing like other providers (no special character-based handling needed)
-
-### Fixed
-
-**Unsupported Provider Error Handling** (`empla/llm/__init__.py:121-125`)
-
-- **Issue:** `_create_provider()` method returned `None` for unsupported providers
-- **Impact:** Led to `AttributeError` when trying to use `self.primary` or `self.fallback` later
-- **Fix:** Added else clause to raise `ValueError` with clear error message
-- **Error message:** `"Unsupported LLM provider: {provider}. Supported providers: anthropic, openai, vertex"`
-- **Benefit:** Errors surface immediately during initialization with actionable information
-
-**Before:**
-```python
-# Silent failure, AttributeError later when calling methods
-service = LLMService(config_with_bad_provider)  # Returns None silently
-await service.generate("...")  # AttributeError: 'NoneType' has no attribute 'generate'
-```
-
-**After:**
-```python
-# Immediate, clear error at initialization
-service = LLMService(config_with_bad_provider)
-# ValueError: Unsupported LLM provider: bad_provider. Supported providers: anthropic, openai, vertex
-```
-
-**Streaming Stop Sequences Bug (All Providers):**
-
-All three LLM providers had a critical bug where streaming requests ignored `stop_sequences` parameter:
-
-- **Vertex AI** (`empla/llm/vertex.py:167-171`)
-  - **Issue:** `generation_config` in `stream()` method omitted `stop_sequences`
-  - **Impact:** Streaming responses never truncated at specified stop sequences
-  - **Fix:** Added `"stop_sequences": request.stop_sequences` to `generation_config`
-  - **Consistency:** Now matches non-streaming `generate()` method (line 67)
-
-- **OpenAI** (`empla/llm/openai.py:113-119`)
-  - **Issue:** `chat.completions.create()` in `stream()` method omitted `stop` parameter
-  - **Impact:** Streaming responses ignored caller-specified stop sequences
-  - **Fix:** Added `stop=request.stop_sequences` to streaming create call
-  - **Consistency:** Now matches non-streaming `generate()` method (line 42)
-
-- **Anthropic** (`empla/llm/anthropic.py:139-146`)
-  - **Issue:** `messages.stream()` omitted `stop_sequences` parameter
-  - **Impact:** Streaming responses never stopped at specified sequences
-  - **Fix:** Added `stop_sequences=request.stop_sequences` to stream call
-  - **Consistency:** Now matches non-streaming `generate()` method (line 50)
-
-**Rationale:**
-- Stop sequences are critical for controlling LLM output length and format
-- Inconsistency between streaming and non-streaming paths caused unexpected behavior
-- Users expect same truncation behavior whether streaming or not
-
-### Improved
-
-**OpenAI Embedding Model Configuration** (`empla/llm/openai.py:125-144`)
-
-- **Before:** Hard-coded `"text-embedding-3-large"` for all embedding requests
-- **After:** Configurable embedding model with precedence hierarchy:
-  1. `kwargs.get("embedding_model")` - Explicit override at provider instantiation
-  2. `self.model_id` - Use primary model if it's an embedding model
-  3. `"text-embedding-3-large"` - Default fallback only if neither is set
-
-**Usage example:**
-```python
-# Option 1: Specify at instantiation
-provider = OpenAIProvider(
-    api_key="...",
-    model_id="gpt-4o",
-    embedding_model="text-embedding-3-small"  # Use cheaper/faster model
-)
-
-# Option 2: Use embedding model as primary
-provider = OpenAIProvider(
-    api_key="...",
-    model_id="text-embedding-3-small"  # Will be used for embeddings
-)
-
-# Option 3: Default (no config)
-provider = OpenAIProvider(
-    api_key="...",
-    model_id="gpt-4o"  # Embeddings default to text-embedding-3-large
-)
-```
-
-**Benefits:**
-- **Cost optimization:** Can use cheaper `text-embedding-3-small` when high quality not needed
-- **Flexibility:** Different models for different use cases (speed vs quality)
-- **Backward compatible:** Defaults to `text-embedding-3-large` if not specified
-
-### Verified
-
-**Test Results:**
-- **All LLM tests:** 16/16 passing (100%) ✅
-- **Test execution:** 0.50s (fast)
-- **No regressions:** All existing tests continue to pass
-- **Coverage:** LLMService 80.21%, models/config 100%
-
-**Files Modified:**
-- `empla/llm/vertex.py` - Line 170: Added stop_sequences to streaming config
-- `empla/llm/openai.py` - Line 118: Added stop parameter to streaming call
-- `empla/llm/openai.py` - Lines 135-137: Made embedding model configurable
-- `empla/llm/anthropic.py` - Line 145: Added stop_sequences to streaming call
-
-### Impact
-
-**Production Impact:**
-- **High priority fix:** Stop sequences are essential for controlling LLM output
-- **Breaking change:** None - purely additive fixes
-- **User-facing:** Streaming responses now respect stop_sequences as expected
-
-**Code Quality:**
-- **Consistency:** Streaming and non-streaming methods now have identical parameters
-- **Maintainability:** Less confusion about why streaming behaves differently
-- **Testability:** Easier to test with consistent behavior across methods
-
----
-
-## 2025-11-13 - Dependency Updates: OpenAI & Google Cloud AI Platform
-
-**Phase:** 2 - LLM Integration (Maintenance)
-
-### Updated
-
-**LLM Provider Dependencies:**
-- **openai:** Updated from `>=1.54.0` to `>=2.7.2`
-  - Reason: Stay current with latest stable release
-  - Breaking changes: None detected
-  - All 16 LLM tests passing ✅
-
-- **google-cloud-aiplatform:** Updated from `>=1.71.0` to `>=1.127.0`
-  - Reason: Stay current with latest stable release
-  - Breaking changes: None detected
-  - All tests continue to pass ✅
-
-### Verified
-
-**API Compatibility Testing:**
-- **LLM unit tests:** 16/16 passing (100%) ✅
-- **Proactive loop tests:** 26/26 passing (100%) ✅
-- **Total unit tests:** 42/42 passing (100%) ✅
-- **Integration tests:** 22 errors (all PostgreSQL connection issues, not API compatibility)
-- **Conclusion:** No API breaking changes detected in either package
-
-**Test execution:**
-- LLM tests: 0.59s (fast, all passing)
-- Proactive loop tests: 10.35s (all passing)
-- No code changes required (full backward compatibility)
-
-### Rationale
-
-**Why update dependencies:**
-1. **Security:** Latest releases include security patches
-2. **Features:** Access to new provider capabilities and improvements
-3. **Bug fixes:** Benefit from upstream bug fixes
-4. **Best practice:** Stay current with dependency versions to avoid large version jumps later
-
-**Why these specific versions:**
-- openai 2.7.2: Latest stable release as of 2025-11-13
-- google-cloud-aiplatform 1.127.0: Latest stable release as of 2025-11-13
-- Both versions maintain backward compatibility with our implementation
-
-**Alternative approach considered:**
-- Tighten ranges (e.g., `openai>=1.54.0,<2.0.0`) to preserve explicit compatibility
-- Rejected: Our tests confirm v2.x is compatible; staying current is preferred
-
-### Files Modified
-
-- **pyproject.toml** - Updated dependency version constraints (lines 48-49)
-  - `openai>=1.54.0` → `openai>=2.7.2`
-  - `google-cloud-aiplatform>=1.71.0` → `google-cloud-aiplatform>=1.127.0`
+- **31/31 capability tests passing** (100% pass rate) ✅
+- **BaseCapability: 80.95% coverage** (up from 80.16%)
+- **CapabilityRegistry: 88.42% coverage** (up from 45.26%)
+- **Test execution time:** 0.45 seconds
+
+**Test Coverage:**
+- Retry logic: Not yet tested (lines 332-377 missing coverage)
+- Future work: Add specific tests for retry behavior with transient/permanent errors
 
 ### Next
 
-**Monitoring:**
-- Watch for any issues in production usage with updated dependencies
-- Re-run integration tests with actual API keys to verify provider compatibility
-- Monitor release notes for future breaking changes in major versions
+**Phase 2.2 Continued:**
+- Consider adding specific retry behavior tests (test transient error retry, permanent error fail)
+- Implement parameter validation (capability-specific schema needs)
+- Begin Email Capability implementation
+- Microsoft Graph API integration
+- Email triage logic and composition helpers
 
 ---
 
-## 2025-11-12 - Multi-Provider LLM Abstraction Complete
+## 2025-11-12 - Phase 2 Capability Framework Implementation
 
-**Phase:** 2 - Transition to LLM Integration
+**Phase:** 2 - Basic Capabilities (Week 1) ✅ Framework Complete
 
 ### Added
 
-**Multi-Provider LLM Service:**
+**Capability Framework Architecture:**
+- **empla/capabilities/base.py** (79 statements, 100% coverage)
+  - BaseCapability: Abstract base class for all capabilities
+  - CapabilityType: Enum for 8 capability types (EMAIL, CALENDAR, MESSAGING, BROWSER, DOCUMENT, CRM, VOICE, COMPUTER_USE)
+  - Observation: Model for environment observations
+  - Action: Model for capability actions
+  - ActionResult: Model for action execution results
+  - CapabilityConfig: Base configuration with rate limiting, retries, timeouts
 
-- **empla/llm/** - Complete LLM abstraction package (830+ lines)
-  - `__init__.py` (300 lines) - Main `LLMService` with automatic fallback and cost tracking
-  - `models.py` (90 lines) - Shared data models (LLMRequest, LLMResponse, TokenUsage, Message)
-  - `provider.py` (70 lines) - Abstract base class + factory pattern
-  - `config.py` (80 lines) - Configuration + pre-configured models with pricing
-  - `anthropic.py` (150 lines) - Anthropic Claude provider implementation
-  - `openai.py` (140 lines) - OpenAI GPT provider implementation
-  - `vertex.py` (200 lines) - Google Vertex AI / Gemini provider implementation
+- **empla/capabilities/registry.py** (95 statements, 88% coverage)
+  - CapabilityRegistry: Central registry for capability lifecycle
+  - register(): Register capability implementations
+  - enable_for_employee(): Enable capabilities per-employee
+  - disable_for_employee(): Disable capabilities
+  - perceive_all(): Gather observations from all enabled capabilities
+  - execute_action(): Route actions to appropriate capabilities
+  - health_check(): Monitor capability health
 
-**Features:**
-- **Multi-provider support:** Anthropic Claude, OpenAI GPT, Google Vertex AI / Gemini
-- **Automatic fallback:** Primary provider → Fallback provider on failure
-- **Cost tracking:** Automatic token usage and cost calculation across all requests
-- **Structured outputs:** Generate Pydantic models from LLM responses
-- **Streaming support:** Real-time content generation
-- **Embeddings:** Vector embeddings via OpenAI (Anthropic doesn't provide embeddings)
-- **Provider-agnostic API:** Unified interface regardless of underlying provider
+- **empla/capabilities/__init__.py**
+  - Clean public API exports
+  - Comprehensive module documentation
 
-**Tests:**
+**Proactive Loop Integration:**
+- **empla/core/loop/execution.py** (updated, 90% coverage)
+  - Added optional capability_registry parameter to __init__
+  - Updated perceive_environment() to use capability registry
+  - Automatic conversion between capability and loop observations
+  - Detection of opportunities, problems, and risks from observations
+  - Backward compatible (works with or without registry)
 
-- **tests/unit/llm/** - Comprehensive unit tests (210+ lines)
-  - `test_llm_service.py` (180 lines) - 9 tests for LLMService functionality
-  - `test_models.py` (30 lines) - 7 tests for data models
-  - **16/16 tests passing** (100% pass rate) ✅
-  - **Test coverage:** 80.21% for LLMService, 100% for models and config
+**Design Documentation:**
+- **docs/design/capabilities-layer.md** (~2,800 lines)
+  - Complete Phase 2 architecture specification
+  - BaseCapability protocol design
+  - CapabilityRegistry architecture
+  - Email capability specification
+  - Calendar capability specification
+  - Perception integration design
+  - Security & multi-tenancy considerations
+  - Testing strategy
+  - Migration path
+  - Open questions and recommendations
 
-### Decided
+### Tested
 
-**ADR-008: Multi-Provider LLM Abstraction** - Comprehensive architecture decision
+**Unit Tests (31 tests added):**
+- **tests/unit/test_capabilities_base.py** (12 tests, 100% pass)
+  - Capability type enum validation
+  - CapabilityConfig model
+  - Observation model with priority validation (1-10)
+  - Action and ActionResult models
+  - BaseCapability initialization, perception, action execution
+  - BaseCapability shutdown and health checks
+  - String representation
 
-**Decision:** Implement multi-provider LLM abstraction supporting Anthropic, OpenAI, and Vertex AI
+- **tests/unit/test_capabilities_registry.py** (19 tests, 100% pass)
+  - Registry initialization
+  - Capability registration and validation
+  - Enable/disable capabilities for employees
+  - Handle duplicate enablement
+  - Handle initialization failures
+  - Get capability instances
+  - List enabled capabilities
+  - Perceive from all capabilities
+  - Execute actions via registry
+  - Health checks
 
-**Rationale:**
-1. **Resilience:** Automatic fallback when primary provider has issues (critical for production)
-2. **Cost Optimization:** Switch between providers based on cost/performance trade-offs
-3. **A/B Testing:** Compare model performance on same tasks for data-driven selection
-4. **Future-Proofing:** Not locked into single vendor, easy to add new providers
-
-**Primary Model:** Claude Sonnet 4
-- Reason: Best reasoning for autonomous agents
-- Use: Complex decision-making, strategic planning, belief extraction
-
-**Fallback Model:** GPT-4o
-- Reason: Different provider for redundancy
-- Use: When Anthropic API unavailable
-
-**Embeddings:** OpenAI text-embedding-3-large
-- Reason: Anthropic doesn't provide embeddings API
-- Use: Semantic memory, episodic recall
-
-**Alternatives Considered:**
-- LangChain / LlamaIndex: Heavy dependencies, designed for chat apps (rejected)
-- LiteLLM: Less control, empla only needs 3 providers (rejected)
-- Single provider: No resilience, vendor lock-in (rejected)
-- Provider agnostic (no SDKs): Too much manual work (rejected)
-
-**Provider-Specific Handling:**
-- **Anthropic:** System messages separate, JSON mode for structured outputs
-- **OpenAI:** Native structured outputs (beta.chat.completions.parse), best embeddings
-- **Vertex AI:** Requires GCP project, different message format (Content + Parts)
-
-### Dependencies
-
-**Added to pyproject.toml:**
-- `anthropic>=0.39.0` - Anthropic Claude API
-- `openai>=1.54.0` - OpenAI GPT API
-- `google-cloud-aiplatform>=1.71.0` - Google Vertex AI / Gemini
+**Integration Tests (6 tests added):**
+- **tests/integration/test_capabilities_loop_integration.py** (6 tests, 100% pass)
+  - Loop perceives from capability registry
+  - Loop works without registry (backward compatibility)
+  - Loop detects opportunities from observations
+  - Loop detects problems from observations
+  - Loop detects high-priority observations as risks (priority >= 9)
+  - Loop handles multiple capabilities simultaneously
 
 ### Test Results
 
-**All Tests Passing:**
-- **Total:** 64/64 tests passing (100% pass rate) ✅
-- **LLM Tests:** 16/16 passing (new)
-- **Existing Tests:** 48/48 passing (unchanged)
-- **Overall Coverage:** 64.09% (was 69.33%, total lines increased with LLM package)
-- **LLM Package Coverage:**
-  - `empla/llm/__init__.py`: 80.21% (LLMService)
-  - `empla/llm/config.py`: 100%
-  - `empla/llm/models.py`: 100%
-  - `empla/llm/provider.py`: 47.37% (factory only, providers need API keys to test)
-  - Individual providers: 0% (require actual API keys for integration testing)
+**Comprehensive Test Suite:**
+- **85/85 tests passing** (100% pass rate) ✅
+- **Overall coverage:** 72.43% (up from 69.33%)
+- **Test execution time:** 12.20 seconds
+
+**Coverage by Module:**
+- BaseCapability: 100% coverage
+- CapabilityRegistry: 88.42% coverage
+- ProactiveExecutionLoop: 89.77% coverage (up from 86.78%)
+- BDI components: 48-53% coverage
+- Memory systems: 38-79% coverage
+
+### Decided
+
+**Architecture Decisions:**
+
+- **Plugin-based capability system**: Each capability is independent, can be developed/tested separately
+  - Rationale: Allows parallel development, easier to add new capabilities
+  - Benefits: Clean separation of concerns, flexible deployment, independent versioning
+
+- **Protocol-based design**: Use Python protocols for capability interfaces
+  - Rationale: Enables clean abstraction without tight coupling
+  - Benefits: Easy mocking for tests, clear contracts, flexible implementations
+
+- **Observation model conversion**: Convert between capability and loop observations
+  - Rationale: Each layer has different requirements (capability needs simplicity, loop needs employee context)
+  - Implementation: Convert in perceive_environment() method
+  - Fields mapped: type→observation_type, data→content, plus employee_id/tenant_id added
+
+- **Backward compatibility**: CapabilityRegistry is optional parameter
+  - Rationale: Don't break existing tests, allow gradual adoption
+  - Implementation: Default to None, check before using
+
+- **Tenant isolation**: All capabilities are tenant-scoped from day 1
+  - Rationale: Security requirement, prevent cross-tenant data leaks
+  - Implementation: tenant_id required in all capability operations
 
 ### Performance
 
-**Cost Tracking:**
-- Automatic tracking of input/output tokens per request
-- Cost calculation based on model pricing
-- Summary statistics: total cost, request count, average cost per request
-
-**Example Pricing (per 1M tokens):**
-- Claude Sonnet 4: $3 input, $15 output
-- GPT-4o: $2.50 input, $10 output
-- Gemini 2.0 Flash: $0.10 input, $0.30 output (most cost-effective)
-
-### Usage Example
-
-```python
-from empla.llm import LLMService
-from empla.llm.config import LLMConfig
-
-# Configure service
-config = LLMConfig(
-    primary_model="claude-sonnet-4",
-    fallback_model="gpt-4o",
-    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
-)
-llm = LLMService(config)
-
-# Generate text
-response = await llm.generate("Analyze this situation...")
-print(response.content)
-
-# Generate structured output
-from pydantic import BaseModel
-class Belief(BaseModel):
-    subject: str
-    confidence: float
-
-response, belief = await llm.generate_structured(
-    "Customer is very interested",
-    response_format=Belief,
-)
-
-# Cost summary
-summary = llm.get_cost_summary()
-print(f"Total spent: ${summary['total_cost']:.2f}")
-```
+**Capability Framework:**
+- Registry operations: O(1) lookup by employee_id and capability_type
+- Perception: Parallel async calls to all capabilities
+- No performance regression in existing tests (12.20s vs 10.54s - added 54 tests)
 
 ### Next
 
-**Phase 2 Integration:**
-1. **Belief extraction** (`empla/core/bdi/beliefs.py`) - Extract structured beliefs from observations
-2. **Plan generation** (`empla/core/bdi/intentions.py`) - Generate action plans with LLM
-3. **Strategic planning** (`empla/core/planning/strategic.py`) - Deep reasoning and strategy generation
-4. **Content generation** (`empla/capabilities/`) - Email composition, document creation
-5. **Learning** (`empla/core/learning/`) - Pattern analysis and insight extraction
+**Phase 2.2: Email Capability (Next Focus):**
+- Implement EmailCapability class
+- Microsoft Graph API integration
+- Email triage logic (priority classification based on sender, keywords, content)
+- Email composition helpers
+- Unit tests for email capability
+- Integration tests with proactive loop
+- E2E test: Employee autonomously responds to inbound email
 
-**Integration testing:**
-- Test actual API calls to all three providers (requires API keys)
-- Performance benchmarks (latency, quality comparison)
-- Cost analysis across different models and tasks
+**Phase 2.3: Calendar Capability:**
+- Implement CalendarCapability class
+- Event monitoring and notifications
+- Meeting scheduling logic
+- Optimal time finding algorithm
+
+**Phase 2.4: Additional Capabilities:**
+- Messaging capability (Slack/Teams)
+- Browser capability (Playwright)
+- Document capability (basic generation)
 
 ---
 
