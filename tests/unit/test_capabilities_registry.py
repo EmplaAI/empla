@@ -56,13 +56,16 @@ class MockEmailCapability(BaseCapability):
             )
         ]
 
-    async def execute_action(self, action: Action) -> ActionResult:
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
         Execute an action supported by this capability.
-        
+
+        This implements the capability-specific execution logic.
+        The base class execute_action() handles retry logic and error handling.
+
         Parameters:
             action (Action): The action to perform; its `operation` field determines the behavior.
-        
+
         Returns:
             ActionResult: An object indicating success and containing any result output or an error message. For `operation == "send_email"`, `success` is `true` and `output` contains `{"sent": True}`; otherwise `success` is `false` and `error` is `"Unknown operation"`.
         """
@@ -109,15 +112,18 @@ class MockCalendarCapability(BaseCapability):
             )
         ]
 
-    async def execute_action(self, action: Action) -> ActionResult:
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
         Execute the requested action for the calendar capability.
-        
+
+        This implements the capability-specific execution logic.
+        The base class execute_action() handles retry logic and error handling.
+
         Handles the "schedule_meeting" operation by marking the action as successful and returning output indicating the meeting was scheduled; any other operation returns a failure with an "Unknown operation" error.
-        
+
         Parameters:
             action (Action): The action to execute, including its operation name and parameters.
-        
+
         Returns:
             ActionResult: For operation "schedule_meeting", `success` is True and `output` is {"scheduled": True}; otherwise `success` is False and `error` is "Unknown operation".
         """
@@ -159,13 +165,16 @@ class FailingCapability(BaseCapability):
         """
         return []
 
-    async def execute_action(self, action: Action) -> ActionResult:
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
         Return an unsuccessful ActionResult indicating the capability is not initialized.
-        
+
+        This implements the capability-specific execution logic.
+        The base class execute_action() handles retry logic and error handling.
+
         Parameters:
             action (Action): The action attempted to execute; ignored because the capability is not initialized.
-        
+
         Returns:
             ActionResult: An unsuccessful result with the error message "Not initialized".
         """

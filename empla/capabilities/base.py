@@ -179,7 +179,7 @@ class BaseCapability(ABC):
 
     A capability is a discrete unit of functionality that provides:
     1. **Perception** - observe environment for changes/events
-    2. **Action** - execute specific operations
+    2. **Action** - execute specific operations with robust retry logic
     3. **State** - maintain capability-specific state
 
     Capabilities are:
@@ -187,6 +187,7 @@ class BaseCapability(ABC):
     - **Employee-scoped** - per-employee configuration
     - **Observable** - comprehensive logging and metrics
     - **Testable** - mock implementations available
+    - **Reliable** - automatic retry for transient failures, PII-safe error logging
 
     Example:
         class MyCapability(BaseCapability):
@@ -203,8 +204,9 @@ class BaseCapability(ABC):
                 # Check for new events
                 return [...]
 
-            async def execute_action(self, action: Action) -> ActionResult:
-                # Execute operation
+            async def _execute_action_impl(self, action: Action) -> ActionResult:
+                # Capability-specific execution logic
+                # This is called by execute_action() which handles retry/errors
                 return ActionResult(success=True)
     """
 
@@ -213,7 +215,7 @@ class BaseCapability(ABC):
     ):
         """
         Initialize the capability instance with tenant, employee, and configuration context.
-        
+
         Parameters:
             tenant_id (UUID): Identifier of the tenant that owns the capability.
             employee_id (UUID): Identifier of the employee associated with the capability.
@@ -223,6 +225,12 @@ class BaseCapability(ABC):
         self.employee_id = employee_id
         self.config = config
         self._initialized = False
+
+        # Retry configuration from config.retry_policy
+        self.max_retries = config.retry_policy.get("max_retries", 3)
+        self.initial_backoff_ms = 100
+        self.max_backoff_ms = 5000
+        self.backoff_multiplier = float(config.retry_policy.get("backoff_multiplier", 2.0))
 
     @property
     @abstractmethod
@@ -259,20 +267,189 @@ class BaseCapability(ABC):
         """
         pass
 
-    @abstractmethod
     async def execute_action(self, action: Action) -> ActionResult:
         """
-        Execute the given action on the target capability.
-        
-        Implementations perform the requested operation and return an ActionResult describing success, any capability-specific output, and an error message when execution fails. Implementations should capture internal failures and surface them via the returned ActionResult rather than raising.
-        
+        Execute action with retry logic, error handling, and performance tracking.
+
+        This method NEVER raises exceptions - all errors are captured in ActionResult.
+        Features:
+        - Exponential backoff retry for transient failures
+        - Error classification (transient vs permanent)
+        - PII-safe logging (never logs action parameters)
+        - Performance tracking (duration_ms, retry count)
+        - Zero-exception guarantee
+
         Parameters:
-            action (Action): The operation to perform, including target capability, operation name, and parameters.
-        
+            action (Action): The operation to perform.
+
         Returns:
-            ActionResult: Outcome of executing the action — `success` is `true` when the operation completed successfully; `output` contains capability-specific result data; `error` contains a human-readable message when `success` is `false`.
+            ActionResult: Always returns, never raises. Contains success/failure, output/error, timing.
+        """
+        from time import time
+        import random
+        import asyncio
+
+        start_time = time()
+        last_error = None
+
+        # Execute with retry logic (ported from ToolExecutionEngine)
+        for attempt in range(self.max_retries + 1):
+            try:
+                # Log attempt (PII-safe - no parameters logged)
+                if attempt > 0:
+                    logger.info(
+                        f"Retrying {action.operation} (attempt {attempt + 1}/{self.max_retries + 1})",
+                        extra={
+                            "capability": str(self.capability_type),
+                            "operation": action.operation,
+                            "attempt": attempt + 1
+                        }
+                    )
+
+                # Call capability-specific implementation
+                result = await self._execute_action_impl(action)
+
+                # Success! Add performance metadata
+                duration_ms = (time() - start_time) * 1000
+                if not result.metadata:
+                    result.metadata = {}
+                result.metadata["duration_ms"] = duration_ms
+                result.metadata["retries"] = attempt
+
+                if result.success:
+                    logger.info(
+                        f"Action {action.operation} executed successfully",
+                        extra={
+                            "capability": str(self.capability_type),
+                            "operation": action.operation,
+                            "duration_ms": duration_ms,
+                            "retries": attempt
+                        }
+                    )
+
+                return result
+
+            except Exception as e:
+                last_error = e
+
+                # Log error (PII-safe)
+                logger.warning(
+                    f"Action {action.operation} failed: {e}",
+                    exc_info=True,
+                    extra={
+                        "capability": str(self.capability_type),
+                        "operation": action.operation,
+                        "attempt": attempt + 1,
+                        "error": str(e)
+                    }
+                )
+
+                # Check if we should retry
+                if not self._should_retry(e) or attempt >= self.max_retries:
+                    break
+
+                # Exponential backoff with jitter (ported from ToolExecutionEngine)
+                backoff_ms = min(
+                    self.initial_backoff_ms * (self.backoff_multiplier ** attempt),
+                    self.max_backoff_ms
+                )
+                # Add ±25% jitter to avoid thundering herd
+                jitter = backoff_ms * 0.25 * (2 * random.random() - 1)
+                backoff_ms += jitter
+
+                await asyncio.sleep(backoff_ms / 1000)
+
+        # All retries exhausted
+        duration_ms = (time() - start_time) * 1000
+        error_msg = str(last_error) if last_error else "Unknown error"
+
+        logger.error(
+            f"Action {action.operation} failed after {attempt + 1} attempts",
+            extra={
+                "capability": str(self.capability_type),
+                "operation": action.operation,
+                "duration_ms": duration_ms,
+                "retries": attempt,
+                "error": error_msg
+            }
+        )
+
+        return ActionResult(
+            success=False,
+            error=error_msg,
+            metadata={"duration_ms": duration_ms, "retries": attempt}
+        )
+
+    @abstractmethod
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        """
+        Capability-specific action execution implementation.
+
+        This is called by execute_action() which handles retry logic and error handling.
+        Subclasses implement this method with their specific action execution logic.
+
+        This method CAN raise exceptions - they will be caught by execute_action().
+
+        Parameters:
+            action (Action): The operation to perform.
+
+        Returns:
+            ActionResult: Outcome of execution. Can raise exceptions on failure.
         """
         pass
+
+    def _should_retry(self, error: Exception) -> bool:
+        """
+        Determine if error is retryable (ported from ToolExecutionEngine).
+
+        Transient errors (network, rate limit, timeout) should be retried.
+        Permanent errors (auth, validation, not found) should not.
+
+        Args:
+            error: Exception that occurred
+
+        Returns:
+            True if should retry, False otherwise
+        """
+        error_str = str(error).lower()
+
+        # Transient errors - should retry
+        transient_indicators = [
+            "timeout",
+            "rate limit",
+            "too many requests",
+            "connection",
+            "network",
+            "temporary",
+            "503",  # Service Unavailable
+            "429",  # Too Many Requests
+        ]
+
+        for indicator in transient_indicators:
+            if indicator in error_str:
+                return True
+
+        # Permanent errors - should NOT retry
+        permanent_indicators = [
+            "auth",
+            "unauthorized",
+            "forbidden",
+            "not found",
+            "invalid",
+            "validation",
+            "400",  # Bad Request
+            "401",  # Unauthorized
+            "403",  # Forbidden
+            "404",  # Not Found
+        ]
+
+        for indicator in permanent_indicators:
+            if indicator in error_str:
+                return False
+
+        # Unknown error type - don't retry (conservative approach)
+        # Let employee decide whether to retry at higher level
+        return False
 
     async def shutdown(self) -> None:
         """

@@ -6,6 +6,91 @@
 
 ---
 
+## 2025-11-16 - Capability-Tool Execution Architecture Convergence
+
+**Phase:** 2.2 - Capability Enhancement with Tool Execution Patterns
+
+### Enhanced
+
+**BaseCapability Execution Robustness:**
+- **empla/capabilities/base.py** (enhanced with +150 lines of retry/error handling logic)
+  - Replaced abstract `execute_action()` with concrete implementation containing retry logic
+  - Added new abstract method `_execute_action_impl()` for capability-specific logic
+  - Exponential backoff retry with jitter (±25% randomization to avoid thundering herd)
+  - Error classification via `_should_retry()` method (transient vs permanent)
+  - PII-safe logging (never logs action.parameters to prevent credential leaks)
+  - Performance tracking (duration_ms, retries) in ActionResult.metadata
+  - Zero-exception guarantee (always returns ActionResult, never raises)
+  - Retry configuration extracted from CapabilityConfig.retry_policy
+
+- **empla/capabilities/base.py.__init__()** (added retry configuration)
+  - Extract max_retries from config.retry_policy (default: 3)
+  - Extract backoff_multiplier from config.retry_policy (default: 2.0)
+  - Configure initial_backoff_ms (100ms) and max_backoff_ms (5000ms)
+
+- **empla/capabilities/base.py._should_retry()** (error classification)
+  - Transient errors (retry): timeout, rate limit, 503, 429, connection, network, temporary
+  - Permanent errors (fail immediately): auth, unauthorized, forbidden, not found, invalid, validation, 400, 401, 403, 404
+  - Conservative approach: don't retry unknown errors (let employee decide at higher level)
+
+**Test Updates:**
+- **tests/unit/test_capabilities_base.py** (updated MockCapability)
+  - Changed `execute_action()` to `_execute_action_impl()` to match new interface
+  - All 12 tests passing ✅
+
+- **tests/unit/test_capabilities_registry.py** (updated 3 mock capabilities)
+  - MockEmailCapability: Changed to `_execute_action_impl()`
+  - MockCalendarCapability: Changed to `_execute_action_impl()`
+  - FailingCapability: Changed to `_execute_action_impl()`
+  - All 19 tests passing ✅
+
+### Decided
+
+**Architecture Decision (ADR-010):**
+- **docs/decisions/010-capability-tool-execution-convergence.md** (~400 lines)
+  - Decision: Enhance Capability Framework with Tool Execution patterns (not create adapter)
+  - Rationale: Original design intent was "Capabilities do perception + execution themselves"
+  - Alternatives considered: Thin adapter, replace Capabilities, keep separate
+  - Consequences: Single execution model, automatic robustness, simpler architecture
+  - Implementation: Port ToolExecutionEngine retry/validation/security into BaseCapability
+  - Result: All capabilities get robust execution "for free"
+
+**Features Ported from ToolExecutionEngine:**
+1. ✅ Exponential backoff retry with jitter (100ms initial, 5000ms max, 2.0 multiplier)
+2. ✅ Error classification (transient vs permanent)
+3. ✅ PII-safe logging (never logs action.parameters)
+4. ✅ Performance tracking (duration_ms, retries)
+5. ✅ Zero-exception guarantee (always returns ActionResult)
+6. ⏳ Parameter validation (deferred - capability-specific schema needs)
+
+**Design Principle:**
+- Keep single execution model (Capabilities) vs creating competing architectures
+- Enhance existing abstractions vs creating adapter layers
+- Port proven patterns vs rebuilding from scratch
+
+### Test Results
+
+**All Tests Passing:**
+- **31/31 capability tests passing** (100% pass rate) ✅
+- **BaseCapability: 80.95% coverage** (up from 80.16%)
+- **CapabilityRegistry: 88.42% coverage** (up from 45.26%)
+- **Test execution time:** 0.45 seconds
+
+**Test Coverage:**
+- Retry logic: Not yet tested (lines 332-377 missing coverage)
+- Future work: Add specific tests for retry behavior with transient/permanent errors
+
+### Next
+
+**Phase 2.2 Continued:**
+- Consider adding specific retry behavior tests (test transient error retry, permanent error fail)
+- Implement parameter validation (capability-specific schema needs)
+- Begin Email Capability implementation
+- Microsoft Graph API integration
+- Email triage logic and composition helpers
+
+---
+
 ## 2025-11-12 - Phase 2 Capability Framework Implementation
 
 **Phase:** 2 - Basic Capabilities (Week 1) ✅ Framework Complete

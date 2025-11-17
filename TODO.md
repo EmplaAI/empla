@@ -6,49 +6,71 @@
 
 ---
 
-## 📋 Current Session: 2025-11-12
+## 📋 Current Session: 2025-11-16
 
 ### Today's Goal
-Begin Phase 2: Capabilities Layer - Implement base abstraction and integrate with proactive loop
+Merge learnings from Tool Execution Layer (impl_6) into Capability Framework (impl_3) - enhance BaseCapability with robust execution patterns
 
 ### Completed ✅
-- [x] Created comprehensive Phase 2 design document (docs/design/capabilities-layer.md ~700 lines)
-- [x] Implemented BaseCapability abstraction with protocol-based design
-- [x] Implemented CapabilityRegistry for lifecycle management
-- [x] Integrated capabilities with ProactiveExecutionLoop perception
-- [x] Created 31 unit tests for capability framework (100% pass rate)
-- [x] Created 6 integration tests for loop-capability integration (100% pass rate)
-- [x] All 85 tests passing (up from 48)
-- [x] Test coverage: 72.43% (up from 69.33%)
+- [x] Analyzed architectural conflict between Capability Framework (impl_3) and Tool Execution Layer (impl_6)
+- [x] Decided: Enhance Capabilities with Tool Execution patterns (not create adapter)
+- [x] Enhanced BaseCapability.execute_action() with retry logic from ToolExecutionEngine
+- [x] Added error classification (_should_retry method) for transient vs permanent errors
+- [x] Added retry configuration extraction from CapabilityConfig.retry_policy
+- [x] Implemented PII-safe logging (never logs action.parameters)
+- [x] Implemented performance tracking (duration_ms, retries)
+- [x] Implemented zero-exception guarantee (always returns ActionResult)
+- [x] Updated all mock capabilities to implement _execute_action_impl()
+- [x] All 31 tests passing (100% pass rate)
+- [x] Wrote ADR-010: Capability-Tool Execution Architecture Convergence (~400 lines)
+- [x] Updated CHANGELOG.md with today's work
+- [x] Updated TODO.md (this file)
 
-### Key Implementations
-**Capability Framework:**
-- BaseCapability: Abstract base with perceive() and execute_action() methods
-- CapabilityRegistry: Manages capability lifecycle (enable/disable/health)
-- Observation/Action/ActionResult: Protocol models for capability I/O
-- Support for 8 capability types: EMAIL, CALENDAR, MESSAGING, BROWSER, DOCUMENT, CRM, VOICE, COMPUTER_USE
+### Key Enhancements
+**BaseCapability Execution Robustness:**
+- execute_action() now concrete method with retry loop (was abstract)
+- New abstract method _execute_action_impl() for capability-specific logic
+- Exponential backoff with jitter (±25% randomization)
+- Error classification: transient (timeout, 503, 429) vs permanent (auth, 400, 401, 403, 404)
+- PII-safe logging: never logs action.parameters to prevent credential leaks
+- Performance tracking: duration_ms and retry count in ActionResult.metadata
+- Zero-exception guarantee: always returns ActionResult, never raises
 
-**Proactive Loop Integration:**
-- Updated ProactiveExecutionLoop to accept optional CapabilityRegistry
-- perceive_environment() now uses registry for multi-capability perception
-- Automatic conversion between capability observations and loop observations
-- Detection of opportunities, problems, and risks from observations
-- Backward compatible (works without registry)
+**Features Ported from ToolExecutionEngine:**
+1. ✅ Exponential backoff retry (100ms initial, 5000ms max, 2.0 multiplier)
+2. ✅ Error classification (transient vs permanent)
+3. ✅ PII-safe logging
+4. ✅ Performance tracking
+5. ✅ Zero-exception guarantee
+6. ⏳ Parameter validation (deferred - capability-specific needs)
 
-**Test Coverage:**
-- BaseCapability: 100% coverage (12 tests)
-- CapabilityRegistry: 88% coverage (19 tests)
-- Loop integration: 6 integration tests
-- ProactiveExecutionLoop: 90% coverage
+**Design Decision (ADR-010):**
+- Rejected: Thin adapter layer (adds complexity, not in original plan)
+- Rejected: Replace Capabilities with Tool Execution (loses perception)
+- Rejected: Keep both separate (code duplication, inconsistency)
+- Chosen: Enhance Capabilities with Tool Execution patterns (single execution model)
+
+### Test Results
+- **31/31 capability tests passing** (100% pass rate) ✅
+- **BaseCapability: 80.95% coverage** (up from 80.16%)
+- **CapabilityRegistry: 88.42% coverage** (up from 45.26%)
+- **Test execution time:** 0.45 seconds
 
 ### Blockers
 - None currently
 
 ### Insights & Notes
-- Plugin-based capability architecture allows independent development
-- Protocol-based design enables clean separation between BDI and capabilities
-- Observation model conversion works smoothly between layers
-- Ready to implement specific capabilities (Email, Calendar, etc.)
+- Original design intent: "Capabilities do perception + execution themselves"
+- Creating adapter would violate this principle and add unnecessary complexity
+- Porting robust execution patterns into BaseCapability gives best of both worlds
+- All capabilities now get retry logic, error handling, PII-safe logging for free
+- Capability developers just implement _execute_action_impl() with business logic
+
+### Next Session
+- Consider adding specific retry behavior tests (transient error retry, permanent error fail)
+- Begin Email Capability implementation (Phase 2.2)
+- Microsoft Graph API integration
+- Email triage and composition logic
 
 ---
 

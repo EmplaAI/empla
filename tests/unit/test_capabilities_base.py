@@ -74,13 +74,16 @@ class MockCapability(BaseCapability):
             )
         ]
 
-    async def execute_action(self, action: Action) -> ActionResult:
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
         Execute the provided action and return a simulated execution result for testing.
-        
+
+        This implements the capability-specific execution logic.
+        The base class execute_action() handles retry logic and error handling.
+
         Parameters:
         	action (Action): The action to execute; its `operation` field controls simulated outcome.
-        
+
         Returns:
         	ActionResult: `success` is `False` with `error` set to "Simulated failure" when `action.operation == "fail"`, otherwise `success` is `True` and `output` contains {"result": "success"}.
         """
