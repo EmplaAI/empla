@@ -43,8 +43,16 @@ from empla.capabilities.base import (
     ActionResult,
 )
 from empla.capabilities.registry import CapabilityRegistry
+from empla.capabilities.email import (
+    EmailCapability,
+    EmailConfig,
+    EmailProvider,
+    EmailPriority,
+    Email,
+)
 
 __all__ = [
+    # Base abstractions
     "BaseCapability",
     "CapabilityType",
     "CapabilityConfig",
@@ -52,4 +60,10 @@ __all__ = [
     "Action",
     "ActionResult",
     "CapabilityRegistry",
+    # Email capability
+    "EmailCapability",
+    "EmailConfig",
+    "EmailProvider",
+    "EmailPriority",
+    "Email",
 ]

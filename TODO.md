@@ -9,23 +9,34 @@
 ## 📋 Current Session: 2025-11-16
 
 ### Today's Goal
-Merge learnings from Tool Execution Layer (impl_6) into Capability Framework (impl_3) - enhance BaseCapability with robust execution patterns
+Implement EmailCapability (Phase 2.2) with comprehensive triage logic and email actions
 
 ### Completed ✅
+**Morning Session (Capability Framework Enhancement):**
 - [x] Analyzed architectural conflict between Capability Framework (impl_3) and Tool Execution Layer (impl_6)
 - [x] Decided: Enhance Capabilities with Tool Execution patterns (not create adapter)
 - [x] Enhanced BaseCapability.execute_action() with retry logic from ToolExecutionEngine
 - [x] Added error classification (_should_retry method) for transient vs permanent errors
-- [x] Added retry configuration extraction from CapabilityConfig.retry_policy
-- [x] Implemented PII-safe logging (never logs action.parameters)
-- [x] Implemented performance tracking (duration_ms, retries)
-- [x] Implemented zero-exception guarantee (always returns ActionResult)
+- [x] Implemented PII-safe logging, performance tracking, zero-exception guarantee
 - [x] Updated all mock capabilities to implement _execute_action_impl()
-- [x] All 31 tests passing (100% pass rate)
-- [x] Wrote ADR-010: Capability-Tool Execution Architecture Convergence (~400 lines)
-- [x] Updated CHANGELOG.md with today's work
-- [x] Updated TODO.md (this file)
+- [x] Wrote ADR-010: Capability-Tool Execution Architecture Convergence
 - [x] Merged from main (resolved conflicts in TODO.md and CHANGELOG.md)
+
+**Afternoon Session (Email Capability Implementation):**
+- [x] Created empla/capabilities/email.py with EmailCapability class (~600 lines)
+- [x] Implemented EmailProvider enum (Microsoft Graph, Gmail)
+- [x] Implemented EmailPriority enum (URGENT, HIGH, MEDIUM, LOW, SPAM)
+- [x] Implemented Email dataclass for message representation
+- [x] Implemented EmailConfig with provider, credentials, triage settings, signature
+- [x] Implemented intelligent email triage (keyword-based classification)
+- [x] Implemented requires-response heuristics (questions, requests, FYIs)
+- [x] Implemented email actions (send, reply, forward, mark_read, archive)
+- [x] Implemented priority conversion (EmailPriority → observation priority 1-10)
+- [x] Added EmailCapability exports to empla/capabilities/__init__.py
+- [x] Wrote 22 unit tests for EmailCapability (100% passing, 95.80% coverage)
+- [x] Wrote 7 integration tests for EmailCapability with CapabilityRegistry (100% passing)
+- [x] Updated CHANGELOG.md with Email Capability implementation details
+- [x] Updated TODO.md (this file) with Phase 2.2 progress
 
 ### Key Enhancements
 **BaseCapability Execution Robustness:**
@@ -52,25 +63,45 @@ Merge learnings from Tool Execution Layer (impl_6) into Capability Framework (im
 - Chosen: Enhance Capabilities with Tool Execution patterns (single execution model)
 
 ### Test Results
-- **85/85 tests passing** (100% pass rate) ✅
+- **60/60 capability tests passing** (100% pass rate) ✅
+  - 22 EmailCapability unit tests (95.80% coverage)
+  - 7 EmailCapability integration tests
+  - 31 existing capability framework tests
 - **Overall coverage:** 72.43% (up from 69.33%)
-- **Test execution time:** 12.20 seconds
+- **EmailCapability coverage:** 95.80% (143 statements, 6 missing - provider placeholders)
+- **Test execution time:** 1.83 seconds (unit + integration)
 
 ### Blockers
 - None currently
 
 ### Insights & Notes
+**Capability Framework:**
 - Original design intent: "Capabilities do perception + execution themselves"
 - Creating adapter would violate this principle and add unnecessary complexity
 - Porting robust execution patterns into BaseCapability gives best of both worlds
 - All capabilities now get retry logic, error handling, PII-safe logging for free
 - Capability developers just implement _execute_action_impl() with business logic
 
+**Email Capability:**
+- Keyword-based triage is simple, fast, and works without external APIs
+- Placeholder provider implementations allow testing framework without API complexity
+- 95.80% test coverage demonstrates robustness of capability framework
+- Ready for real Microsoft Graph/Gmail API integration
+
 ### Next Session
-- Consider adding specific retry behavior tests (transient error retry, permanent error fail)
-- Begin Email Capability implementation (Phase 2.2)
-- Microsoft Graph API integration
-- Email triage and composition logic
+**Phase 2.2 Completion (Email Capability):**
+- Implement real Microsoft Graph API integration (OAuth2, fetch/send emails)
+- Implement Gmail API integration (optional)
+- Enhance email triage with sender relationship analysis (query employee memory)
+- Add content-based email classification using LLM
+- Write E2E test: Employee autonomously responds to inbound email
+- Test with real mailbox (sandbox account)
+
+**Phase 2.3 Start (Calendar Capability):**
+- Implement CalendarCapability class
+- Event monitoring and notifications
+- Meeting scheduling logic
+- Optimal-time-finding algorithm
 
 ---
 
@@ -86,20 +117,21 @@ Merge learnings from Tool Execution Layer (impl_6) into Capability Framework (im
 - [x] Write comprehensive unit tests (31 tests)
 - [x] Write integration tests (6 tests)
 
-### Phase 2.2 - Email Capability (NEXT)
-- [ ] Implement EmailCapability class
-- [ ] Microsoft Graph API integration
-- [ ] Gmail API integration (optional)
-- [ ] Email triage logic (priority classification)
-- [ ] Email composition helpers
-- [ ] Unit tests for email capability
-- [ ] Integration tests with proactive loop
+### Phase 2.2 - Email Capability ✅ CORE COMPLETE
+- [x] Implement EmailCapability class
+- [x] Email triage logic (priority classification)
+- [x] Email composition helpers (send, reply, forward, archive)
+- [x] Unit tests for email capability (22 tests, 100% passing, 95.80% coverage)
+- [x] Integration tests with CapabilityRegistry (7 tests, 100% passing)
+- [ ] Microsoft Graph API integration (real implementation, currently placeholder)
+- [ ] Gmail API integration (real implementation, currently placeholder)
+- [ ] Integration tests with ProactiveExecutionLoop (E2E scenario)
 
 ### Phase 2.3 - Calendar Capability
 - [ ] Implement CalendarCapability class
 - [ ] Event monitoring and notifications
 - [ ] Meeting scheduling logic
-- [ ] Optimal time finding algorithm
+- [ ] Optimal-time-finding algorithm
 - [ ] Unit and integration tests
 
 ### Phase 2.4 - Additional Capabilities

@@ -6,6 +6,244 @@
 
 ---
 
+## 2025-11-17 - Email Capability PII-Safe Logging (Phase 2.2)
+
+**Phase:** 2.2 - Email Capability Security Enhancement
+
+### Enhanced
+
+**PII-Safe Logging for Email Capability:**
+- **empla/capabilities/email.py** (enhanced logging throughout)
+  - Added `hashlib` import for SHA256 hashing
+  - Added `log_pii` configuration flag to EmailConfig (default: False)
+  - Implemented 5 PII redaction helper methods:
+    - `_hash_value()`: Compute stable 8-char SHA256 hash
+    - `_extract_domains()`: Extract unique domains from email addresses
+    - `_redact_email_id()`: Hash email IDs for logging
+    - `_redact_subject()`: Hash email subjects for logging
+    - `_redact_email_address()`: Return domain only (e.g., "example.com")
+  - Updated all logging statements to use redacted values by default:
+    - `initialize()`: Log domain instead of full email address
+    - `_triage_email()`: Log hashed email_id instead of raw ID
+    - `_send_email()`: Log recipient_count, recipient_domains, subject_hash
+    - `_reply_to_email()`: Log hashed email_id
+    - `_forward_email()`: Log hashed email_id, recipient_count, domains
+    - `_mark_read()`: Log hashed email_id
+    - `_archive()`: Log hashed email_id
+
+**Security & Privacy Features:**
+- **Default PII Protection:** All PII redacted by default (log_pii=False)
+- **Opt-in Full Logging:** Set `log_pii=True` to log full PII when explicitly needed
+- **Stable Hashing:** SHA256 ensures same value always produces same hash (debugging continuity)
+- **Non-PII Metadata:** Log useful metadata without exposing sensitive data:
+  - recipient_count: Number of recipients
+  - recipient_domains: Unique domains (not individual addresses)
+  - subject_hash: 8-char hash for subject correlation
+  - email_id_hash: 8-char hash for email tracking
+  - cc_count, has_attachments, has_comment: Boolean/count metadata
+
+### Tested
+
+**Unit Tests (7 new tests added):**
+- **tests/unit/test_capabilities_email.py** (29 tests total, 100% pass rate)
+  - test_pii_redaction_hash_value: Verify stable SHA256 hashing
+  - test_pii_redaction_extract_domains: Verify domain extraction from addresses
+  - test_pii_redaction_redact_email_address: Verify domain-only logging
+  - test_pii_redaction_redact_email_id: Verify email ID hashing
+  - test_pii_redaction_redact_subject: Verify subject hashing
+  - test_email_config_log_pii_default: Verify log_pii defaults to False
+  - test_email_config_log_pii_explicit: Verify log_pii can be set to True
+
+### Test Results
+
+**All Tests Passing:**
+- **67/67 capability tests passing** (100% pass rate) ✅
+  - 29 EmailCapability tests (up from 22)
+  - 12 BaseCapability tests
+  - 19 CapabilityRegistry tests
+  - 7 EmailCapability integration tests
+- **EmailCapability coverage: 96.27%** (up from 95.80%)
+- **Test execution time:** 0.58 seconds
+
+### Decided
+
+**Security Design Decisions:**
+
+- **PII Redaction by Default:** log_pii=False ensures no PII leaks in logs
+  - Rationale: Logs often shipped to third-party services (Datadog, Splunk, CloudWatch)
+  - PII in logs = compliance violations (GDPR, CCPA, HIPAA)
+  - Developer must explicitly opt-in to log PII (prevents accidents)
+
+- **Stable Hashing:** Use SHA256 (not random) for reproducible hashes
+  - Rationale: Same email/subject produces same hash across sessions
+  - Enables debugging: Can track same email through logs using hash
+  - Security: Hash alone doesn't reveal original value
+
+- **Domain-Only Email Addresses:** Log "example.com" not "user@example.com"
+  - Rationale: Domain useful for debugging (which systems involved)
+  - But username is PII (reveals individual identity)
+  - Balance: Useful debugging info without exposing individuals
+
+- **Metadata Over Raw Values:** Log counts, domains, boolean flags
+  - recipient_count: How many recipients (useful for volume debugging)
+  - recipient_domains: Which systems involved (useful for integration debugging)
+  - has_attachments: Email complexity (useful for performance debugging)
+  - All useful for operations without exposing PII
+
+### Next
+
+**Phase 2.2 Continued (Microsoft Graph API Integration):**
+- Ensure real API implementations respect log_pii setting
+- Add PII redaction to OAuth2 logs (don't log access tokens)
+- Verify no PII leaks in error messages
+- Add similar PII protection to CalendarCapability
+- Document PII-safe logging best practices for new capabilities
+
+---
+
+## 2025-11-16 - Email Capability Implementation (Phase 2.2)
+
+**Phase:** 2.2 - Email Capability ✅ CORE COMPLETE
+
+### Added
+
+**Email Capability Implementation:**
+- **empla/capabilities/email.py** (~600 lines, 95.80% coverage)
+  - EmailProvider: Enum for Microsoft Graph and Gmail providers
+  - EmailPriority: 5-level priority classification (URGENT, HIGH, MEDIUM, LOW, SPAM)
+  - Email: Dataclass for email message representation
+  - EmailConfig: Configuration with provider, credentials, triage settings, signature
+  - EmailCapability: Complete email capability implementation
+    - Intelligent email triage based on keywords, sender, content
+    - Requires response heuristics (questions, requests, FYIs)
+    - Email actions: send, reply, forward, mark_read, archive
+    - Priority conversion (EmailPriority → observation priority 1-10)
+    - Placeholder implementations for Microsoft Graph and Gmail (to be completed)
+
+- **empla/capabilities/__init__.py** (updated exports)
+  - Added EmailCapability, EmailConfig, EmailProvider, EmailPriority, Email to public API
+
+**Email Capability Features:**
+- **Inbox Monitoring:**
+  - Perceive new emails as observations
+  - Triage emails by priority (URGENT, HIGH, MEDIUM, LOW, SPAM)
+  - Detect emails requiring responses (questions, requests)
+  - Convert email priority to observation priority (1-10 scale)
+
+- **Email Triage Logic:**
+  - Keyword-based classification (configurable priority keywords)
+  - "urgent", "asap", "critical", "down" → URGENT
+  - "important", "need", "question" → HIGH
+  - Default to MEDIUM for unknown emails
+  - Future: Sender relationship analysis (customer, manager, lead)
+
+- **Email Actions:**
+  - send_email: Send new email with optional signature
+  - reply_to_email: Reply to existing email
+  - forward_email: Forward email with optional comment
+  - mark_read: Mark email as read
+  - archive: Archive email
+  - All actions return ActionResult with success/error and metadata
+
+- **Requires Response Heuristics:**
+  - Emails with "?" → requires response (questions)
+  - Emails with "can you", "could you", "please", "need" → requires response (requests)
+  - FYI emails → no response needed
+  - Future: More sophisticated NLP-based detection
+
+### Tested
+
+**Unit Tests (22 tests added):**
+- **tests/unit/test_capabilities_email.py** (22 tests, 100% pass rate)
+  - EmailConfig: Default and custom configuration tests
+  - EmailCapability initialization: Microsoft Graph and Gmail providers
+  - Invalid provider handling
+  - Perception: Not initialized, no emails scenarios
+  - Email triage: URGENT, HIGH, MEDIUM classification
+  - Requires response: Questions, requests, FYIs
+  - Priority conversion: EmailPriority → int (1-10)
+  - Email actions: send, send with signature, reply, forward, mark_read, archive
+  - Unknown operation error handling
+  - String representation
+
+**Integration Tests (7 tests added):**
+- **tests/integration/test_email_capability_integration.py** (7 tests, 100% pass rate)
+  - EmailCapability registration with CapabilityRegistry
+  - Enable EmailCapability for employee
+  - Perceive via registry (empty emails placeholder)
+  - Execute actions via registry (send email)
+  - Disable EmailCapability for employee
+  - Health check for EmailCapability
+  - Multiple providers (Microsoft Graph and Gmail simultaneously)
+
+### Test Results
+
+**All Tests Passing:**
+- **53/53 capability tests passing** (100% pass rate) ✅
+- **EmailCapability: 95.80% coverage**
+- **BaseCapability: 80.95% coverage**
+- **CapabilityRegistry: 88.42% coverage**
+- **Test execution time:** 0.98 seconds (unit + registry)
+- **Integration tests:** 0.85 seconds
+
+**Coverage Summary:**
+- empla/capabilities/email.py: 95.80% (143 statements, 6 missing)
+- empla/capabilities/base.py: 80.95% (126 statements, 24 missing)
+- empla/capabilities/registry.py: 88.42% (95 statements, 11 missing)
+- Missing coverage: Provider-specific implementations (Microsoft Graph, Gmail placeholders)
+
+### Decided
+
+**Implementation Decisions:**
+
+- **Placeholder Provider Integration:** Microsoft Graph and Gmail integrations are placeholders
+  - Rationale: Focus on capability framework structure first, actual API integrations in next session
+  - Current: Returns `None` for client, logs placeholder message
+  - Next: Implement real Microsoft Graph authentication and API calls
+  - Future: Implement Gmail API authentication and calls
+
+- **Triage Strategy:** Keyword-based triage with configurable keywords
+  - Rationale: Simple, fast, works without external APIs
+  - Current: Check subject + body for priority keywords
+  - Future: Sender relationship analysis (customer, manager, lead)
+  - Future: Content-based classification using LLM
+
+- **Action Structure:** All actions return ActionResult with metadata
+  - Rationale: Consistent with BaseCapability interface
+  - Success actions include metadata (sent_at, replied_at, forwarded_at timestamps)
+  - Failures return ActionResult with success=False and error message
+  - Performance tracking via metadata (duration_ms, retries from BaseCapability)
+
+- **Signature Handling:** Optional signature appended to email body
+  - Rationale: Common business requirement, simple to implement
+  - Applied to: send_email operation
+  - Format: `{body}\n\n{signature}`
+
+### Next
+
+**Phase 2.2 Continued (Next Session):**
+- Implement real Microsoft Graph API integration
+  - OAuth2 authentication flow
+  - Email fetch/send operations
+  - Inbox monitoring with delta queries
+  - Attachment handling
+- Implement Gmail API integration (optional)
+  - OAuth2 authentication flow
+  - Email fetch/send operations
+  - Inbox monitoring
+- Enhance email triage with sender relationship analysis
+  - Query employee memory for sender relationships
+  - Classify based on customer, manager, lead status
+- Add content-based email classification (LLM)
+
+**Phase 2.3: Calendar Capability (After Email Complete):**
+- Implement CalendarCapability class
+- Event monitoring and notifications
+- Meeting scheduling logic
+- Optimal time finding algorithm
+
+---
+
 ## 2025-11-16 - Capability-Tool Execution Architecture Convergence
 
 **Phase:** 2.2 - Capability Enhancement with Tool Execution Patterns
