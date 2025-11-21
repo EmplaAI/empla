@@ -26,11 +26,10 @@ class VertexAIProvider(LLMProviderBase):
         # Import here to avoid requiring google-cloud-aiplatform if not using Vertex
         try:
             from google.cloud import aiplatform
-            from vertexai.generative_models import GenerativeModel
 
             # Initialize Vertex AI
             aiplatform.init(project=project_id, location=location)
-            self.model = GenerativeModel(model_id)
+            # Note: We'll create the model instance per-request to support system instructions
         except ImportError:
             raise ImportError(
                 "google-cloud-aiplatform is required for Vertex AI provider. "
@@ -47,7 +46,7 @@ class VertexAIProvider(LLMProviderBase):
         Returns:
             LLM response
         """
-        from vertexai.generative_models import Content, Part
+        from vertexai.generative_models import Content, GenerativeModel, Part
 
         # Convert messages to Vertex AI format
         contents = []
@@ -60,6 +59,13 @@ class VertexAIProvider(LLMProviderBase):
                 role = "user" if msg.role == "user" else "model"
                 contents.append(Content(role=role, parts=[Part.from_text(msg.content)]))
 
+        # Create model instance with system instruction
+        # System instruction is set in the constructor, not in generate_content
+        model = GenerativeModel(
+            self.model_id,
+            system_instruction=system_instruction if system_instruction else None,
+        )
+
         # Generate
         generation_config = {
             "max_output_tokens": request.max_tokens,
@@ -67,10 +73,9 @@ class VertexAIProvider(LLMProviderBase):
             "stop_sequences": request.stop_sequences,
         }
 
-        response = await self.model.generate_content_async(
+        response = await model.generate_content_async(
             contents,
             generation_config=generation_config,
-            system_instruction=system_instruction,
         )
 
         # Extract usage (Vertex AI provides this in response metadata)
@@ -150,7 +155,7 @@ class VertexAIProvider(LLMProviderBase):
         Yields:
             Content chunks as they arrive
         """
-        from vertexai.generative_models import Content, Part
+        from vertexai.generative_models import Content, GenerativeModel, Part
 
         contents = []
         system_instruction = None
@@ -162,16 +167,21 @@ class VertexAIProvider(LLMProviderBase):
                 role = "user" if msg.role == "user" else "model"
                 contents.append(Content(role=role, parts=[Part.from_text(msg.content)]))
 
+        # Create model instance with system instruction
+        model = GenerativeModel(
+            self.model_id,
+            system_instruction=system_instruction if system_instruction else None,
+        )
+
         generation_config = {
             "max_output_tokens": request.max_tokens,
             "temperature": request.temperature,
             "stop_sequences": request.stop_sequences,
         }
 
-        response_stream = await self.model.generate_content_async(
+        response_stream = await model.generate_content_async(
             contents,
             generation_config=generation_config,
-            system_instruction=system_instruction,
             stream=True,
         )
 

@@ -2,18 +2,18 @@
 Unit tests for CapabilityRegistry.
 """
 
-import pytest
+from datetime import UTC, datetime
 from uuid import uuid4
-from datetime import datetime, timezone
-from typing import List
+
+import pytest
 
 from empla.capabilities.base import (
-    BaseCapability,
-    CapabilityType,
-    CapabilityConfig,
-    Observation,
     Action,
     ActionResult,
+    BaseCapability,
+    CapabilityConfig,
+    CapabilityType,
+    Observation,
 )
 from empla.capabilities.registry import CapabilityRegistry
 
@@ -25,7 +25,7 @@ class MockEmailCapability(BaseCapability):
     def capability_type(self) -> CapabilityType:
         """
         Identify this capability's type as Email.
-        
+
         Returns:
             CapabilityType.EMAIL — the Email capability type.
         """
@@ -34,15 +34,15 @@ class MockEmailCapability(BaseCapability):
     async def initialize(self) -> None:
         """
         Mark the capability as initialized.
-        
+
         Sets the internal `_initialized` flag to True so the capability is considered ready for use.
         """
         self._initialized = True
 
-    async def perceive(self) -> List[Observation]:
+    async def perceive(self) -> list[Observation]:
         """
         Produce a list containing a single Observation representing a newly received email.
-        
+
         Returns:
             list[Observation]: A list with one Observation whose source is "email", type is "new_email", timestamp is the current UTC time, priority is 7, and data contains {"email_id": "123"}.
         """
@@ -50,7 +50,7 @@ class MockEmailCapability(BaseCapability):
             Observation(
                 source="email",
                 type="new_email",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 priority=7,
                 data={"email_id": "123"},
             )
@@ -81,7 +81,7 @@ class MockCalendarCapability(BaseCapability):
     def capability_type(self) -> CapabilityType:
         """
         Identify the capability type provided by this capability.
-        
+
         Returns:
             CapabilityType: `CapabilityType.CALENDAR` representing a calendar capability.
         """
@@ -90,15 +90,15 @@ class MockCalendarCapability(BaseCapability):
     async def initialize(self) -> None:
         """
         Mark the capability as initialized.
-        
+
         Sets the internal `_initialized` flag to True so the capability is considered ready for use.
         """
         self._initialized = True
 
-    async def perceive(self) -> List[Observation]:
+    async def perceive(self) -> list[Observation]:
         """
         Return observations representing imminent calendar events.
-        
+
         Returns:
             List[Observation]: A list containing a single Observation with source "calendar", type "meeting_soon", the current UTC timestamp, priority 8, and data {"event_id": "456"}.
         """
@@ -106,7 +106,7 @@ class MockCalendarCapability(BaseCapability):
             Observation(
                 source="calendar",
                 type="meeting_soon",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 priority=8,
                 data={"event_id": "456"},
             )
@@ -139,7 +139,7 @@ class FailingCapability(BaseCapability):
     def capability_type(self) -> CapabilityType:
         """
         Identify this capability as a browser capability.
-        
+
         Returns:
             CapabilityType: The capability type `CapabilityType.BROWSER`.
         """
@@ -148,18 +148,18 @@ class FailingCapability(BaseCapability):
     async def initialize(self) -> None:
         """
         Attempt to initialize the capability.
-        
+
         This implementation always fails.
-        
+
         Raises:
             Exception: Always raised with the message "Initialization failed".
         """
         raise Exception("Initialization failed")
 
-    async def perceive(self) -> List[Observation]:
+    async def perceive(self) -> list[Observation]:
         """
         Indicates the capability perceives no observations.
-        
+
         Returns:
             List[Observation]: An empty list of Observation objects.
         """
@@ -393,7 +393,7 @@ def test_registry_get_capability():
 async def test_registry_get_capability_enabled():
     """
     Verify that an enabled capability can be retrieved for an employee.
-    
+
     Enables the EMAIL capability for a generated tenant/employee and asserts that
     retrieving that capability returns a non-None instance with the expected type.
     """
@@ -541,9 +541,7 @@ async def test_registry_execute_action_capability_not_enabled():
     registry = CapabilityRegistry()
     employee_id = uuid4()
 
-    action = Action(
-        capability="email", operation="send_email", parameters={}
-    )
+    action = Action(capability="email", operation="send_email", parameters={})
 
     result = await registry.execute_action(employee_id, action)
 

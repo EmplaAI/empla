@@ -5,21 +5,21 @@ Enables digital employees to interact via email - monitor inbox, triage messages
 compose responses, and send emails.
 """
 
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from enum import Enum
-from uuid import UUID
-import logging
 import hashlib
+import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+from uuid import UUID
 
 from empla.capabilities.base import (
-    BaseCapability,
-    CapabilityType,
-    CapabilityConfig,
-    Observation,
     Action,
     ActionResult,
+    BaseCapability,
+    CapabilityConfig,
+    CapabilityType,
+    Observation,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,17 +47,17 @@ class Email:
     """Email message representation"""
 
     id: str
-    thread_id: Optional[str]
+    thread_id: str | None
     from_addr: str
-    to_addrs: List[str]
-    cc_addrs: List[str]
+    to_addrs: list[str]
+    cc_addrs: list[str]
     subject: str
     body: str  # Plain text
-    html_body: Optional[str]  # HTML version
+    html_body: str | None  # HTML version
     timestamp: datetime
-    attachments: List[Dict[str, Any]]
-    in_reply_to: Optional[str]
-    labels: List[str]
+    attachments: list[dict[str, Any]]
+    in_reply_to: str | None
+    labels: list[str]
     is_read: bool
 
 
@@ -68,19 +68,19 @@ class EmailConfig(CapabilityConfig):
     email_address: str
 
     # Provider credentials (stored securely)
-    credentials: Dict[str, Any]
+    credentials: dict[str, Any]
 
     # Monitoring settings
     check_interval_seconds: int = 60
-    monitor_folders: List[str] = None
+    monitor_folders: list[str] = None
 
     # Triage settings
     auto_triage: bool = True
-    priority_keywords: Dict[str, List[str]] = None
+    priority_keywords: dict[str, list[str]] = None
 
     # Response settings
     auto_respond: bool = False  # Require approval before sending
-    signature: Optional[str] = None
+    signature: str | None = None
 
     # Privacy settings
     log_pii: bool = False  # If True, log full PII (email addresses, subjects, etc.)
@@ -110,9 +110,7 @@ class EmailCapability(BaseCapability):
     - Sending with tracking
     """
 
-    def __init__(
-        self, tenant_id: UUID, employee_id: UUID, config: EmailConfig
-    ):
+    def __init__(self, tenant_id: UUID, employee_id: UUID, config: EmailConfig):
         """
         Initialize EmailCapability.
 
@@ -123,7 +121,7 @@ class EmailCapability(BaseCapability):
         """
         super().__init__(tenant_id, employee_id, config)
         self.config: EmailConfig = config
-        self._last_check: Optional[datetime] = None
+        self._last_check: datetime | None = None
         self._client = None  # Email provider client
 
     @property
@@ -178,7 +176,6 @@ class EmailCapability(BaseCapability):
         # from msgraph.core import GraphClient
         # return GraphClient(credentials=self.config.credentials)
         logger.info("Microsoft Graph client initialization - placeholder")
-        return None
 
     async def _init_gmail(self):
         """
@@ -193,9 +190,8 @@ class EmailCapability(BaseCapability):
         # from googleapiclient.discovery import build
         # return build('gmail', 'v1', credentials=self.config.credentials)
         logger.info("Gmail client initialization - placeholder")
-        return None
 
-    async def perceive(self) -> List[Observation]:
+    async def perceive(self) -> list[Observation]:
         """
         Check inbox for new emails and create observations.
 
@@ -239,19 +235,14 @@ class EmailCapability(BaseCapability):
                         "from": email.from_addr,
                         "subject": email.subject,
                         "priority": priority,
-                        "requires_response": await self._requires_response(
-                            email
-                        ),
+                        "requires_response": await self._requires_response(email),
                     },
-                    requires_action=(
-                        priority
-                        in [EmailPriority.URGENT, EmailPriority.HIGH]
-                    ),
+                    requires_action=(priority in [EmailPriority.URGENT, EmailPriority.HIGH]),
                 )
 
                 observations.append(observation)
 
-            self._last_check = datetime.now(timezone.utc)
+            self._last_check = datetime.now(UTC)
 
         except Exception as e:
             logger.error(
@@ -265,7 +256,7 @@ class EmailCapability(BaseCapability):
 
         return observations
 
-    async def _fetch_new_emails(self) -> List[Email]:
+    async def _fetch_new_emails(self) -> list[Email]:
         """
         Fetch new emails from provider.
 
@@ -312,9 +303,7 @@ class EmailCapability(BaseCapability):
                     extra={
                         "employee_id": str(self.employee_id),
                         "email_id_hash": (
-                            email.id
-                            if self.config.log_pii
-                            else self._redact_email_id(email.id)
+                            email.id if self.config.log_pii else self._redact_email_id(email.id)
                         ),
                         "priority": priority,
                     },
@@ -333,9 +322,7 @@ class EmailCapability(BaseCapability):
             extra={
                 "employee_id": str(self.employee_id),
                 "email_id_hash": (
-                    email.id
-                    if self.config.log_pii
-                    else self._redact_email_id(email.id)
+                    email.id if self.config.log_pii else self._redact_email_id(email.id)
                 ),
             },
         )
@@ -405,7 +392,7 @@ class EmailCapability(BaseCapability):
         """
         return hashlib.sha256(value.encode()).hexdigest()[:8]
 
-    def _extract_domains(self, addresses: List[str]) -> List[str]:
+    def _extract_domains(self, addresses: list[str]) -> list[str]:
         """
         Extract unique domains from email addresses.
 
@@ -488,38 +475,35 @@ class EmailCapability(BaseCapability):
                 attachments=params.get("attachments", []),
             )
 
-        elif operation == "reply_to_email":
+        if operation == "reply_to_email":
             return await self._reply_to_email(
                 email_id=params["email_id"],
                 body=params["body"],
                 cc=params.get("cc", []),
             )
 
-        elif operation == "forward_email":
+        if operation == "forward_email":
             return await self._forward_email(
                 email_id=params["email_id"],
                 to=params["to"],
                 comment=params.get("comment"),
             )
 
-        elif operation == "mark_read":
+        if operation == "mark_read":
             return await self._mark_read(params["email_id"])
 
-        elif operation == "archive":
+        if operation == "archive":
             return await self._archive(params["email_id"])
 
-        else:
-            return ActionResult(
-                success=False, error=f"Unknown operation: {operation}"
-            )
+        return ActionResult(success=False, error=f"Unknown operation: {operation}")
 
     async def _send_email(
         self,
-        to: List[str],
+        to: list[str],
         subject: str,
         body: str,
-        cc: List[str] = None,
-        attachments: List[Dict[str, Any]] = None,
+        cc: list[str] = None,
+        attachments: list[dict[str, Any]] = None,
     ) -> ActionResult:
         """
         Send new email.
@@ -548,14 +532,8 @@ class EmailCapability(BaseCapability):
             extra={
                 "employee_id": str(self.employee_id),
                 "recipient_count": len(to),
-                "recipient_domains": (
-                    to if self.config.log_pii else self._extract_domains(to)
-                ),
-                "subject_hash": (
-                    subject
-                    if self.config.log_pii
-                    else self._redact_subject(subject)
-                ),
+                "recipient_domains": (to if self.config.log_pii else self._extract_domains(to)),
+                "subject_hash": (subject if self.config.log_pii else self._redact_subject(subject)),
                 "cc_count": len(cc) if cc else 0,
                 "has_attachments": bool(attachments),
             },
@@ -563,12 +541,10 @@ class EmailCapability(BaseCapability):
 
         return ActionResult(
             success=True,
-            metadata={"sent_at": datetime.now(timezone.utc).isoformat()},
+            metadata={"sent_at": datetime.now(UTC).isoformat()},
         )
 
-    async def _reply_to_email(
-        self, email_id: str, body: str, cc: List[str] = None
-    ) -> ActionResult:
+    async def _reply_to_email(self, email_id: str, body: str, cc: list[str] = None) -> ActionResult:
         """
         Reply to existing email.
 
@@ -588,9 +564,7 @@ class EmailCapability(BaseCapability):
             extra={
                 "employee_id": str(self.employee_id),
                 "email_id_hash": (
-                    email_id
-                    if self.config.log_pii
-                    else self._redact_email_id(email_id)
+                    email_id if self.config.log_pii else self._redact_email_id(email_id)
                 ),
                 "cc_count": len(cc) if cc else 0,
             },
@@ -598,14 +572,14 @@ class EmailCapability(BaseCapability):
 
         return ActionResult(
             success=True,
-            metadata={"replied_at": datetime.now(timezone.utc).isoformat()},
+            metadata={"replied_at": datetime.now(UTC).isoformat()},
         )
 
     async def _forward_email(
         self,
         email_id: str,
-        to: List[str],
-        comment: Optional[str] = None,
+        to: list[str],
+        comment: str | None = None,
     ) -> ActionResult:
         """
         Forward email to others.
@@ -626,23 +600,17 @@ class EmailCapability(BaseCapability):
             extra={
                 "employee_id": str(self.employee_id),
                 "email_id_hash": (
-                    email_id
-                    if self.config.log_pii
-                    else self._redact_email_id(email_id)
+                    email_id if self.config.log_pii else self._redact_email_id(email_id)
                 ),
                 "recipient_count": len(to),
-                "recipient_domains": (
-                    to if self.config.log_pii else self._extract_domains(to)
-                ),
+                "recipient_domains": (to if self.config.log_pii else self._extract_domains(to)),
                 "has_comment": comment is not None,
             },
         )
 
         return ActionResult(
             success=True,
-            metadata={
-                "forwarded_at": datetime.now(timezone.utc).isoformat()
-            },
+            metadata={"forwarded_at": datetime.now(UTC).isoformat()},
         )
 
     async def _mark_read(self, email_id: str) -> ActionResult:
@@ -663,9 +631,7 @@ class EmailCapability(BaseCapability):
             extra={
                 "employee_id": str(self.employee_id),
                 "email_id_hash": (
-                    email_id
-                    if self.config.log_pii
-                    else self._redact_email_id(email_id)
+                    email_id if self.config.log_pii else self._redact_email_id(email_id)
                 ),
             },
         )
@@ -690,9 +656,7 @@ class EmailCapability(BaseCapability):
             extra={
                 "employee_id": str(self.employee_id),
                 "email_id_hash": (
-                    email_id
-                    if self.config.log_pii
-                    else self._redact_email_id(email_id)
+                    email_id if self.config.log_pii else self._redact_email_id(email_id)
                 ),
             },
         )

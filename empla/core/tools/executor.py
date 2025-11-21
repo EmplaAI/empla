@@ -6,7 +6,6 @@ Executes tools with retry logic, error handling, and performance tracking.
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from time import time
 from typing import Any
 
@@ -236,7 +235,7 @@ class ToolExecutionEngine:
                     return f"Missing required parameter: {param_name}"
 
         # Check for unexpected parameters
-        for param_name in params.keys():
+        for param_name in params:
             if param_name not in schema:
                 return f"Unexpected parameter: {param_name}"
 

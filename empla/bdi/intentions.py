@@ -23,7 +23,6 @@ from empla.models.employee import EmployeeIntention
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from empla.bdi.beliefs import BeliefSystem
     from empla.llm import LLMService
     from empla.models.belief import Belief
     from empla.models.employee import EmployeeGoal
@@ -150,9 +149,7 @@ class PlanGenerationResult(BaseModel):
     intentions: list[GeneratedIntention] = Field(
         default_factory=list, description="List of intentions to execute"
     )
-    strategy_summary: str = Field(
-        ..., description="High-level strategy overview", min_length=1
-    )
+    strategy_summary: str = Field(..., description="High-level strategy overview", min_length=1)
     assumptions: list[str] = Field(
         default_factory=list, description="Assumptions made in this plan"
     )

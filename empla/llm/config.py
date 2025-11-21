@@ -4,7 +4,6 @@ LLM provider configuration.
 This module provides configuration for LLM providers and pre-configured model definitions.
 """
 
-
 from pydantic import BaseModel, Field
 
 from empla.llm.models import LLMModel, LLMProvider
