@@ -78,14 +78,28 @@ pytest tests/simulation/test_autonomous_behaviors.py::test_sales_ae_low_pipeline
 # Set environment variable to use real LLM
 export RUN_WITH_REAL_LLM=1
 
-# Set API key (Anthropic or OpenAI)
-export ANTHROPIC_API_KEY=your_key_here
-# OR
-export OPENAI_API_KEY=your_key_here
+# Configure provider (choose one):
+
+# Option 1: Vertex AI / Gemini (checked first)
+export VERTEX_PROJECT_ID=your-gcp-project-id
+export VERTEX_LOCATION=us-central1  # Optional, defaults to us-central1
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json  # For authentication
+# OR use Application Default Credentials (ADC): gcloud auth application-default login
+
+# Option 2: Anthropic Claude
+export ANTHROPIC_API_KEY=your_anthropic_key_here
+
+# Option 3: OpenAI GPT
+export OPENAI_API_KEY=your_openai_key_here
 
 # Run tests (will use real LLM calls)
 pytest tests/simulation/test_autonomous_behaviors.py -v
 ```
+
+**Provider auto-selection order:**
+1. Vertex AI (if `VERTEX_PROJECT_ID` or `GCP_PROJECT_ID` is set) → uses `gemini-2.0-flash`
+2. Anthropic (if `ANTHROPIC_API_KEY` is set) → uses `claude-sonnet-4`
+3. OpenAI (if `OPENAI_API_KEY` is set) → uses `gpt-4o-mini`
 
 **What's additionally validated:**
 - ✅ LLM prompts are well-formed and work correctly

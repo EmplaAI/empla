@@ -286,7 +286,15 @@ class SimulatedCRMSystem:
         return sum(deal.value for deal in self.deals if deal.stage in open_stages)
 
     def get_pipeline_coverage(self) -> float:
-        """Calculate pipeline coverage (pipeline / target)"""
+        """
+        Calculate pipeline coverage (pipeline / target).
+
+        Returns:
+            Pipeline coverage ratio, or 0.0 if target is zero/near-zero
+        """
+        # Guard against division-by-zero
+        if self._pipeline_target == 0 or abs(self._pipeline_target) < 1e-9:
+            return 0.0
         return self.get_pipeline_value() / self._pipeline_target
 
     def set_pipeline_target(self, target: float) -> None:

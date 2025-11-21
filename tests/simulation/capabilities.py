@@ -541,9 +541,8 @@ class SimulatedCRMCapability(BaseCapability):
 
     @property
     def capability_type(self) -> CapabilityType:
-        """Return custom CRM capability type"""
-        # Note: Using EMAIL as placeholder since CRM isn't in CapabilityType enum yet
-        return CapabilityType.EMAIL
+        """Return CRM capability type"""
+        return CapabilityType.CRM
 
     async def initialize(self) -> None:
         """Initialize capability (simulated)"""
@@ -821,8 +820,7 @@ def get_simulated_capabilities(
         )
 
     if "crm" in enabled_capabilities:
-        # Use EMAIL type as placeholder since CRM isn't in enum yet
-        capabilities["crm"] = SimulatedCRMCapability(
+        capabilities[CapabilityType.CRM] = SimulatedCRMCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,
             config=CapabilityConfig(),

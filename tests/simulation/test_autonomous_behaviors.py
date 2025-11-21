@@ -76,7 +76,7 @@ async def session():
 
     # Register after_commit hook to re-create nested savepoint
     @event.listens_for(session.sync_session, "after_transaction_end")
-    def restart_savepoint(session, transaction):
+    def restart_savepoint(_session, transaction):
         """Re-create a nested savepoint after each commit."""
         if transaction.nested and not transaction._parent.nested:
             # This was a commit of the nested savepoint
@@ -235,9 +235,21 @@ def mock_llm():
 
 
 def is_real_llm(llm_service) -> bool:
-    """Check if we're using real LLM or mock."""
-    import os
+    """
+    Check if we're using real LLM or mock.
 
+    Args:
+        llm_service: LLM service instance to check
+
+    Returns:
+        False if llm_service is an AsyncMock, otherwise checks RUN_WITH_REAL_LLM env var
+    """
+    # Directly detect mock by checking instance type
+    if isinstance(llm_service, AsyncMock):
+        return False
+
+    # Fall back to environment variable check for real LLM services
+    import os
     return os.getenv("RUN_WITH_REAL_LLM", "0").lower() in ("1", "true", "yes")
 
 
@@ -554,15 +566,7 @@ async def test_sales_ae_low_pipeline_autonomous_response(
             )
         )
 
-    # Re-perceive to get updated pipeline state
-    new_observations = await crm_cap.perceive()
-
-    # Pipeline should now be better (no low_pipeline_coverage observation)
-    low_pipeline_obs_after = next(
-        (o for o in new_observations if o.type == "low_pipeline_coverage"), None
-    )
-    # Note: Still might be low since we only added $500K ($100K x 5 deals)
-    # Let's check actual coverage
+    # Check actual coverage (may still be low since we only added $500K)
     new_coverage = simulated_env.crm.get_pipeline_coverage()
     initial_coverage = 2.0
     assert new_coverage > initial_coverage  # Coverage improved (but may still be below target)
