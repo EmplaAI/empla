@@ -133,7 +133,7 @@ class ProactiveExecutionLoop:
     ):
         """
         Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
-        
+
         Parameters:
             employee: The digital employee instance this loop will run for; used for identification and status checks.
             beliefs: Belief system used to update and query the agent's world model.
@@ -142,7 +142,7 @@ class ProactiveExecutionLoop:
             memory: Memory system used for recording and retrieving episodic/semantic/procedural data.
             capability_registry: Optional capability registry used to perceive the environment and enumerate enabled capabilities.
             config: Optional loop configuration object; when omitted defaults are applied (e.g., cycle and error backoff intervals).
-        
+
         Notes:
             Initializes internal timing/state (cycle interval, error backoff, counters, and last-run timestamps) and logs startup metadata including whether a capability registry is present.
         """
@@ -362,9 +362,9 @@ class ProactiveExecutionLoop:
     async def perceive_environment(self) -> PerceptionResult:
         """
         Collects observations from configured capabilities and summarizes detected opportunities, problems, and risks.
-        
+
         If a CapabilityRegistry is present, polls all enabled capabilities for this employee and converts their observations into the loop's Observation shape; if not present or if capability polling fails, returns an empty observation list. The returned PerceptionResult includes the observations, counts of opportunities/problems/risks, the perception duration in milliseconds, and the list of capability sources that were checked.
-        
+
         Returns:
             PerceptionResult: Aggregated perception data containing:
                 - observations: list of Observation objects collected (may be empty)
@@ -382,9 +382,7 @@ class ProactiveExecutionLoop:
         if self.capability_registry is not None:
             try:
                 # Get observations from all enabled capabilities
-                cap_observations = await self.capability_registry.perceive_all(
-                    self.employee.id
-                )
+                cap_observations = await self.capability_registry.perceive_all(self.employee.id)
 
                 # Convert capability Observations to loop Observations
                 # Capability observations use different field names
@@ -416,7 +414,7 @@ class ProactiveExecutionLoop:
                     },
                 )
 
-            except Exception as e:
+            except Exception:
                 logger.error(
                     "Capability perception failed",
                     exc_info=True,
@@ -425,9 +423,17 @@ class ProactiveExecutionLoop:
                 # Continue with empty observations - don't crash the loop
 
         # Analyze observations for opportunities, problems, risks
-        opportunities = sum(1 for obs in observations if "opportunity" in obs.observation_type.lower())
-        problems = sum(1 for obs in observations if "problem" in obs.observation_type.lower() or "error" in obs.observation_type.lower())
-        risks = sum(1 for obs in observations if "risk" in obs.observation_type.lower() or obs.priority >= 9)
+        opportunities = sum(
+            1 for obs in observations if "opportunity" in obs.observation_type.lower()
+        )
+        problems = sum(
+            1
+            for obs in observations
+            if "problem" in obs.observation_type.lower() or "error" in obs.observation_type.lower()
+        )
+        risks = sum(
+            1 for obs in observations if "risk" in obs.observation_type.lower() or obs.priority >= 9
+        )
 
         duration_ms = max(0.01, (time.time() - start_time) * 1000)  # Ensure > 0
 

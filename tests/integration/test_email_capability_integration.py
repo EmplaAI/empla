@@ -2,16 +2,17 @@
 Integration tests for EmailCapability with CapabilityRegistry.
 """
 
-import pytest
 from uuid import uuid4
 
+import pytest
+
 from empla.capabilities import (
+    Action,
     CapabilityRegistry,
     CapabilityType,
     EmailCapability,
     EmailConfig,
     EmailProvider,
-    Action,
 )
 
 

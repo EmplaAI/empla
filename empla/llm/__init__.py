@@ -118,8 +118,7 @@ class LLMService:
                 location=self.config.vertex_location,
             )
         raise ValueError(
-            f"Unsupported LLM provider: {provider}. "
-            f"Supported providers: anthropic, openai, vertex"
+            f"Unsupported LLM provider: {provider}. Supported providers: anthropic, openai, vertex"
         )
 
     async def generate(

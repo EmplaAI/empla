@@ -2,18 +2,18 @@
 Unit tests for base capability abstractions.
 """
 
-import pytest
+from datetime import UTC, datetime
 from uuid import uuid4
-from datetime import datetime, timezone
-from typing import List
+
+import pytest
 
 from empla.capabilities.base import (
-    BaseCapability,
-    CapabilityType,
-    CapabilityConfig,
-    Observation,
     Action,
     ActionResult,
+    BaseCapability,
+    CapabilityConfig,
+    CapabilityType,
+    Observation,
 )
 
 
@@ -23,7 +23,7 @@ class MockCapability(BaseCapability):
     def __init__(self, tenant_id, employee_id, config):
         """
         Initialize a MockCapability instance and set internal state tracking flags.
-        
+
         Parameters:
             tenant_id (str): Identifier of the tenant owning the capability.
             employee_id (str): Identifier of the employee associated with the capability.
@@ -39,7 +39,7 @@ class MockCapability(BaseCapability):
     def capability_type(self) -> CapabilityType:
         """
         The capability type for this capability implementation.
-        
+
         Returns:
             CapabilityType: The enum member `CapabilityType.EMAIL`.
         """
@@ -48,18 +48,18 @@ class MockCapability(BaseCapability):
     async def initialize(self) -> None:
         """
         Mark the capability as initialized.
-        
+
         Sets internal flags to record that initialization was performed and that the capability is initialized.
         """
         self.init_called = True
         self._initialized = True
 
-    async def perceive(self) -> List[Observation]:
+    async def perceive(self) -> list[Observation]:
         """
         Produce mock observations for testing.
-        
+
         Also sets the instance flag `perceive_called` to True.
-        
+
         Returns:
             list[Observation]: A list containing a single Observation with source "mock", type "test_observation", the current UTC timestamp, priority 5, and data {"test": "data"}.
         """
@@ -68,7 +68,7 @@ class MockCapability(BaseCapability):
             Observation(
                 source="mock",
                 type="test_observation",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 priority=5,
                 data={"test": "data"},
             )
@@ -82,10 +82,10 @@ class MockCapability(BaseCapability):
         The base class execute_action() handles retry logic and error handling.
 
         Parameters:
-        	action (Action): The action to execute; its `operation` field controls simulated outcome.
+                action (Action): The action to execute; its `operation` field controls simulated outcome.
 
         Returns:
-        	ActionResult: `success` is `False` with `error` set to "Simulated failure" when `action.operation == "fail"`, otherwise `success` is `True` and `output` contains {"result": "success"}.
+                ActionResult: `success` is `False` with `error` set to "Simulated failure" when `action.operation == "fail"`, otherwise `success` is `True` and `output` contains {"result": "success"}.
         """
         self.action_executed = action
         if action.operation == "fail":
@@ -95,7 +95,7 @@ class MockCapability(BaseCapability):
     async def shutdown(self) -> None:
         """
         Mark the capability as shut down for test verification.
-        
+
         Sets an internal flag indicating shutdown was invoked so tests can verify shutdown behavior.
         """
         self.shutdown_called = True
@@ -114,9 +114,7 @@ def test_capability_type_enum():
 
 def test_capability_config():
     """Test CapabilityConfig model"""
-    config = CapabilityConfig(
-        enabled=True, rate_limit=100, timeout_seconds=60
-    )
+    config = CapabilityConfig(enabled=True, rate_limit=100, timeout_seconds=60)
 
     assert config.enabled is True
     assert config.rate_limit == 100
@@ -129,7 +127,7 @@ def test_observation_model():
     obs = Observation(
         source="email",
         type="new_email",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         priority=8,
         data={"email_id": "123", "from": "test@example.com"},
         requires_action=True,
@@ -148,7 +146,7 @@ def test_observation_priority_validation():
     obs1 = Observation(
         source="test",
         type="test",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         priority=1,
         data={},
     )
@@ -157,7 +155,7 @@ def test_observation_priority_validation():
     obs10 = Observation(
         source="test",
         type="test",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         priority=10,
         data={},
     )
@@ -168,7 +166,7 @@ def test_observation_priority_validation():
         Observation(
             source="test",
             type="test",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=11,  # Too high
             data={},
         )
@@ -177,7 +175,7 @@ def test_observation_priority_validation():
         Observation(
             source="test",
             type="test",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=0,  # Too low
             data={},
         )
@@ -214,9 +212,7 @@ def test_action_result_model():
     assert result.error is None
 
     # Failure result
-    result_fail = ActionResult(
-        success=False, error="Something went wrong"
-    )
+    result_fail = ActionResult(success=False, error="Something went wrong")
 
     assert result_fail.success is False
     assert result_fail.error == "Something went wrong"

@@ -1,0 +1,832 @@
+"""
+Simulated capabilities for E2E autonomous employee testing.
+
+These capabilities implement the same interfaces as real capabilities
+but interact with SimulatedEnvironment instead of real APIs.
+
+This allows testing autonomous employee behavior end-to-end without:
+- External API dependencies
+- Rate limits
+- Network latency
+- Authentication complexity
+- Cost per API call
+
+The simulated capabilities interact with the same BDI engine, memory systems,
+and proactive loop as production - only the "outside world" is simulated.
+"""
+
+import logging
+from datetime import UTC, datetime
+from uuid import UUID
+
+from empla.capabilities.base import (
+    Action,
+    ActionResult,
+    BaseCapability,
+    CapabilityConfig,
+    CapabilityType,
+    Observation,
+)
+from tests.simulation.environment import (
+    DealStage,
+    SimulatedContact,
+    SimulatedDeal,
+    SimulatedEmail,
+    SimulatedEnvironment,
+)
+from tests.simulation.environment import (
+    EmailPriority as SimEmailPriority,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class SimulatedEmailCapability(BaseCapability):
+    """
+    Simulated email capability that interacts with SimulatedEnvironment.
+
+    Implements the same EmailCapability interface but reads/writes to
+    SimulatedEmailSystem instead of Microsoft Graph or Gmail API.
+    """
+
+    def __init__(
+        self,
+        tenant_id: UUID,
+        employee_id: UUID,
+        config: CapabilityConfig,
+        environment: SimulatedEnvironment,
+    ):
+        """
+        Initialize simulated email capability.
+
+        Parameters:
+            tenant_id: Tenant identifier
+            employee_id: Employee identifier
+            config: Capability configuration
+            environment: Simulated environment to interact with
+        """
+        super().__init__(tenant_id, employee_id, config)
+        self.environment = environment
+        self._last_check: datetime | None = None
+
+    @property
+    def capability_type(self) -> CapabilityType:
+        """Return EMAIL capability type"""
+        return CapabilityType.EMAIL
+
+    async def initialize(self) -> None:
+        """Initialize capability (simulated - always succeeds)"""
+        self._initialized = True
+        logger.info(f"Simulated email capability initialized for employee {self.employee_id}")
+
+    async def perceive(self) -> list[Observation]:
+        """
+        Check simulated inbox for new emails and create observations.
+
+        This simulates the email monitoring that EmailCapability.perceive() does,
+        but reads from SimulatedEmailSystem instead of real API.
+
+        Returns:
+            List[Observation]: Observations for each unread email
+        """
+        if not self._initialized:
+            return []
+
+        observations = []
+
+        # Get unread emails from simulated inbox
+        unread_emails = self.environment.email.get_unread_emails()
+
+        for email in unread_emails:
+            # Triage email (simple keyword-based)
+            priority = self._triage_email(email)
+
+            # Create observation
+            observation = Observation(
+                source="email",
+                type="new_email",
+                timestamp=email.received_at,
+                priority=self._priority_to_int(priority),
+                data={
+                    "email_id": email.id,
+                    "from": email.from_address,
+                    "to": email.to_addresses,
+                    "subject": email.subject,
+                    "body": email.body,
+                    "priority": priority.value,
+                    "thread_id": email.thread_id,
+                    "requires_response": self._requires_response(email),
+                },
+                requires_action=(priority in [SimEmailPriority.URGENT, SimEmailPriority.HIGH]),
+            )
+
+            observations.append(observation)
+
+        self._last_check = datetime.now(UTC)
+
+        logger.debug(
+            f"Simulated email perception: {len(observations)} new emails",
+            extra={
+                "employee_id": str(self.employee_id),
+                "email_count": len(observations),
+            },
+        )
+
+        return observations
+
+    def _triage_email(self, email: SimulatedEmail) -> SimEmailPriority:
+        """
+        Classify email priority based on keywords.
+
+        Parameters:
+            email: Email to triage
+
+        Returns:
+            Priority level
+        """
+        text = f"{email.subject} {email.body}".lower()
+
+        # Check for urgent keywords
+        if any(kw in text for kw in ["urgent", "asap", "critical", "down", "outage"]):
+            return SimEmailPriority.URGENT
+
+        # Check for high priority keywords
+        if any(kw in text for kw in ["important", "need", "question", "demo", "meeting"]):
+            return SimEmailPriority.HIGH
+
+        # Check if from email priority is already set
+        if email.priority != SimEmailPriority.NORMAL:
+            return email.priority
+
+        return SimEmailPriority.NORMAL
+
+    def _requires_response(self, email: SimulatedEmail) -> bool:
+        """
+        Determine if email requires a response.
+
+        Parameters:
+            email: Email to analyze
+
+        Returns:
+            True if response needed
+        """
+        # Questions need responses
+        if "?" in email.body:
+            return True
+
+        # Direct requests
+        text = email.body.lower()
+        if any(kw in text for kw in ["can you", "could you", "please", "need"]):
+            return True
+
+        # FYIs don't need responses
+        if email.subject.lower().startswith("fyi"):
+            return False
+
+        return False
+
+    def _priority_to_int(self, priority: SimEmailPriority) -> int:
+        """
+        Convert email priority to observation priority (1-10).
+
+        Parameters:
+            priority: Email priority
+
+        Returns:
+            Observation priority (1-10)
+        """
+        mapping = {
+            SimEmailPriority.URGENT: 10,
+            SimEmailPriority.HIGH: 7,
+            SimEmailPriority.NORMAL: 5,
+            SimEmailPriority.LOW: 2,
+        }
+        return mapping.get(priority, 5)
+
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        """
+        Execute email actions on simulated environment.
+
+        Supported operations:
+        - send_email: Send new email (adds to sent items)
+        - reply_to_email: Reply to existing email
+        - mark_read: Mark email as read
+
+        Parameters:
+            action: Action to execute
+
+        Returns:
+            Action result
+        """
+        operation = action.operation
+        params = action.parameters
+
+        if operation == "send_email":
+            return await self._send_email(
+                to=params["to"],
+                subject=params["subject"],
+                body=params["body"],
+                cc=params.get("cc", []),
+                thread_id=params.get("thread_id"),
+                in_reply_to=params.get("in_reply_to"),
+            )
+
+        if operation == "reply_to_email":
+            return await self._reply_to_email(
+                email_id=params["email_id"],
+                body=params["body"],
+            )
+
+        if operation == "mark_read":
+            return await self._mark_read(params["email_id"])
+
+        return ActionResult(success=False, error=f"Unknown operation: {operation}")
+
+    async def _send_email(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        cc: list[str] | None = None,
+        thread_id: str | None = None,
+        in_reply_to: str | None = None,
+    ) -> ActionResult:
+        """
+        Send email via simulated email system.
+
+        Parameters:
+            to: Recipient addresses
+            subject: Email subject
+            body: Email body
+            cc: CC recipients
+            thread_id: Thread ID (for threading)
+            in_reply_to: Email ID being replied to
+
+        Returns:
+            Success result with metadata
+        """
+        email = self.environment.email.send_email(
+            to=to,
+            subject=subject,
+            body=body,
+            cc=cc,
+            thread_id=thread_id,
+            in_reply_to=in_reply_to,
+        )
+
+        # Update metrics
+        self.environment.metrics.increment("emails_sent")
+
+        logger.info(
+            f"Simulated email sent: {email.id}",
+            extra={
+                "employee_id": str(self.employee_id),
+                "to": to,
+                "subject": subject,
+            },
+        )
+
+        return ActionResult(
+            success=True,
+            output={"email_id": email.id},
+            metadata={
+                "sent_at": email.received_at.isoformat(),
+                "to": to,
+                "subject": subject,
+            },
+        )
+
+    async def _reply_to_email(self, email_id: str, body: str) -> ActionResult:
+        """
+        Reply to email in simulated environment.
+
+        Parameters:
+            email_id: ID of email to reply to
+            body: Reply body
+
+        Returns:
+            Success result
+        """
+        # Find original email
+        original = None
+        for email in self.environment.email.inbox:
+            if email.id == email_id:
+                original = email
+                break
+
+        if not original:
+            return ActionResult(success=False, error=f"Email {email_id} not found")
+
+        # Send reply
+        return await self._send_email(
+            to=[original.from_address],
+            subject=f"Re: {original.subject}",
+            body=body,
+            thread_id=original.thread_id or original.id,
+            in_reply_to=email_id,
+        )
+
+    async def _mark_read(self, email_id: str) -> ActionResult:
+        """
+        Mark email as read in simulated environment.
+
+        Parameters:
+            email_id: ID of email to mark as read
+
+        Returns:
+            Success result
+        """
+        success = self.environment.email.mark_as_read(email_id)
+
+        if success:
+            return ActionResult(success=True)
+        return ActionResult(success=False, error=f"Email {email_id} not found")
+
+
+class SimulatedCalendarCapability(BaseCapability):
+    """
+    Simulated calendar capability that interacts with SimulatedEnvironment.
+
+    Provides calendar monitoring and meeting scheduling without real API calls.
+    """
+
+    def __init__(
+        self,
+        tenant_id: UUID,
+        employee_id: UUID,
+        config: CapabilityConfig,
+        environment: SimulatedEnvironment,
+    ):
+        """
+        Initialize simulated calendar capability.
+
+        Parameters:
+            tenant_id: Tenant identifier
+            employee_id: Employee identifier
+            config: Capability configuration
+            environment: Simulated environment
+        """
+        super().__init__(tenant_id, employee_id, config)
+        self.environment = environment
+
+    @property
+    def capability_type(self) -> CapabilityType:
+        """Return CALENDAR capability type"""
+        return CapabilityType.CALENDAR
+
+    async def initialize(self) -> None:
+        """Initialize capability (simulated)"""
+        self._initialized = True
+        logger.info(f"Simulated calendar capability initialized for employee {self.employee_id}")
+
+    async def perceive(self) -> list[Observation]:
+        """
+        Check simulated calendar for upcoming events.
+
+        Returns:
+            List[Observation]: Observations for upcoming meetings
+        """
+        if not self._initialized:
+            return []
+
+        observations = []
+
+        # Get events in next 24 hours
+        upcoming = self.environment.calendar.get_upcoming_events(hours=24)
+
+        for event in upcoming:
+            # How soon is the event?
+            time_until = event.start_time - datetime.now(UTC)
+            hours_until = time_until.total_seconds() / 3600
+
+            # Determine priority based on how soon
+            if hours_until < 1:
+                priority = 9  # Very soon
+            elif hours_until < 4:
+                priority = 7  # Soon
+            else:
+                priority = 5  # Normal
+
+            observation = Observation(
+                source="calendar",
+                type="upcoming_meeting",
+                timestamp=datetime.now(UTC),
+                priority=priority,
+                data={
+                    "event_id": event.id,
+                    "subject": event.subject,
+                    "start_time": event.start_time.isoformat(),
+                    "end_time": event.end_time.isoformat(),
+                    "attendees": event.attendees,
+                    "location": event.location,
+                    "hours_until": hours_until,
+                },
+                requires_action=(hours_until < 1),  # Urgent if <1 hour
+            )
+
+            observations.append(observation)
+
+        return observations
+
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        """
+        Execute calendar actions on simulated environment.
+
+        Supported operations:
+        - create_event: Create calendar event
+        - update_event: Update existing event
+        - cancel_event: Cancel event
+
+        Parameters:
+            action: Action to execute
+
+        Returns:
+            Action result
+        """
+        operation = action.operation
+        params = action.parameters
+
+        if operation == "create_event":
+            return await self._create_event(
+                subject=params["subject"],
+                start_time=params["start_time"],
+                end_time=params["end_time"],
+                attendees=params.get("attendees", []),
+                location=params.get("location", ""),
+                description=params.get("description", ""),
+            )
+
+        return ActionResult(success=False, error=f"Unknown operation: {operation}")
+
+    async def _create_event(
+        self,
+        subject: str,
+        start_time: datetime,
+        end_time: datetime,
+        attendees: list[str],
+        location: str,
+        description: str,
+    ) -> ActionResult:
+        """
+        Create calendar event in simulated environment.
+
+        Parameters:
+            subject: Event subject
+            start_time: Event start time
+            end_time: Event end time
+            attendees: Attendee email addresses
+            location: Event location
+            description: Event description
+
+        Returns:
+            Success result with event ID
+        """
+        event = self.environment.calendar.create_event(
+            subject=subject,
+            start_time=start_time,
+            end_time=end_time,
+            attendees=attendees,
+            location=location,
+            description=description,
+        )
+
+        # Update metrics
+        self.environment.metrics.increment("meetings_scheduled")
+
+        logger.info(
+            f"Simulated calendar event created: {event.id}",
+            extra={
+                "employee_id": str(self.employee_id),
+                "subject": subject,
+                "attendees": attendees,
+            },
+        )
+
+        return ActionResult(
+            success=True,
+            output={"event_id": event.id},
+            metadata={
+                "subject": subject,
+                "start_time": start_time.isoformat(),
+                "attendees": attendees,
+            },
+        )
+
+
+class SimulatedCRMCapability(BaseCapability):
+    """
+    Simulated CRM capability for sales/CSM scenarios.
+
+    Provides access to simulated deals, contacts, and customer data.
+    """
+
+    def __init__(
+        self,
+        tenant_id: UUID,
+        employee_id: UUID,
+        config: CapabilityConfig,
+        environment: SimulatedEnvironment,
+    ):
+        """
+        Initialize simulated CRM capability.
+
+        Parameters:
+            tenant_id: Tenant identifier
+            employee_id: Employee identifier
+            config: Capability configuration
+            environment: Simulated environment
+        """
+        super().__init__(tenant_id, employee_id, config)
+        self.environment = environment
+
+    @property
+    def capability_type(self) -> CapabilityType:
+        """Return custom CRM capability type"""
+        # Note: Using EMAIL as placeholder since CRM isn't in CapabilityType enum yet
+        return CapabilityType.EMAIL
+
+    async def initialize(self) -> None:
+        """Initialize capability (simulated)"""
+        self._initialized = True
+        logger.info(f"Simulated CRM capability initialized for employee {self.employee_id}")
+
+    async def perceive(self) -> list[Observation]:
+        """
+        Monitor CRM for important changes.
+
+        Returns:
+            List[Observation]: Observations for CRM events (low pipeline, at-risk customers, etc.)
+        """
+        if not self._initialized:
+            return []
+
+        observations = []
+
+        # Check pipeline coverage (for sales scenarios)
+        pipeline_coverage = self.environment.crm.get_pipeline_coverage()
+        if pipeline_coverage < 3.0:  # Below 3x target
+            observations.append(
+                Observation(
+                    source="crm",
+                    type="low_pipeline_coverage",
+                    timestamp=datetime.now(UTC),
+                    priority=8,  # High priority
+                    data={
+                        "pipeline_coverage": pipeline_coverage,
+                        "pipeline_value": self.environment.crm.get_pipeline_value(),
+                        "target": self.environment.crm._pipeline_target,
+                    },
+                    requires_action=True,
+                )
+            )
+
+        # Check for at-risk customers (for CSM scenarios)
+        at_risk = self.environment.crm.get_at_risk_customers()
+        for customer in at_risk:
+            observations.append(
+                Observation(
+                    source="crm",
+                    type="customer_at_risk",
+                    timestamp=datetime.now(UTC),
+                    priority=9,  # Very high priority
+                    data={
+                        "customer_id": customer.id,
+                        "customer_name": customer.name,
+                        "health": customer.health.value,
+                        "churn_risk_score": customer.churn_risk_score,
+                        "contract_value": customer.contract_value,
+                        "last_contact_date": (
+                            customer.last_contact_date.isoformat()
+                            if customer.last_contact_date
+                            else None
+                        ),
+                    },
+                    requires_action=True,
+                )
+            )
+
+        return observations
+
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        """
+        Execute CRM actions on simulated environment.
+
+        Supported operations:
+        - create_deal: Create new deal
+        - update_deal: Update deal stage/value
+        - add_contact: Add contact
+        - update_customer_health: Update customer health score
+
+        Parameters:
+            action: Action to execute
+
+        Returns:
+            Action result
+        """
+        operation = action.operation
+        params = action.parameters
+
+        if operation == "create_deal":
+            return await self._create_deal(
+                name=params["name"],
+                value=params["value"],
+                stage=params.get("stage", DealStage.PROSPECTING),
+                contact_id=params.get("contact_id"),
+            )
+
+        if operation == "update_deal":
+            return await self._update_deal(
+                deal_id=params["deal_id"],
+                stage=params.get("stage"),
+                value=params.get("value"),
+            )
+
+        if operation == "add_contact":
+            return await self._add_contact(
+                name=params["name"],
+                email=params["email"],
+                company=params.get("company", ""),
+                title=params.get("title", ""),
+            )
+
+        return ActionResult(success=False, error=f"Unknown operation: {operation}")
+
+    async def _create_deal(
+        self,
+        name: str,
+        value: float,
+        stage: DealStage,
+        contact_id: str | None,
+    ) -> ActionResult:
+        """
+        Create deal in simulated CRM.
+
+        Parameters:
+            name: Deal name
+            value: Deal value
+            stage: Deal stage
+            contact_id: Associated contact ID
+
+        Returns:
+            Success result with deal ID
+        """
+        deal = SimulatedDeal(
+            name=name,
+            value=value,
+            stage=stage,
+            contact_id=contact_id,
+            owner=str(self.employee_id),
+        )
+
+        self.environment.crm.add_deal(deal)
+        self.environment.metrics.increment("deals_created")
+
+        logger.info(
+            f"Simulated deal created: {deal.id}",
+            extra={
+                "employee_id": str(self.employee_id),
+                "deal_name": name,
+                "value": value,
+            },
+        )
+
+        return ActionResult(
+            success=True,
+            output={"deal_id": deal.id},
+            metadata={"name": name, "value": value, "stage": stage.value},
+        )
+
+    async def _update_deal(
+        self,
+        deal_id: str,
+        stage: DealStage | None = None,
+        value: float | None = None,
+    ) -> ActionResult:
+        """
+        Update deal in simulated CRM.
+
+        Parameters:
+            deal_id: Deal ID to update
+            stage: New stage (optional)
+            value: New value (optional)
+
+        Returns:
+            Success result
+        """
+        # Find deal
+        deal = None
+        for d in self.environment.crm.deals:
+            if d.id == deal_id:
+                deal = d
+                break
+
+        if not deal:
+            return ActionResult(success=False, error=f"Deal {deal_id} not found")
+
+        # Update fields
+        if stage:
+            deal.stage = stage
+            if stage == DealStage.CLOSED_WON:
+                self.environment.metrics.increment("deals_closed_won")
+            elif stage == DealStage.CLOSED_LOST:
+                self.environment.metrics.increment("deals_closed_lost")
+
+        if value:
+            deal.value = value
+
+        deal.last_activity_date = datetime.now(UTC)
+
+        logger.info(
+            f"Simulated deal updated: {deal_id}",
+            extra={
+                "employee_id": str(self.employee_id),
+                "deal_id": deal_id,
+                "stage": stage.value if stage else None,
+                "value": value,
+            },
+        )
+
+        return ActionResult(success=True, output={"deal_id": deal_id})
+
+    async def _add_contact(self, name: str, email: str, company: str, title: str) -> ActionResult:
+        """
+        Add contact to simulated CRM.
+
+        Parameters:
+            name: Contact name
+            email: Email address
+            company: Company name
+            title: Job title
+
+        Returns:
+            Success result with contact ID
+        """
+        contact = SimulatedContact(name=name, email=email, company=company, title=title)
+
+        self.environment.crm.add_contact(contact)
+
+        logger.info(
+            f"Simulated contact created: {contact.id}",
+            extra={
+                "employee_id": str(self.employee_id),
+                "contact_name": name,
+                "company": company,
+            },
+        )
+
+        return ActionResult(
+            success=True,
+            output={"contact_id": contact.id},
+            metadata={"name": name, "email": email, "company": company},
+        )
+
+
+def get_simulated_capabilities(
+    tenant_id: UUID,
+    employee_id: UUID,
+    environment: SimulatedEnvironment,
+    enabled_capabilities: list[str] | None = None,
+) -> dict[CapabilityType, BaseCapability]:
+    """
+    Create simulated capabilities for an employee.
+
+    Parameters:
+        tenant_id: Tenant ID
+        employee_id: Employee ID
+        environment: Simulated environment
+        enabled_capabilities: List of capability types to enable (default: all)
+
+    Returns:
+        Dict mapping capability types to capability instances
+    """
+    if enabled_capabilities is None:
+        enabled_capabilities = ["email", "calendar", "crm"]
+
+    capabilities = {}
+
+    if "email" in enabled_capabilities:
+        capabilities[CapabilityType.EMAIL] = SimulatedEmailCapability(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            config=CapabilityConfig(),
+            environment=environment,
+        )
+
+    if "calendar" in enabled_capabilities:
+        capabilities[CapabilityType.CALENDAR] = SimulatedCalendarCapability(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            config=CapabilityConfig(),
+            environment=environment,
+        )
+
+    if "crm" in enabled_capabilities:
+        # Use EMAIL type as placeholder since CRM isn't in enum yet
+        capabilities["crm"] = SimulatedCRMCapability(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            config=CapabilityConfig(),
+            environment=environment,
+        )
+
+    return capabilities

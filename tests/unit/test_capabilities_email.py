@@ -2,28 +2,26 @@
 Unit tests for EmailCapability.
 """
 
-import pytest
+from datetime import UTC, datetime
 from uuid import uuid4
-from datetime import datetime, timezone
-from typing import List
 
+import pytest
+
+from empla.capabilities.base import (
+    Action,
+    CapabilityConfig,
+    CapabilityType,
+)
 from empla.capabilities.email import (
+    Email,
     EmailCapability,
     EmailConfig,
-    EmailProvider,
     EmailPriority,
-    Email,
+    EmailProvider,
 )
-from empla.capabilities.base import (
-    CapabilityType,
-    CapabilityConfig,
-    Observation,
-    Action,
-    ActionResult,
-)
-
 
 # Test EmailConfig
+
 
 def test_email_config_defaults():
     """Test EmailConfig initialization with defaults"""
@@ -206,7 +204,7 @@ async def test_email_triage_urgent():
         subject="URGENT: System down",
         body="Our production system is completely down!",
         html_body=None,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         attachments=[],
         in_reply_to=None,
         labels=[],
@@ -241,7 +239,7 @@ async def test_email_triage_high():
         subject="Important question about your product",
         body="I have an important question about pricing.",
         html_body=None,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         attachments=[],
         in_reply_to=None,
         labels=[],
@@ -276,7 +274,7 @@ async def test_email_triage_medium_default():
         subject="Weekly update",
         body="Here's the weekly update on project status.",
         html_body=None,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         attachments=[],
         in_reply_to=None,
         labels=[],
@@ -311,7 +309,7 @@ async def test_email_requires_response_question():
         subject="Question",
         body="Can you help me with this issue?",
         html_body=None,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         attachments=[],
         in_reply_to=None,
         labels=[],
@@ -346,7 +344,7 @@ async def test_email_requires_response_request():
         subject="Request",
         body="Please send me the report by end of day.",
         html_body=None,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         attachments=[],
         in_reply_to=None,
         labels=[],
@@ -381,7 +379,7 @@ async def test_email_requires_response_fyi():
         subject="FYI: Meeting rescheduled",
         body="The meeting has been moved to next week.",
         html_body=None,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         attachments=[],
         in_reply_to=None,
         labels=[],
@@ -655,9 +653,7 @@ def test_pii_redaction_extract_domains():
     assert domains == ["example.com"]
 
     # Multiple addresses, same domain
-    domains = capability._extract_domains(
-        ["user1@example.com", "user2@example.com"]
-    )
+    domains = capability._extract_domains(["user1@example.com", "user2@example.com"])
     assert domains == ["example.com"]
 
     # Multiple domains

@@ -11,7 +11,6 @@ Tests cover:
 
 import asyncio
 from typing import Any
-from uuid import uuid4
 
 import pytest
 
@@ -19,9 +18,7 @@ from empla.core.tools import (
     Tool,
     ToolCapability,
     ToolExecutionEngine,
-    ToolImplementation,
     ToolRegistry,
-    ToolResult,
 )
 
 
@@ -487,9 +484,7 @@ def test_get_tools_for_employee():
     employee_capabilities = ["email"]
     employee_credentials = {"microsoft_graph_token": "eyJ0..."}
 
-    available_tools = registry.get_tools_for_employee(
-        employee_capabilities, employee_credentials
-    )
+    available_tools = registry.get_tools_for_employee(employee_capabilities, employee_credentials)
 
     # Should only get email tool (has capability and credentials)
     assert len(available_tools) == 1

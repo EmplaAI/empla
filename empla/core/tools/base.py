@@ -36,9 +36,7 @@ class Tool(BaseModel):
     description: str = Field(..., description="What this tool does")
 
     # Interface
-    parameters_schema: dict[str, Any] = Field(
-        ..., description="JSON schema for tool parameters"
-    )
+    parameters_schema: dict[str, Any] = Field(..., description="JSON schema for tool parameters")
 
     # Requirements
     required_capabilities: list[str] = Field(
@@ -217,9 +215,7 @@ class ToolCapability(BaseModel):
     )
 
     # Tools
-    tools: list[str] = Field(
-        default_factory=list, description="Tool names in this capability"
-    )
+    tools: list[str] = Field(default_factory=list, description="Tool names in this capability")
 
     class Config:
         json_schema_extra = {

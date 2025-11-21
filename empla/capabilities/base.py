@@ -4,13 +4,14 @@ Base Capability Abstraction
 Defines the core interface and models for all capabilities.
 """
 
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
-from uuid import UUID
-from enum import Enum
-from pydantic import BaseModel, Field
 import logging
+from abc import ABC, abstractmethod
+from datetime import datetime
+from enum import Enum
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,10 @@ class CapabilityConfig(BaseModel):
     enabled: bool = True
     """Whether this capability is enabled"""
 
-    rate_limit: Optional[int] = None
+    rate_limit: int | None = None
     """Max operations per minute (None = unlimited)"""
 
-    retry_policy: Dict[str, Any] = Field(
-        default={"max_retries": 3, "backoff": "exponential"}
-    )
+    retry_policy: dict[str, Any] = Field(default={"max_retries": 3, "backoff": "exponential"})
     """Retry policy for failed operations"""
 
     timeout_seconds: int = 30
@@ -78,7 +77,7 @@ class Observation(BaseModel):
     priority: int = Field(ge=1, le=10, default=5)
     """Priority 1-10, higher = more important"""
 
-    data: Dict[str, Any]
+    data: dict[str, Any]
     """Observation-specific data"""
 
     requires_action: bool = False
@@ -115,16 +114,16 @@ class Action(BaseModel):
     operation: str
     """What operation to perform (capability-specific)"""
 
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     """Operation parameters"""
 
     priority: int = Field(ge=1, le=10, default=5)
     """Action priority 1-10"""
 
-    deadline: Optional[datetime] = None
+    deadline: datetime | None = None
     """When this action must be completed by"""
 
-    context: Dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
     """Additional context for execution"""
 
     class Config:
@@ -153,13 +152,13 @@ class ActionResult(BaseModel):
     success: bool
     """Whether the action succeeded"""
 
-    output: Optional[Any] = None
+    output: Any | None = None
     """Action output (capability-specific)"""
 
-    error: Optional[str] = None
+    error: str | None = None
     """Error message if failed"""
 
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     """Additional metadata (timing, cost, etc.)"""
 
     class Config:
@@ -210,9 +209,7 @@ class BaseCapability(ABC):
                 return ActionResult(success=True)
     """
 
-    def __init__(
-        self, tenant_id: UUID, employee_id: UUID, config: CapabilityConfig
-    ):
+    def __init__(self, tenant_id: UUID, employee_id: UUID, config: CapabilityConfig):
         """
         Initialize the capability instance with tenant, employee, and configuration context.
 
@@ -237,35 +234,32 @@ class BaseCapability(ABC):
     def capability_type(self) -> CapabilityType:
         """
         Identify this capability's category.
-        
+
         Returns:
             The CapabilityType value that represents this capability's category.
         """
-        pass
 
     @abstractmethod
     async def initialize(self) -> None:
         """
         Prepare the capability for use for the assigned employee.
-        
+
         Performs startup work such as establishing connections and authentication. Called once when the capability is enabled; implementations should set self._initialized = True on successful completion.
-        
+
         Raises:
             Exception: If initialization fails.
         """
-        pass
 
     @abstractmethod
-    async def perceive(self) -> List[Observation]:
+    async def perceive(self) -> list[Observation]:
         """
         Detects new events, changes, or triggers from the capability's environment and produces corresponding observations.
-        
+
         Implementations should perform a single perception pass and return any observations discovered. If an error occurs, implementations must not raise; they should log the error and return an empty list.
-        
+
         Returns:
             List[Observation]: Observations discovered during this perception pass; an empty list if nothing new or on error.
         """
-        pass
 
     async def execute_action(self, action: Action) -> ActionResult:
         """
@@ -285,9 +279,9 @@ class BaseCapability(ABC):
         Returns:
             ActionResult: Always returns, never raises. Contains success/failure, output/error, timing.
         """
-        from time import time
-        import random
         import asyncio
+        import random
+        from time import time
 
         start_time = time()
         last_error = None
@@ -302,8 +296,8 @@ class BaseCapability(ABC):
                         extra={
                             "capability": str(self.capability_type),
                             "operation": action.operation,
-                            "attempt": attempt + 1
-                        }
+                            "attempt": attempt + 1,
+                        },
                     )
 
                 # Call capability-specific implementation
@@ -323,8 +317,8 @@ class BaseCapability(ABC):
                             "capability": str(self.capability_type),
                             "operation": action.operation,
                             "duration_ms": duration_ms,
-                            "retries": attempt
-                        }
+                            "retries": attempt,
+                        },
                     )
 
                 return result
@@ -340,8 +334,8 @@ class BaseCapability(ABC):
                         "capability": str(self.capability_type),
                         "operation": action.operation,
                         "attempt": attempt + 1,
-                        "error": str(e)
-                    }
+                        "error": str(e),
+                    },
                 )
 
                 # Check if we should retry
@@ -350,8 +344,8 @@ class BaseCapability(ABC):
 
                 # Exponential backoff with jitter (ported from ToolExecutionEngine)
                 backoff_ms = min(
-                    self.initial_backoff_ms * (self.backoff_multiplier ** attempt),
-                    self.max_backoff_ms
+                    self.initial_backoff_ms * (self.backoff_multiplier**attempt),
+                    self.max_backoff_ms,
                 )
                 # Add ±25% jitter to avoid thundering herd
                 jitter = backoff_ms * 0.25 * (2 * random.random() - 1)
@@ -370,14 +364,14 @@ class BaseCapability(ABC):
                 "operation": action.operation,
                 "duration_ms": duration_ms,
                 "retries": attempt,
-                "error": error_msg
-            }
+                "error": error_msg,
+            },
         )
 
         return ActionResult(
             success=False,
             error=error_msg,
-            metadata={"duration_ms": duration_ms, "retries": attempt}
+            metadata={"duration_ms": duration_ms, "retries": attempt},
         )
 
     @abstractmethod
@@ -396,7 +390,6 @@ class BaseCapability(ABC):
         Returns:
             ActionResult: Outcome of execution. Can raise exceptions on failure.
         """
-        pass
 
     def _should_retry(self, error: Exception) -> bool:
         """
@@ -454,15 +447,14 @@ class BaseCapability(ABC):
     async def shutdown(self) -> None:
         """
         Perform an orderly shutdown of the capability, releasing resources and flushing any in-memory state.
-        
+
         Called when the capability is disabled or the associated employee is deactivated. Subclasses should override to implement concrete cleanup; the base implementation is a no-op.
         """
-        pass
 
     def is_healthy(self) -> bool:
         """
         Indicates whether the capability has completed initialization successfully.
-        
+
         Returns:
             `true` if initialization completed successfully, `false` otherwise.
         """
@@ -471,7 +463,7 @@ class BaseCapability(ABC):
     def __repr__(self) -> str:
         """
         Return a concise string representation of the capability instance.
-        
+
         Returns:
             str: A string containing the class name, `capability_type`, `employee_id`, and whether the instance is initialized.
         """

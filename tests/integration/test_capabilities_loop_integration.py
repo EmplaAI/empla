@@ -2,19 +2,19 @@
 Integration tests for capabilities + proactive loop integration.
 """
 
-import pytest
+from datetime import UTC, datetime
 from uuid import uuid4
-from datetime import datetime, timezone
-from typing import List
+
+import pytest
 
 from empla.capabilities import (
-    BaseCapability,
-    CapabilityType,
-    CapabilityConfig,
-    Observation,
     Action,
     ActionResult,
+    BaseCapability,
+    CapabilityConfig,
     CapabilityRegistry,
+    CapabilityType,
+    Observation,
 )
 from empla.core.loop.execution import ProactiveExecutionLoop
 from empla.core.loop.models import LoopConfig
@@ -28,12 +28,12 @@ class MockTestCapability(BaseCapability):
     def __init__(self, tenant_id, employee_id, config):
         """
         Initialize the mock capability with tenant, employee, and configuration.
-        
+
         Parameters:
             tenant_id: Identifier for the tenant that owns this capability.
             employee_id: Identifier for the employee associated with this capability.
             config: Configuration object used to initialize the capability for testing.
-        
+
         Attributes:
             observations_to_return (list): Mutable list of Observation objects that will be returned by the mock perceive method.
         """
@@ -44,7 +44,7 @@ class MockTestCapability(BaseCapability):
     def capability_type(self) -> CapabilityType:
         """
         Capability type associated with this capability.
-        
+
         Returns:
             CapabilityType: The enum value identifying this capability (`CapabilityType.EMAIL`).
         """
@@ -56,13 +56,13 @@ class MockTestCapability(BaseCapability):
         """
         self._initialized = True
 
-    async def perceive(self) -> List[Observation]:
+    async def perceive(self) -> list[Observation]:
         # Return configured observations
         """
         Return the preconfigured observations for this mock capability.
-        
+
         This method supplies the observations that were assigned to the mock (via its test setup) without modification.
-        
+
         Returns:
             List[Observation]: The list of observations configured on the mock; may be empty.
         """
@@ -71,10 +71,10 @@ class MockTestCapability(BaseCapability):
     async def execute_action(self, action: Action) -> ActionResult:
         """
         Execute the given action in the mock capability and report a successful result.
-        
+
         Parameters:
             action (Action): The action to execute.
-        
+
         Returns:
             ActionResult: An ActionResult with `success` set to `True` and an `output` payload `{"test": "executed"}`.
         """
@@ -86,10 +86,10 @@ class MockBeliefSystem:
     async def update_beliefs(self, observations):
         """
         Update beliefs from a collection of observations.
-        
+
         Parameters:
             observations (Iterable): Observations to incorporate into the belief store.
-        
+
         Returns:
             list: A list of belief entries created or updated from the provided observations (may be empty).
         """
@@ -100,7 +100,7 @@ class MockGoalSystem:
     async def get_active_goals(self):
         """
         Retrieve the currently active goals.
-        
+
         Returns:
             list: Active goals for the agent; in this mock implementation an empty list.
         """
@@ -109,15 +109,14 @@ class MockGoalSystem:
     async def update_goal_progress(self, goal, beliefs):
         """
         Update the progress of a given goal based on the current beliefs.
-        
+
         Parameters:
             goal: The goal object whose progress should be updated (goal-like interface expected).
             beliefs: An iterable of belief objects used to evaluate and update the goal's progress.
-        
+
         Notes:
             This mock implementation performs no action.
         """
-        pass
 
 
 class MockIntentionStack:
@@ -125,15 +124,15 @@ class MockIntentionStack:
         """
         Retrieve the next intention to execute, or None if none are available.
         """
-        return None
+        return
 
     async def dependencies_satisfied(self, intention):
         """
         Unconditionally report that the dependencies required to start an intention are satisfied.
-        
+
         Parameters:
             intention: The intention whose dependency status is being checked.
-        
+
         Returns:
             `True` indicating the intention's dependencies are satisfied.
         """
@@ -142,34 +141,31 @@ class MockIntentionStack:
     async def start_intention(self, intention):
         """
         Start processing the given intention.
-        
+
         Parameters:
             intention: The intention object to start; in this mock implementation the call is a no-op.
         """
-        pass
 
     async def complete_intention(self, intention, result):
         """
         Complete an intention and associate it with its result.
-        
+
         Parameters:
             intention: The intention object or identifier to mark as completed.
             result: The outcome or result produced by the intention's execution.
-        
+
         Note:
             This mock implementation performs no action.
         """
-        pass
 
     async def fail_intention(self, intention, error):
         """
         No-op implementation invoked when an intention fails.
-        
+
         Parameters:
             intention: The intention instance that failed.
             error: The exception or error information associated with the failure.
         """
-        pass
 
 
 class MockMemorySystem:
@@ -180,7 +176,7 @@ class MockMemorySystem:
 def create_test_employee():
     """
     Create a test Employee with randomized identifiers and fixed demo attributes.
-    
+
     Returns:
         Employee: An Employee instance with a random `id` and `tenant_id`, name "Test Employee", email "test@example.com", role "sales_ae", and status "active".
     """
@@ -221,14 +217,14 @@ async def test_loop_perceives_from_capability_registry():
         Observation(
             source="email",
             type="new_email",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=7,
             data={"email_id": "123"},
         ),
         Observation(
             source="email",
             type="new_email",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=5,
             data={"email_id": "456"},
         ),
@@ -305,7 +301,7 @@ async def test_loop_perception_detects_opportunities():
         Observation(
             source="email",
             type="new_opportunity",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=8,
             data={"lead_id": "789"},
         )
@@ -349,7 +345,7 @@ async def test_loop_perception_detects_problems():
         Observation(
             source="email",
             type="customer_problem",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=9,
             data={"issue": "System down"},
         )
@@ -392,7 +388,7 @@ async def test_loop_perception_detects_high_priority_as_risk():
         Observation(
             source="email",
             type="urgent_email",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=10,  # Very high priority
             data={"urgent": True},
         )
@@ -424,7 +420,7 @@ async def test_loop_perception_handles_multiple_capabilities():
         def capability_type(self) -> CapabilityType:
             """
             Identifies this capability as the calendar capability.
-            
+
             Returns:
                 CapabilityType: The enum value `CapabilityType.CALENDAR`.
             """
@@ -455,7 +451,7 @@ async def test_loop_perception_handles_multiple_capabilities():
         Observation(
             source="email",
             type="new_email",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=5,
             data={"email_id": "123"},
         )
@@ -465,7 +461,7 @@ async def test_loop_perception_handles_multiple_capabilities():
         Observation(
             source="calendar",
             type="meeting_soon",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             priority=8,
             data={"event_id": "456"},
         )

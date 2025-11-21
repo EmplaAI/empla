@@ -35,21 +35,21 @@ Usage:
 """
 
 from empla.capabilities.base import (
-    BaseCapability,
-    CapabilityType,
-    CapabilityConfig,
-    Observation,
     Action,
     ActionResult,
+    BaseCapability,
+    CapabilityConfig,
+    CapabilityType,
+    Observation,
 )
-from empla.capabilities.registry import CapabilityRegistry
 from empla.capabilities.email import (
+    Email,
     EmailCapability,
     EmailConfig,
-    EmailProvider,
     EmailPriority,
-    Email,
+    EmailProvider,
 )
+from empla.capabilities.registry import CapabilityRegistry
 
 __all__ = [
     # Base abstractions
