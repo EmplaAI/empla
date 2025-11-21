@@ -295,7 +295,7 @@ async def test_sales_ae_low_pipeline_autonomous_response(
         await cap.initialize()
 
     # Step 1: PERCEIVE - Get observations from simulated CRM
-    crm_cap = capabilities["crm"]
+    crm_cap = capabilities[CapabilityType.CRM]
     observations = await crm_cap.perceive()
 
     # Assert: Should detect low pipeline
@@ -665,7 +665,7 @@ async def test_csm_at_risk_customer_intervention(
         await cap.initialize()
 
     # Step 1: PERCEIVE - Detect at-risk customer
-    crm_cap = capabilities["crm"]
+    crm_cap = capabilities[CapabilityType.CRM]
     observations = await crm_cap.perceive()
 
     # Assert: Should detect at-risk customer
@@ -1067,7 +1067,7 @@ async def test_perception_with_simulated_capabilities(session, employee, tenant,
     # Perceive from all capabilities
     email_obs = await capabilities[CapabilityType.EMAIL].perceive()
     calendar_obs = await capabilities[CapabilityType.CALENDAR].perceive()
-    crm_obs = await capabilities["crm"].perceive()
+    crm_obs = await capabilities[CapabilityType.CRM].perceive()
 
     # Assert: All capabilities produced observations
     assert len(email_obs) == 1
