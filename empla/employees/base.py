@@ -19,11 +19,13 @@ Example:
 
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
@@ -36,6 +38,12 @@ from empla.core.memory import (
     WorkingMemory,
 )
 from empla.employees.config import EmployeeConfig, GoalConfig
+from empla.employees.exceptions import (
+    EmployeeConfigError,
+    EmployeeNotStartedError,
+    EmployeeShutdownError,
+    EmployeeStartupError,
+)
 from empla.employees.personality import Personality
 from empla.llm import LLMConfig, LLMService
 from empla.models.database import get_db
@@ -45,7 +53,23 @@ logger = logging.getLogger(__name__)
 
 
 class MemorySystem:
-    """Container for all memory subsystems."""
+    """
+    Container for all memory subsystems.
+
+    Aggregates the four types of memory:
+    - Episodic: Specific experiences and events
+    - Semantic: Facts and knowledge
+    - Procedural: Skills and how-to knowledge
+    - Working: Short-term active context
+
+    This is a convenience wrapper that ensures all memory systems
+    share the same database session and employee context.
+
+    Args:
+        session: Database session for all memory operations
+        employee_id: ID of the employee who owns these memories
+        tenant_id: Tenant ID for multi-tenancy isolation
+    """
 
     def __init__(
         self,
@@ -100,7 +124,7 @@ class DigitalEmployee(ABC):
         """
         self.config = config
         self._employee_id: UUID | None = None
-        self._tenant_id: UUID | None = config.tenant_id or uuid4()
+        self._tenant_id: UUID = config.tenant_id or uuid4()
         self._session: AsyncSession | None = None
 
         # Components (initialized in start())
@@ -148,14 +172,14 @@ class DigitalEmployee(ABC):
     def employee_id(self) -> UUID:
         """Employee ID (set after start)."""
         if self._employee_id is None:
-            raise RuntimeError("Employee not started. Call start() first.")
+            raise EmployeeNotStartedError(
+                f"Cannot access employee_id on {self.name}: call start() first"
+            )
         return self._employee_id
 
     @property
     def tenant_id(self) -> UUID:
         """Tenant ID."""
-        if self._tenant_id is None:
-            raise RuntimeError("Tenant ID not set.")
         return self._tenant_id
 
     @property
@@ -187,42 +211,54 @@ class DigitalEmployee(ABC):
     def llm(self) -> LLMService:
         """LLM service."""
         if self._llm is None:
-            raise RuntimeError("Employee not started. Call start() first.")
+            raise EmployeeNotStartedError(
+                f"Cannot access LLM on {self.name}: call start() first"
+            )
         return self._llm
 
     @property
     def beliefs(self) -> BeliefSystem:
         """Belief system."""
         if self._beliefs is None:
-            raise RuntimeError("Employee not started. Call start() first.")
+            raise EmployeeNotStartedError(
+                f"Cannot access beliefs on {self.name}: call start() first"
+            )
         return self._beliefs
 
     @property
     def goals(self) -> GoalSystem:
         """Goal system."""
         if self._goals is None:
-            raise RuntimeError("Employee not started. Call start() first.")
+            raise EmployeeNotStartedError(
+                f"Cannot access goals on {self.name}: call start() first"
+            )
         return self._goals
 
     @property
     def intentions(self) -> IntentionStack:
         """Intention stack."""
         if self._intentions is None:
-            raise RuntimeError("Employee not started. Call start() first.")
+            raise EmployeeNotStartedError(
+                f"Cannot access intentions on {self.name}: call start() first"
+            )
         return self._intentions
 
     @property
     def memory(self) -> MemorySystem:
         """Memory systems."""
         if self._memory is None:
-            raise RuntimeError("Employee not started. Call start() first.")
+            raise EmployeeNotStartedError(
+                f"Cannot access memory on {self.name}: call start() first"
+            )
         return self._memory
 
     @property
     def capabilities(self) -> CapabilityRegistry:
         """Capability registry."""
         if self._capabilities is None:
-            raise RuntimeError("Employee not started. Call start() first.")
+            raise EmployeeNotStartedError(
+                f"Cannot access capabilities on {self.name}: call start() first"
+            )
         return self._capabilities
 
     # =========================================================================
@@ -236,12 +272,23 @@ class DigitalEmployee(ABC):
         This initializes all components and starts the proactive loop.
 
         Args:
-            run_loop: Whether to start the proactive loop (default True)
+            run_loop: Whether to start the proactive loop (default True).
+                WARNING: If True, this method blocks until stop() is called.
+                For background operation, set run_loop=False and call
+                the loop separately.
+
+        Raises:
+            EmployeeStartupError: If initialization fails
+            EmployeeConfigError: If configuration is invalid
 
         Example:
-            >>> employee = SalesAE(config)
-            >>> await employee.start()
-            >>> # Employee is now running autonomously
+            >>> # Blocking mode (typical for production)
+            >>> await employee.start()  # Runs forever
+
+            >>> # Non-blocking mode (for testing/control)
+            >>> await employee.start(run_loop=False)
+            >>> await employee.run_once()  # Manual cycle
+            >>> await employee.stop()
         """
         if self._is_running:
             logger.warning(f"Employee {self.name} is already running")
@@ -249,90 +296,141 @@ class DigitalEmployee(ABC):
 
         logger.info(f"Starting employee: {self.name} ({self.role})")
 
-        # Initialize database session
-        # Note: In production, session should be managed externally
-        async with get_db() as session:
-            self._session = session
+        try:
+            # Validate configuration before starting
+            await self._validate_config()
 
-            # Create or load employee record
-            await self._init_employee_record(session)
+            # Initialize database session
+            # Each operation uses its own session context for proper transaction management
+            async with get_db() as session:
+                self._session = session
 
-            # Initialize LLM service
-            await self._init_llm()
+                # Create or load employee record
+                await self._init_employee_record(session)
 
-            # Initialize BDI components
-            await self._init_bdi(session)
+                # Initialize LLM service
+                await self._init_llm()
 
-            # Initialize memory systems
-            await self._init_memory(session)
+                # Initialize BDI components
+                await self._init_bdi(session)
 
-            # Initialize capabilities
-            await self._init_capabilities()
+                # Initialize memory systems
+                await self._init_memory(session)
 
-            # Create default goals
-            await self._create_default_goals()
+                # Initialize capabilities
+                await self._init_capabilities()
 
-            # Create proactive loop
-            await self._init_loop()
+                # Create default goals
+                await self._create_default_goals()
 
-            # Mark as running
-            self._is_running = True
-            self._started_at = datetime.now(UTC)
+                # Create proactive loop
+                await self._init_loop()
 
-            # Custom start logic
-            await self.on_start()
+                # Mark as running
+                self._is_running = True
+                self._started_at = datetime.now(UTC)
 
-            logger.info(f"Employee {self.name} started successfully")
+                # Custom start logic (wrapped in try/except for cleanup)
+                try:
+                    await self.on_start()
+                except Exception as e:
+                    logger.error(f"on_start() hook failed for {self.name}: {e}", exc_info=True)
+                    # Clean up since on_start failed
+                    self._is_running = False
+                    raise EmployeeStartupError(f"on_start() failed: {e}") from e
 
-            # Start the loop
-            if run_loop:
-                await self._run_loop()
+                # Commit all initialization changes
+                await session.commit()
+
+                logger.info(f"Employee {self.name} started successfully")
+
+                # Start the loop (blocks if run_loop=True)
+                if run_loop:
+                    await self._run_loop()
+
+        except EmployeeStartupError:
+            # Re-raise startup errors directly
+            raise
+        except EmployeeConfigError:
+            # Re-raise config errors directly
+            raise
+        except Exception as e:
+            logger.error(f"Failed to start employee {self.name}: {e}", exc_info=True)
+            # Clean up any partial initialization
+            await self._cleanup_on_error()
+            raise EmployeeStartupError(f"Employee initialization failed: {e}") from e
 
     async def stop(self) -> None:
         """
         Stop the digital employee.
 
         Gracefully shuts down the loop and all components.
+
+        Raises:
+            EmployeeShutdownError: If shutdown encounters errors (non-fatal, logged)
         """
         if not self._is_running:
             logger.warning(f"Employee {self.name} is not running")
             return
 
         logger.info(f"Stopping employee: {self.name}")
+        shutdown_errors: list[tuple[str, Exception]] = []
 
         # Stop the loop
         if self._loop:
-            await self._loop.stop()
+            try:
+                await self._loop.stop()
+            except Exception as e:
+                logger.error(f"Error stopping loop: {e}", exc_info=True)
+                shutdown_errors.append(("loop", e))
 
         # Cancel loop task if running
         if self._loop_task and not self._loop_task.done():
             self._loop_task.cancel()
             try:
-                await self._loop_task
+                await asyncio.wait_for(self._loop_task, timeout=10.0)
             except asyncio.CancelledError:
-                pass
+                logger.debug(f"Loop task cancelled for {self.name}")
+            except asyncio.TimeoutError:
+                logger.warning(f"Loop task cancellation timed out for {self.name}")
+                shutdown_errors.append(("loop_task", TimeoutError("Cancellation timed out")))
 
-        # Shutdown capabilities
+        # Shutdown capabilities (continue even if some fail)
         if self._capabilities:
             for cap_type in list(self._capabilities._instances.keys()):
                 for emp_id in list(self._capabilities._instances[cap_type].keys()):
                     cap = self._capabilities._instances[cap_type].get(emp_id)
                     if cap:
-                        await cap.shutdown()
+                        try:
+                            await cap.shutdown()
+                        except Exception as e:
+                            logger.error(f"Failed to shutdown capability {cap_type}: {e}", exc_info=True)
+                            shutdown_errors.append((f"capability:{cap_type}", e))
 
         # Custom stop logic
-        await self.on_stop()
+        try:
+            await self.on_stop()
+        except Exception as e:
+            logger.error(f"on_stop() hook failed for {self.name}: {e}", exc_info=True)
+            shutdown_errors.append(("on_stop", e))
 
         # Mark as stopped
         self._is_running = False
 
-        logger.info(f"Employee {self.name} stopped")
+        if shutdown_errors:
+            logger.warning(
+                f"Employee {self.name} stopped with {len(shutdown_errors)} error(s): "
+                f"{[e[0] for e in shutdown_errors]}"
+            )
+        else:
+            logger.info(f"Employee {self.name} stopped cleanly")
 
     async def on_start(self) -> None:
         """
         Called after employee is initialized but before loop starts.
 
         Override this to add custom initialization logic.
+        Errors raised here will cause startup to fail.
         """
         pass
 
@@ -341,6 +439,7 @@ class DigitalEmployee(ABC):
         Called during shutdown after loop stops.
 
         Override this to add custom cleanup logic.
+        Errors raised here are logged but don't prevent shutdown.
         """
         pass
 
@@ -348,40 +447,122 @@ class DigitalEmployee(ABC):
     # Initialization Helpers
     # =========================================================================
 
-    async def _init_employee_record(self, session: AsyncSession) -> None:
-        """Create or load employee database record."""
-        # For now, create a new employee
-        # In production, would check if exists first
-        self._db_employee = EmployeeModel(
-            tenant_id=self.tenant_id,
-            name=self.config.name,
-            role=self.config.role,
-            email=self.config.email,
-            personality=self.personality.to_dict(),
-            config=self.config.to_db_config(),
-            capabilities=self.config.capabilities or self.default_capabilities,
-            status="active",
-            lifecycle_stage="autonomous",
-        )
-        session.add(self._db_employee)
-        await session.flush()
-        self._employee_id = self._db_employee.id
+    async def _validate_config(self) -> None:
+        """
+        Validate configuration before starting.
 
-        logger.debug(f"Created employee record: {self._employee_id}")
+        Raises:
+            EmployeeConfigError: If configuration is invalid
+        """
+        errors: list[str] = []
+
+        # Check LLM API keys
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        openai_key = os.getenv("OPENAI_API_KEY")
+
+        if not anthropic_key and not openai_key:
+            errors.append(
+                "No LLM API keys found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable"
+            )
+
+        if errors:
+            error_msg = "; ".join(errors)
+            logger.error(f"Configuration validation failed: {error_msg}")
+            raise EmployeeConfigError(f"Invalid configuration: {error_msg}")
+
+        logger.debug("Configuration validation passed")
+
+    async def _cleanup_on_error(self) -> None:
+        """Clean up partially initialized components after error."""
+        logger.info(f"Cleaning up after initialization error for {self.name}")
+
+        # Stop loop if started
+        if self._loop:
+            try:
+                await self._loop.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping loop during cleanup: {e}")
+
+        # Mark as not running
+        self._is_running = False
+        self._session = None
+
+        logger.debug(f"Cleanup complete for {self.name}")
+
+    async def _init_employee_record(self, session: AsyncSession) -> None:
+        """
+        Create or load employee database record.
+
+        Reuses existing employee if one exists with the same tenant_id and email.
+        This ensures employee state persists across restarts.
+        """
+        # Try to find existing employee by tenant and email
+        result = await session.execute(
+            select(EmployeeModel).where(
+                EmployeeModel.tenant_id == self.tenant_id,
+                EmployeeModel.email == self.config.email,
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            # Reuse existing employee
+            self._db_employee = existing
+            self._employee_id = existing.id
+
+            # Update fields that may have changed
+            existing.name = self.config.name
+            existing.role = self.role
+            existing.personality = self.personality.to_dict()
+            existing.config = self.config.to_db_config()
+            existing.capabilities = self.config.capabilities or self.default_capabilities
+            existing.status = "active"
+
+            logger.info(f"Loaded existing employee record: {self._employee_id}")
+        else:
+            # Create new employee
+            self._db_employee = EmployeeModel(
+                tenant_id=self.tenant_id,
+                name=self.config.name,
+                role=self.role,
+                email=self.config.email,
+                personality=self.personality.to_dict(),
+                config=self.config.to_db_config(),
+                capabilities=self.config.capabilities or self.default_capabilities,
+                status="active",
+                lifecycle_stage="autonomous",
+            )
+            session.add(self._db_employee)
+            await session.flush()
+            self._employee_id = self._db_employee.id
+
+            logger.info(f"Created new employee record: {self._employee_id}")
 
     async def _init_llm(self) -> None:
-        """Initialize LLM service."""
-        import os
+        """
+        Initialize LLM service.
+
+        Raises:
+            EmployeeConfigError: If required API keys are missing
+        """
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        openai_key = os.getenv("OPENAI_API_KEY")
+
+        # This should have been caught in _validate_config, but double-check
+        if not anthropic_key and not openai_key:
+            raise EmployeeConfigError(
+                "No LLM API keys found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY"
+            )
 
         llm_config = LLMConfig(
             primary_model=self.config.llm.primary_model,
             fallback_model=self.config.llm.fallback_model,
-            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+            anthropic_api_key=anthropic_key or "",
+            openai_api_key=openai_key or "",
         )
         self._llm = LLMService(llm_config)
 
-        logger.debug("Initialized LLM service")
+        logger.debug(f"Initialized LLM service with primary model: {self.config.llm.primary_model}")
 
     async def _init_bdi(self, session: AsyncSession) -> None:
         """Initialize BDI components."""
@@ -417,20 +598,29 @@ class DigitalEmployee(ABC):
         logger.debug("Initialized memory systems")
 
     async def _init_capabilities(self) -> None:
-        """Initialize and register capabilities."""
+        """
+        Initialize and register capabilities.
+
+        Raises:
+            EmployeeConfigError: If unknown capabilities are specified
+        """
         self._capabilities = CapabilityRegistry()
 
         # Get effective capabilities
         cap_list = self.config.capabilities or self.default_capabilities
+        valid_capabilities = [ct.value.lower() for ct in CapabilityType]
 
         for cap_name in cap_list:
+            cap_name_lower = cap_name.lower()
             try:
                 cap_type = CapabilityType(cap_name.upper())
-                # Capabilities are enabled when needed
-                # For now, just log what would be enabled
+                # Capabilities are enabled when needed via the registry
                 logger.debug(f"Capability available: {cap_type.value}")
             except ValueError:
-                logger.warning(f"Unknown capability: {cap_name}")
+                # Unknown capability - raise error instead of just warning
+                raise EmployeeConfigError(
+                    f"Unknown capability '{cap_name}'. Valid capabilities: {valid_capabilities}"
+                )
 
         logger.debug(f"Initialized capabilities: {cap_list}")
 
@@ -450,6 +640,10 @@ class DigitalEmployee(ABC):
 
     async def _init_loop(self) -> None:
         """Initialize proactive execution loop."""
+        # Convert user-friendly time units to seconds for internal use
+        # - cycle_interval: Already in seconds (how often to check for work)
+        # - strategic_planning: Hours -> seconds (deep planning sessions)
+        # - reflection: Hours -> seconds (learning sessions)
         loop_config = LoopConfig(
             cycle_interval=self.config.loop.cycle_interval_seconds,
             strategic_planning_interval=self.config.loop.strategic_planning_interval_hours * 3600,
@@ -487,9 +681,14 @@ class DigitalEmployee(ABC):
         Run a single cycle of the proactive loop.
 
         Useful for testing or manual control.
+
+        Raises:
+            EmployeeNotStartedError: If employee not started
         """
         if not self._is_running:
-            raise RuntimeError("Employee not started. Call start() first.")
+            raise EmployeeNotStartedError(
+                f"Cannot run cycle on {self.name}: call start() first"
+            )
 
         if self._loop:
             await self._loop._run_cycle()
@@ -499,7 +698,14 @@ class DigitalEmployee(ABC):
         Get current employee status.
 
         Returns:
-            Dictionary with status information
+            Dictionary with status information including:
+            - employee_id: UUID of the employee (None if not started)
+            - name: Display name
+            - role: Employee role
+            - email: Email address
+            - is_running: Whether currently running
+            - started_at: ISO timestamp of start time
+            - capabilities: List of enabled capabilities
         """
         return {
             "employee_id": str(self._employee_id) if self._employee_id else None,

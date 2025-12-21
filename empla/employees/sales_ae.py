@@ -11,11 +11,11 @@ A Sales AE is proactive, goal-oriented, and focused on:
 
 Example:
     >>> from empla.employees import SalesAE
-    >>> from empla.employees.config import EmployeeConfig
+    >>> from empla.employees.config import EmployeeConfig, EmployeeRole
     >>>
     >>> config = EmployeeConfig(
     ...     name="Jordan Chen",
-    ...     role="sales_ae",
+    ...     role=EmployeeRole.SALES_AE,
     ...     email="jordan@company.com"
     ... )
     >>> employee = SalesAE(config)
@@ -27,6 +27,7 @@ from typing import Any
 
 from empla.employees.base import DigitalEmployee
 from empla.employees.config import GoalConfig, SALES_AE_DEFAULT_GOALS
+from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
 from empla.employees.personality import Personality, SALES_AE_PERSONALITY
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class SalesAE(DigitalEmployee):
         >>> # Create with minimal config
         >>> employee = SalesAE(EmployeeConfig(
         ...     name="Jordan Chen",
-        ...     role="sales_ae",
+        ...     role=EmployeeRole.SALES_AE,
         ...     email="jordan@acme.com"
         ... ))
         >>> await employee.start()
@@ -92,30 +93,45 @@ class SalesAE(DigitalEmployee):
         return ["email", "calendar", "crm"]
 
     async def on_start(self) -> None:
-        """Custom initialization for Sales AE."""
+        """
+        Custom initialization for Sales AE.
+
+        Sets up initial beliefs about the role and records start in episodic memory.
+
+        Raises:
+            EmployeeStartupError: If initialization fails
+        """
         logger.info(f"Sales AE {self.name} initializing...")
 
         # Add initial beliefs about the role
-        await self.beliefs.update_belief(
-            subject="self",
-            predicate="role",
-            object={"type": "sales_ae", "focus": "pipeline_building"},
-            confidence=1.0,
-            source="initialization",
-        )
+        try:
+            await self.beliefs.update_belief(
+                subject="self",
+                predicate="role",
+                object={"type": "sales_ae", "focus": "pipeline_building"},
+                confidence=1.0,
+                source="initialization",
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize beliefs for {self.name}: {e}", exc_info=True)
+            raise EmployeeStartupError(f"Belief initialization failed: {e}") from e
 
         # Record start in episodic memory
-        await self.memory.episodic.record_episode(
-            episode_type="system",
-            description=f"Sales AE {self.name} started and ready for autonomous operation",
-            content={
-                "event": "employee_started",
-                "role": "sales_ae",
-                "capabilities": self.default_capabilities,
-                "goals": [g.description for g in self.default_goals],
-            },
-            importance=0.5,
-        )
+        try:
+            await self.memory.episodic.record_episode(
+                episode_type="system",
+                description=f"Sales AE {self.name} started and ready for autonomous operation",
+                content={
+                    "event": "employee_started",
+                    "role": "sales_ae",
+                    "capabilities": self.default_capabilities,
+                    "goals": [g.description for g in self.default_goals],
+                },
+                importance=0.5,
+            )
+        except Exception as e:
+            # Non-fatal: log warning but don't fail startup
+            logger.warning(f"Failed to record start episode for {self.name}: {e}")
 
         logger.info(f"Sales AE {self.name} ready for autonomous operation")
 
@@ -123,14 +139,17 @@ class SalesAE(DigitalEmployee):
         """Custom cleanup for Sales AE."""
         logger.info(f"Sales AE {self.name} shutting down...")
 
-        # Record stop in episodic memory
-        if self.memory:
-            await self.memory.episodic.record_episode(
-                episode_type="system",
-                description=f"Sales AE {self.name} stopped",
-                content={"event": "employee_stopped"},
-                importance=0.3,
-            )
+        # Record stop in episodic memory (non-fatal if fails)
+        if self._memory:
+            try:
+                await self.memory.episodic.record_episode(
+                    episode_type="system",
+                    description=f"Sales AE {self.name} stopped",
+                    content={"event": "employee_stopped"},
+                    importance=0.3,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record stop episode for {self.name}: {e}")
 
     # =========================================================================
     # Sales-Specific Methods
@@ -140,16 +159,30 @@ class SalesAE(DigitalEmployee):
         """
         Check current pipeline coverage.
 
+        Pipeline coverage is the ratio of total pipeline value to quota.
+        For example, if quota is $100k and pipeline is $250k, coverage is 2.5x.
+
         Returns:
-            Pipeline coverage ratio (e.g., 2.5 means 2.5x quota)
+            Pipeline coverage ratio (e.g., 2.5 means 2.5x quota).
+            Returns 0.0 if no pipeline data available or on error.
         """
-        # Query beliefs for pipeline metrics
-        beliefs = await self.beliefs.get_beliefs_about("pipeline")
+        try:
+            beliefs = await self.beliefs.get_beliefs_about("pipeline")
+        except Exception as e:
+            logger.error(f"Failed to query pipeline beliefs: {e}", exc_info=True)
+            return 0.0
 
         for belief in beliefs:
             if belief.predicate == "coverage":
-                return float(belief.obj.get("value", 0.0))
+                try:
+                    value = belief.obj.get("value")
+                    if value is not None:
+                        return float(value)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid pipeline coverage value '{belief.obj.get('value')}': {e}")
+                    continue
 
+        logger.debug("No pipeline coverage belief found, returning 0.0")
         return 0.0
 
     async def get_open_opportunities(self) -> list[dict[str, Any]]:
@@ -157,10 +190,16 @@ class SalesAE(DigitalEmployee):
         Get list of open opportunities.
 
         Returns:
-            List of opportunity dictionaries
+            List of opportunity dictionaries with keys:
+            - account: Account name
+            - stage: Deal stage
+            - value: Deal value
         """
-        # Query semantic memory for opportunities
-        facts = await self.memory.semantic.query_by_predicate("opportunity_stage")
+        try:
+            facts = await self.memory.semantic.query_by_predicate("opportunity_stage")
+        except Exception as e:
+            logger.error(f"Failed to query opportunities: {e}", exc_info=True)
+            return []
 
         opportunities = []
         for fact in facts:
@@ -177,12 +216,26 @@ class SalesAE(DigitalEmployee):
         """
         Prioritize accounts for outreach.
 
+        Uses LLM to score and prioritize accounts based on deal size,
+        engagement level, urgency, and fit.
+
         Args:
             accounts: List of account dictionaries
 
         Returns:
             Sorted list with highest priority first
+
+        Note:
+            Currently returns accounts in original order.
+            TODO: Parse structured output from LLM and sort by priority score.
         """
+        if not accounts:
+            return []
+
+        # Validate inputs
+        if len(accounts) > 100:
+            logger.warning(f"Large account list ({len(accounts)}), may be slow")
+
         # Use LLM to score and prioritize
         prompt = f"""
         As a Sales AE, prioritize these accounts for outreach.
@@ -194,12 +247,20 @@ class SalesAE(DigitalEmployee):
         Return the accounts sorted by priority with a score 1-10 for each.
         """
 
-        response = await self.llm.generate(
-            prompt=prompt,
-            system=self.personality.to_system_prompt(),
-        )
+        try:
+            logger.debug(f"Prioritizing {len(accounts)} accounts")
+            response = await self.llm.generate(
+                prompt=prompt,
+                system=self.personality.to_system_prompt(),
+            )
+            logger.debug(f"Account prioritization complete ({len(response.content)} chars)")
+        except Exception as e:
+            logger.error(f"LLM generation failed for account prioritization: {e}", exc_info=True)
+            # Return original order on failure
+            return accounts
 
-        # For now, return as-is (in production, parse LLM response)
+        # TODO: Parse structured LLM response and sort by priority score
+        # For now, return as-is
         return accounts
 
     async def draft_outreach_email(
@@ -212,13 +273,31 @@ class SalesAE(DigitalEmployee):
         Draft a personalized outreach email.
 
         Args:
-            prospect_name: Name of the prospect
-            company: Company name
+            prospect_name: Name of the prospect (required, max 100 chars)
+            company: Company name (required, max 100 chars)
             context: Additional context (industry, recent news, etc.)
 
         Returns:
             Email body text
+
+        Raises:
+            ValueError: If prospect_name or company is empty/invalid
+            LLMGenerationError: If email generation fails
         """
+        # Validate inputs
+        if not prospect_name or not prospect_name.strip():
+            raise ValueError("prospect_name cannot be empty")
+        if not company or not company.strip():
+            raise ValueError("company cannot be empty")
+        if len(prospect_name) > 100:
+            raise ValueError("prospect_name too long (max 100 chars)")
+        if len(company) > 100:
+            raise ValueError("company too long (max 100 chars)")
+
+        # Normalize inputs
+        prospect_name = prospect_name.strip()
+        company = company.strip()
+
         context_str = ""
         if context:
             context_str = f"\nContext: {context}"
@@ -236,12 +315,21 @@ class SalesAE(DigitalEmployee):
         - Be concise (under 150 words)
         """
 
-        response = await self.llm.generate(
-            prompt=prompt,
-            system=self.personality.to_system_prompt(),
-        )
-
-        return response.content
+        try:
+            logger.debug(f"Generating outreach email for {prospect_name} at {company}")
+            response = await self.llm.generate(
+                prompt=prompt,
+                system=self.personality.to_system_prompt(),
+            )
+            logger.debug(f"Generated outreach email ({len(response.content)} chars)")
+            return response.content
+        except Exception as e:
+            logger.error(
+                f"LLM generation failed for outreach email",
+                exc_info=True,
+                extra={"prospect": prospect_name, "company": company}
+            )
+            raise LLMGenerationError(f"Failed to generate outreach email: {e}") from e
 
 
 __all__ = ["SalesAE"]

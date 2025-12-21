@@ -104,15 +104,22 @@ class TestEmployeeLifecycleIntegration:
         assert "email" in employee.default_capabilities
 
     @pytest.mark.asyncio
-    async def test_config_goals_override_defaults(self, sales_config):
+    async def test_config_goals_override_defaults(self):
         """Test that config goals override defaults."""
         custom_goal = GoalConfig(
             description="Custom test goal",
             priority=10,
         )
-        sales_config.goals = [custom_goal]
+        # Create a new config with custom goals (configs are immutable)
+        config_with_goals = EmployeeConfig(
+            name="Jordan Chen",
+            role="sales_ae",
+            email="jordan@company.com",
+            tenant_id=uuid4(),
+            goals=[custom_goal],
+        )
 
-        employee = SalesAE(sales_config)
+        employee = SalesAE(config_with_goals)
 
         # Config has custom goals
         assert len(employee.config.goals) == 1

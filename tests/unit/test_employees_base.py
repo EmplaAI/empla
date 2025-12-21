@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from empla.employees.base import DigitalEmployee, MemorySystem
 from empla.employees.config import EmployeeConfig, GoalConfig
+from empla.employees.exceptions import EmployeeNotStartedError
 from empla.employees.personality import Personality
 
 
@@ -150,7 +151,7 @@ class TestDigitalEmployeeProperties:
         assert employee.personality.extraversion == 0.7
 
     def test_employee_id_raises_before_start(self):
-        """Test employee_id raises RuntimeError before start."""
+        """Test employee_id raises EmployeeNotStartedError before start."""
         config = EmployeeConfig(
             name="Test",
             role="custom",
@@ -158,7 +159,7 @@ class TestDigitalEmployeeProperties:
         )
         employee = ConcreteEmployee(config)
 
-        with pytest.raises(RuntimeError, match="not started"):
+        with pytest.raises(EmployeeNotStartedError, match="call start"):
             _ = employee.employee_id
 
     def test_tenant_id_property(self):
@@ -174,7 +175,7 @@ class TestDigitalEmployeeProperties:
         assert employee.tenant_id == tenant_id
 
     def test_llm_raises_before_start(self):
-        """Test llm property raises RuntimeError before start."""
+        """Test llm property raises EmployeeNotStartedError before start."""
         config = EmployeeConfig(
             name="Test",
             role="custom",
@@ -182,11 +183,11 @@ class TestDigitalEmployeeProperties:
         )
         employee = ConcreteEmployee(config)
 
-        with pytest.raises(RuntimeError, match="not started"):
+        with pytest.raises(EmployeeNotStartedError, match="call start"):
             _ = employee.llm
 
     def test_beliefs_raises_before_start(self):
-        """Test beliefs property raises RuntimeError before start."""
+        """Test beliefs property raises EmployeeNotStartedError before start."""
         config = EmployeeConfig(
             name="Test",
             role="custom",
@@ -194,11 +195,11 @@ class TestDigitalEmployeeProperties:
         )
         employee = ConcreteEmployee(config)
 
-        with pytest.raises(RuntimeError, match="not started"):
+        with pytest.raises(EmployeeNotStartedError, match="call start"):
             _ = employee.beliefs
 
     def test_goals_raises_before_start(self):
-        """Test goals property raises RuntimeError before start."""
+        """Test goals property raises EmployeeNotStartedError before start."""
         config = EmployeeConfig(
             name="Test",
             role="custom",
@@ -206,11 +207,11 @@ class TestDigitalEmployeeProperties:
         )
         employee = ConcreteEmployee(config)
 
-        with pytest.raises(RuntimeError, match="not started"):
+        with pytest.raises(EmployeeNotStartedError, match="call start"):
             _ = employee.goals
 
     def test_intentions_raises_before_start(self):
-        """Test intentions property raises RuntimeError before start."""
+        """Test intentions property raises EmployeeNotStartedError before start."""
         config = EmployeeConfig(
             name="Test",
             role="custom",
@@ -218,11 +219,11 @@ class TestDigitalEmployeeProperties:
         )
         employee = ConcreteEmployee(config)
 
-        with pytest.raises(RuntimeError, match="not started"):
+        with pytest.raises(EmployeeNotStartedError, match="call start"):
             _ = employee.intentions
 
     def test_memory_raises_before_start(self):
-        """Test memory property raises RuntimeError before start."""
+        """Test memory property raises EmployeeNotStartedError before start."""
         config = EmployeeConfig(
             name="Test",
             role="custom",
@@ -230,11 +231,11 @@ class TestDigitalEmployeeProperties:
         )
         employee = ConcreteEmployee(config)
 
-        with pytest.raises(RuntimeError, match="not started"):
+        with pytest.raises(EmployeeNotStartedError, match="call start"):
             _ = employee.memory
 
     def test_capabilities_raises_before_start(self):
-        """Test capabilities property raises RuntimeError before start."""
+        """Test capabilities property raises EmployeeNotStartedError before start."""
         config = EmployeeConfig(
             name="Test",
             role="custom",
@@ -242,7 +243,7 @@ class TestDigitalEmployeeProperties:
         )
         employee = ConcreteEmployee(config)
 
-        with pytest.raises(RuntimeError, match="not started"):
+        with pytest.raises(EmployeeNotStartedError, match="call start"):
             _ = employee.capabilities
 
 

@@ -5,11 +5,11 @@ A proactive customer success professional focused on retention and growth.
 
 Example:
     >>> from empla.employees import CustomerSuccessManager
-    >>> from empla.employees.config import EmployeeConfig
+    >>> from empla.employees.config import EmployeeConfig, EmployeeRole
     >>>
     >>> config = EmployeeConfig(
     ...     name="Sarah Mitchell",
-    ...     role="csm",
+    ...     role=EmployeeRole.CSM,
     ...     email="sarah@company.com"
     ... )
     >>> employee = CustomerSuccessManager(config)
@@ -21,6 +21,7 @@ from typing import Any
 
 from empla.employees.base import DigitalEmployee
 from empla.employees.config import GoalConfig, CSM_DEFAULT_GOALS
+from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
 from empla.employees.personality import Personality, CSM_PERSONALITY
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class CustomerSuccessManager(DigitalEmployee):
     Example:
         >>> employee = CustomerSuccessManager(EmployeeConfig(
         ...     name="Sarah Mitchell",
-        ...     role="csm",
+        ...     role=EmployeeRole.CSM,
         ...     email="sarah@acme.com"
         ... ))
         >>> await employee.start()
@@ -78,27 +79,44 @@ class CustomerSuccessManager(DigitalEmployee):
         return ["email", "calendar", "crm"]
 
     async def on_start(self) -> None:
-        """Custom initialization for CSM."""
+        """
+        Custom initialization for CSM.
+
+        Sets up initial beliefs about the role and records start in episodic memory.
+
+        Raises:
+            EmployeeStartupError: If initialization fails
+        """
         logger.info(f"CSM {self.name} initializing...")
 
-        await self.beliefs.update_belief(
-            subject="self",
-            predicate="role",
-            object={"type": "csm", "focus": "customer_success"},
-            confidence=1.0,
-            source="initialization",
-        )
+        # Add initial beliefs about the role
+        try:
+            await self.beliefs.update_belief(
+                subject="self",
+                predicate="role",
+                object={"type": "csm", "focus": "customer_success"},
+                confidence=1.0,
+                source="initialization",
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize beliefs for {self.name}: {e}", exc_info=True)
+            raise EmployeeStartupError(f"Belief initialization failed: {e}") from e
 
-        await self.memory.episodic.record_episode(
-            episode_type="system",
-            description=f"CSM {self.name} started and ready for autonomous operation",
-            content={
-                "event": "employee_started",
-                "role": "csm",
-                "capabilities": self.default_capabilities,
-            },
-            importance=0.5,
-        )
+        # Record start in episodic memory
+        try:
+            await self.memory.episodic.record_episode(
+                episode_type="system",
+                description=f"CSM {self.name} started and ready for autonomous operation",
+                content={
+                    "event": "employee_started",
+                    "role": "csm",
+                    "capabilities": self.default_capabilities,
+                },
+                importance=0.5,
+            )
+        except Exception as e:
+            # Non-fatal: log warning but don't fail startup
+            logger.warning(f"Failed to record start episode for {self.name}: {e}")
 
         logger.info(f"CSM {self.name} ready for autonomous operation")
 
@@ -106,13 +124,17 @@ class CustomerSuccessManager(DigitalEmployee):
         """Custom cleanup for CSM."""
         logger.info(f"CSM {self.name} shutting down...")
 
-        if self.memory:
-            await self.memory.episodic.record_episode(
-                episode_type="system",
-                description=f"CSM {self.name} stopped",
-                content={"event": "employee_stopped"},
-                importance=0.3,
-            )
+        # Record stop in episodic memory (non-fatal if fails)
+        if self._memory:
+            try:
+                await self.memory.episodic.record_episode(
+                    episode_type="system",
+                    description=f"CSM {self.name} stopped",
+                    content={"event": "employee_stopped"},
+                    importance=0.3,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record stop episode for {self.name}: {e}")
 
     # =========================================================================
     # CSM-Specific Methods
@@ -123,9 +145,18 @@ class CustomerSuccessManager(DigitalEmployee):
         Get list of at-risk customers.
 
         Returns:
-            List of customer dictionaries with risk factors
+            List of customer dictionaries with risk factors, sorted by
+            churn risk (highest risk first). Each dict contains:
+            - customer: Customer name
+            - health_status: Health status (at_risk, critical)
+            - churn_risk: Churn probability (0.0-1.0)
+            - reason: Reason for risk status
         """
-        beliefs = await self.beliefs.get_beliefs_about("customer")
+        try:
+            beliefs = await self.beliefs.get_beliefs_about("customer")
+        except Exception as e:
+            logger.error(f"Failed to query customer beliefs: {e}", exc_info=True)
+            return []
 
         at_risk = []
         for belief in beliefs:
@@ -139,6 +170,8 @@ class CustomerSuccessManager(DigitalEmployee):
                         "reason": belief.obj.get("reason", "unknown"),
                     })
 
+        # Sort by churn risk descending (highest risk first)
+        # This ensures CSM addresses most critical customers first
         return sorted(at_risk, key=lambda x: x.get("churn_risk", 0), reverse=True)
 
     async def check_customer_health(self, customer_name: str) -> dict[str, Any]:
@@ -149,11 +182,28 @@ class CustomerSuccessManager(DigitalEmployee):
             customer_name: Name of the customer
 
         Returns:
-            Health status dictionary
+            Health status dictionary with:
+            - customer: Customer name
+            - status: Health status (unknown, healthy, at_risk, critical)
+            - churn_risk: Churn probability (if available)
+            - metrics: Usage metrics (if available)
         """
-        beliefs = await self.beliefs.get_beliefs_about(customer_name)
+        if not customer_name or not customer_name.strip():
+            raise ValueError("customer_name cannot be empty")
 
-        health = {
+        customer_name = customer_name.strip()
+
+        try:
+            beliefs = await self.beliefs.get_beliefs_about(customer_name)
+        except Exception as e:
+            logger.error(f"Failed to query beliefs for customer {customer_name}: {e}", exc_info=True)
+            return {
+                "customer": customer_name,
+                "status": "unknown",
+                "error": str(e),
+            }
+
+        health: dict[str, Any] = {
             "customer": customer_name,
             "status": "unknown",
             "metrics": {},
@@ -178,13 +228,31 @@ class CustomerSuccessManager(DigitalEmployee):
         Draft a proactive check-in email.
 
         Args:
-            customer_name: Company name
-            contact_name: Contact person name
-            context: Additional context
+            customer_name: Company name (required, max 100 chars)
+            contact_name: Contact person name (required, max 100 chars)
+            context: Additional context (health status, recent issues, etc.)
 
         Returns:
             Email body text
+
+        Raises:
+            ValueError: If customer_name or contact_name is empty/invalid
+            LLMGenerationError: If email generation fails
         """
+        # Validate inputs
+        if not customer_name or not customer_name.strip():
+            raise ValueError("customer_name cannot be empty")
+        if not contact_name or not contact_name.strip():
+            raise ValueError("contact_name cannot be empty")
+        if len(customer_name) > 100:
+            raise ValueError("customer_name too long (max 100 chars)")
+        if len(contact_name) > 100:
+            raise ValueError("contact_name too long (max 100 chars)")
+
+        # Normalize inputs
+        customer_name = customer_name.strip()
+        contact_name = contact_name.strip()
+
         context_str = ""
         if context:
             context_str = f"\nContext: {context}"
@@ -202,12 +270,21 @@ class CustomerSuccessManager(DigitalEmployee):
         - Be concise and genuine
         """
 
-        response = await self.llm.generate(
-            prompt=prompt,
-            system=self.personality.to_system_prompt(),
-        )
-
-        return response.content
+        try:
+            logger.debug(f"Generating check-in email for {contact_name} at {customer_name}")
+            response = await self.llm.generate(
+                prompt=prompt,
+                system=self.personality.to_system_prompt(),
+            )
+            logger.debug(f"Generated check-in email ({len(response.content)} chars)")
+            return response.content
+        except Exception as e:
+            logger.error(
+                f"LLM generation failed for check-in email",
+                exc_info=True,
+                extra={"customer": customer_name, "contact": contact_name}
+            )
+            raise LLMGenerationError(f"Failed to generate check-in email: {e}") from e
 
 
 __all__ = ["CustomerSuccessManager"]

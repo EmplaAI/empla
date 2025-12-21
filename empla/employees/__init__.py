@@ -27,10 +27,9 @@ Building Custom Employees:
     ...         return ["email", "calendar"]
 
 Quick Start:
-    >>> from empla.employees import SalesAE
-    >>> from empla.employees.config import EmployeeConfig
+    >>> from empla.employees import SalesAE, EmployeeConfig
     >>>
-    >>> # Create employee
+    >>> # Create employee (role is a string for extensibility)
     >>> config = EmployeeConfig(
     ...     name="Jordan Chen",
     ...     role="sales_ae",
@@ -63,6 +62,16 @@ from empla.employees.config import (
     SALES_AE_DEFAULT_GOALS,
 )
 
+# Exceptions
+from empla.employees.exceptions import (
+    EmployeeConfigError,
+    EmployeeError,
+    EmployeeNotStartedError,
+    EmployeeShutdownError,
+    EmployeeStartupError,
+    LLMGenerationError,
+)
+
 # Personality
 from empla.employees.personality import (
     CommunicationStyle,
@@ -93,6 +102,13 @@ __all__ = [
     "GoalConfig",
     "LLMSettings",
     "LoopSettings",
+    # Exceptions
+    "EmployeeConfigError",
+    "EmployeeError",
+    "EmployeeNotStartedError",
+    "EmployeeShutdownError",
+    "EmployeeStartupError",
+    "LLMGenerationError",
     # Personality
     "CommunicationStyle",
     "DecisionStyle",

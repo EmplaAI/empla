@@ -3,6 +3,9 @@ empla.employees.config - Employee Configuration
 
 Configuration for digital employees including goals, capabilities, and loop settings.
 
+Roles and goal types are strings to support extensibility - custom roles can be
+defined at runtime without code changes.
+
 Example:
     >>> from empla.employees.config import EmployeeConfig, GoalConfig
     >>>
@@ -25,73 +28,106 @@ Example:
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from empla.employees.personality import Personality
 
 
 class GoalConfig(BaseModel):
-    """Configuration for an employee goal."""
+    """
+    Configuration for an employee goal.
 
-    description: str = Field(..., description="Human-readable goal description")
+    Goals define what the employee is trying to achieve. They are used by
+    the BDI engine to drive autonomous behavior.
+
+    Goal Types:
+    - "achievement": One-time target to reach (e.g., "close 10 deals")
+    - "maintenance": Ongoing target to maintain (e.g., "keep 3x pipeline")
+    - "prevention": Something to avoid (e.g., "prevent churn")
+    - Custom types are also supported for extensibility
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    description: str = Field(..., min_length=1, description="Human-readable goal description")
     goal_type: str = Field(
         default="achievement",
-        description="Type: achievement, maintenance, or prevention"
+        min_length=1,
+        description="Type: achievement, maintenance, prevention, or custom",
     )
-    priority: int = Field(default=5, ge=1, le=10, description="Priority 1-10")
+    priority: int = Field(default=5, ge=1, le=10, description="Priority 1-10 (10 is highest)")
     target: dict[str, Any] = Field(
         default_factory=dict,
-        description="Target metrics for the goal"
+        description="Target metrics for the goal (e.g., {'metric': 'pipeline_coverage', 'value': 3.0})",
     )
 
 
 class LoopSettings(BaseModel):
-    """Settings for the proactive execution loop."""
+    """
+    Settings for the proactive execution loop.
+
+    Controls timing of the autonomous operation cycle.
+    """
+
+    model_config = ConfigDict(frozen=True)
 
     cycle_interval_seconds: int = Field(
         default=300,
         ge=60,
-        description="Seconds between loop cycles (min 60)"
+        le=3600,
+        description="Seconds between loop cycles (60-3600)",
     )
     strategic_planning_interval_hours: int = Field(
         default=24,
-        description="Hours between strategic planning sessions"
+        ge=1,
+        le=168,  # Max 1 week
+        description="Hours between strategic planning sessions (1-168)",
     )
     reflection_interval_hours: int = Field(
         default=24,
-        description="Hours between deep reflection sessions"
+        ge=1,
+        le=168,  # Max 1 week
+        description="Hours between deep reflection sessions (1-168)",
     )
     max_concurrent_intentions: int = Field(
         default=3,
         ge=1,
-        description="Max intentions to execute in parallel"
+        le=10,
+        description="Max intentions to execute in parallel (1-10)",
     )
     error_backoff_seconds: int = Field(
         default=60,
-        description="Backoff time after errors"
+        ge=10,
+        le=600,
+        description="Backoff time after errors (10-600 seconds)",
     )
 
 
 class LLMSettings(BaseModel):
     """LLM configuration for the employee."""
 
+    model_config = ConfigDict(frozen=True)
+
     primary_model: str = Field(
         default="claude-sonnet-4",
-        description="Primary LLM model to use"
+        min_length=1,
+        description="Primary LLM model to use",
     )
     fallback_model: str | None = Field(
         default="gpt-4o",
-        description="Fallback model if primary fails"
+        description="Fallback model if primary fails (None to disable)",
     )
     temperature: float = Field(
         default=0.7,
         ge=0.0,
         le=2.0,
-        description="Sampling temperature"
+        description="Sampling temperature (0.0-2.0)",
     )
     max_tokens: int = Field(
         default=4096,
-        description="Max tokens per request"
+        ge=100,
+        le=128000,
+        description="Max tokens per request",
     )
 
 
@@ -100,6 +136,16 @@ class EmployeeConfig(BaseModel):
     Complete configuration for a digital employee.
 
     This is the configuration object used to create and configure employees.
+    Config is validated at construction and immutable after creation.
+
+    Role is a string to support extensibility - custom roles can be defined
+    at runtime without requiring code changes. Built-in roles include:
+    - "sales_ae": Sales Account Executive
+    - "csm": Customer Success Manager
+    - "pm": Product Manager
+    - "sdr": Sales Development Rep
+    - "recruiter": Recruiter
+    - Custom roles are also supported
 
     Example:
         >>> config = EmployeeConfig(
@@ -111,10 +157,12 @@ class EmployeeConfig(BaseModel):
         >>> await employee.start()
     """
 
+    model_config = ConfigDict(frozen=True)
+
     # Identity
-    name: str = Field(..., min_length=1, description="Employee display name")
-    role: str = Field(..., description="Role: sales_ae, csm, pm, sdr, recruiter, custom")
-    email: str = Field(..., description="Employee email address")
+    name: str = Field(..., min_length=1, max_length=100, description="Employee display name")
+    role: str = Field(..., min_length=1, description="Employee role (e.g., sales_ae, csm, pm, or custom)")
+    email: EmailStr = Field(..., description="Employee email address")
 
     # Tenant context
     tenant_id: UUID | None = Field(default=None, description="Tenant ID for multi-tenancy")
@@ -122,19 +170,19 @@ class EmployeeConfig(BaseModel):
     # Personality
     personality: Personality | None = Field(
         default=None,
-        description="Personality profile (uses role default if not set)"
+        description="Personality profile (uses role default if not set)",
     )
 
     # Goals
     goals: list[GoalConfig] = Field(
         default_factory=list,
-        description="Initial goals for the employee"
+        description="Initial goals for the employee",
     )
 
     # Capabilities
     capabilities: list[str] = Field(
         default_factory=lambda: ["email"],
-        description="Enabled capabilities: email, calendar, crm, messaging, browser"
+        description="Enabled capabilities: email, calendar, crm, messaging, browser",
     )
 
     # Loop settings
@@ -146,11 +194,45 @@ class EmployeeConfig(BaseModel):
     # Additional config
     metadata: dict[str, Any] = Field(
         default_factory=dict,
-        description="Additional metadata"
+        description="Additional metadata",
     )
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Validate and normalize employee name."""
+        stripped = v.strip()
+        if len(stripped) < 1:
+            raise ValueError("Employee name cannot be empty or whitespace only")
+        return stripped
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        """Validate and normalize employee role."""
+        stripped = v.strip().lower()
+        if len(stripped) < 1:
+            raise ValueError("Employee role cannot be empty or whitespace only")
+        return stripped
+
+    @field_validator("capabilities")
+    @classmethod
+    def validate_capabilities(cls, v: list[str]) -> list[str]:
+        """Validate capability list."""
+        if len(v) != len(set(v)):
+            raise ValueError("Duplicate capabilities are not allowed")
+        return v
+
     def to_db_config(self) -> dict[str, Any]:
-        """Convert to database-storable config dict."""
+        """
+        Convert to database-storable config dict.
+
+        Note: This only includes runtime configuration settings.
+        Other fields are stored in separate columns:
+        - goals: Stored in goals table
+        - capabilities: Stored in employee.capabilities column
+        - personality: Stored in employee.personality column
+        """
         return {
             "loop": self.loop.model_dump(),
             "llm": self.llm.model_dump(),
@@ -224,6 +306,7 @@ PM_DEFAULT_GOALS = [
 
 
 __all__ = [
+    # Config classes
     "EmployeeConfig",
     "GoalConfig",
     "LLMSettings",
