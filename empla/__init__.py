@@ -35,13 +35,42 @@ __version__ = "0.1.0"
 __author__ = "empla contributors"
 __license__ = "Apache-2.0"
 
-# Core imports will be added as modules are implemented
-# from empla.core.bdi import BeliefSystem, GoalSystem, IntentionStack
-# from empla.core.loop import ProactiveExecutionLoop
-# from empla.core.memory import EpisodicMemory, SemanticMemory, ProceduralMemory
-# from empla.employees import SalesAE, CustomerSuccessManager, ProductManager
+# Core components
+from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
+from empla.core.loop import ProactiveExecutionLoop
+from empla.core.memory import (
+    EpisodicMemorySystem,
+    SemanticMemorySystem,
+    ProceduralMemorySystem,
+    WorkingMemory,
+)
+
+# Pre-built employees
+from empla.employees import (
+    DigitalEmployee,
+    SalesAE,
+    CustomerSuccessManager,
+    CSM,
+    EmployeeConfig,
+)
 
 __all__ = [
     "__version__",
-    # Core classes will be added here as implemented
+    # Core BDI
+    "BeliefSystem",
+    "GoalSystem",
+    "IntentionStack",
+    # Core Loop
+    "ProactiveExecutionLoop",
+    # Core Memory
+    "EpisodicMemorySystem",
+    "SemanticMemorySystem",
+    "ProceduralMemorySystem",
+    "WorkingMemory",
+    # Employees
+    "DigitalEmployee",
+    "SalesAE",
+    "CustomerSuccessManager",
+    "CSM",
+    "EmployeeConfig",
 ]

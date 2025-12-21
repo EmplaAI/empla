@@ -54,6 +54,7 @@ dependencies = [
     "structlog>=24.4.0", # Structured logging
     "python-dateutil>=2.9.0", # Date utilities
     "greenlet>=3.2.4",
+    "email-validator>=2.3.0",
 ]
 
 [project.optional-dependencies]
