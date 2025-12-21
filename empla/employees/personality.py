@@ -95,8 +95,9 @@ class DecisionStyle(BaseModel):
         risk = "conservative" if self.risk_tolerance < 0.4 else "moderate" if self.risk_tolerance < 0.7 else "aggressive"
         speed = "deliberate" if self.decision_speed < 0.4 else "balanced" if self.decision_speed < 0.7 else "quick"
         approach = "intuition-driven" if self.data_vs_intuition < 0.4 else "balanced" if self.data_vs_intuition < 0.7 else "data-driven"
+        collab = "independent" if self.collaborative < 0.4 else "collaborative" if self.collaborative < 0.7 else "highly collaborative"
 
-        return f"Decision style: {risk} risk tolerance, {speed} decisions, {approach} approach."
+        return f"Decision style: {risk} risk tolerance, {speed} decisions, {approach} approach, {collab} style."
 
 
 class Personality(BaseModel):

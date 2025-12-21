@@ -55,7 +55,7 @@ class TestEmployeeLifecycleIntegration:
             return_value=LLMResponse(
                 content="Test response",
                 model="test-model",
-                usage=TokenUsage(prompt_tokens=10, completion_tokens=20),
+                usage=TokenUsage(input_tokens=10, output_tokens=20, total_tokens=30),
             )
         )
         return llm

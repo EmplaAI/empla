@@ -46,7 +46,7 @@ from empla.employees.exceptions import (
 )
 from empla.employees.personality import Personality
 from empla.llm import LLMConfig, LLMService
-from empla.models.database import get_db
+from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
 
 logger = logging.getLogger(__name__)
@@ -125,6 +125,10 @@ class DigitalEmployee(ABC):
         self.config = config
         self._employee_id: UUID | None = None
         self._tenant_id: UUID = config.tenant_id or uuid4()
+
+        # Database (initialized in start(), cleaned up in stop())
+        self._engine = None
+        self._sessionmaker = None
         self._session: AsyncSession | None = None
 
         # Components (initialized in start())
@@ -300,53 +304,55 @@ class DigitalEmployee(ABC):
             # Validate configuration before starting
             await self._validate_config()
 
-            # Initialize database session
-            # Each operation uses its own session context for proper transaction management
-            async with get_db() as session:
-                self._session = session
+            # Initialize database engine and session
+            # Session is kept open for the employee's lifetime (closed in stop())
+            self._engine = get_engine()
+            self._sessionmaker = get_sessionmaker(self._engine)
+            self._session = self._sessionmaker()
 
-                # Create or load employee record
-                await self._init_employee_record(session)
+            # Create or load employee record
+            await self._init_employee_record(self._session)
 
-                # Initialize LLM service
-                await self._init_llm()
+            # Initialize LLM service
+            await self._init_llm()
 
-                # Initialize BDI components
-                await self._init_bdi(session)
+            # Initialize BDI components
+            await self._init_bdi(self._session)
 
-                # Initialize memory systems
-                await self._init_memory(session)
+            # Initialize memory systems
+            await self._init_memory(self._session)
 
-                # Initialize capabilities
-                await self._init_capabilities()
+            # Initialize capabilities
+            await self._init_capabilities()
 
-                # Create default goals
-                await self._create_default_goals()
+            # Create default goals
+            await self._create_default_goals()
 
-                # Create proactive loop
-                await self._init_loop()
+            # Create proactive loop
+            await self._init_loop()
 
-                # Mark as running
-                self._is_running = True
-                self._started_at = datetime.now(UTC)
+            # Mark as running
+            self._is_running = True
+            self._started_at = datetime.now(UTC)
 
-                # Custom start logic (wrapped in try/except for cleanup)
-                try:
-                    await self.on_start()
-                except Exception as e:
-                    logger.error(f"on_start() hook failed for {self.name}: {e}", exc_info=True)
-                    # Clean up since on_start failed
-                    self._is_running = False
-                    raise EmployeeStartupError(f"on_start() failed: {e}") from e
+            # Custom start logic (wrapped in try/except for cleanup)
+            try:
+                await self.on_start()
+            except Exception as e:
+                logger.error(f"on_start() hook failed for {self.name}: {e}", exc_info=True)
+                # Clean up since on_start failed
+                self._is_running = False
+                await self._cleanup_on_error()
+                raise EmployeeStartupError(f"on_start() failed: {e}") from e
 
-                # Commit all initialization changes
-                await session.commit()
+            # Commit all initialization changes
+            await self._session.commit()
 
-                logger.info(f"Employee {self.name} started successfully")
+            logger.info(f"Employee {self.name} started successfully")
 
-                # Start the loop (blocks if run_loop=True)
-                if run_loop:
-                    await self._run_loop()
+            # Start the loop (blocks if run_loop=True)
+            if run_loop:
+                await self._run_loop()
 
         except EmployeeStartupError:
             # Re-raise startup errors directly
@@ -413,6 +419,24 @@ class DigitalEmployee(ABC):
         except Exception as e:
             logger.error(f"on_stop() hook failed for {self.name}: {e}", exc_info=True)
             shutdown_errors.append(("on_stop", e))
+
+        # Close database session and dispose engine
+        if self._session:
+            try:
+                await self._session.close()
+            except Exception as e:
+                logger.error(f"Error closing session: {e}", exc_info=True)
+                shutdown_errors.append(("session", e))
+            self._session = None
+
+        if self._engine:
+            try:
+                await self._engine.dispose()
+            except Exception as e:
+                logger.error(f"Error disposing engine: {e}", exc_info=True)
+                shutdown_errors.append(("engine", e))
+            self._engine = None
+            self._sessionmaker = None
 
         # Mark as stopped
         self._is_running = False
@@ -483,9 +507,24 @@ class DigitalEmployee(ABC):
             except Exception as e:
                 logger.warning(f"Error stopping loop during cleanup: {e}")
 
+        # Close database session and dispose engine
+        if self._session:
+            try:
+                await self._session.close()
+            except Exception as e:
+                logger.warning(f"Error closing session during cleanup: {e}")
+            self._session = None
+
+        if self._engine:
+            try:
+                await self._engine.dispose()
+            except Exception as e:
+                logger.warning(f"Error disposing engine during cleanup: {e}")
+            self._engine = None
+            self._sessionmaker = None
+
         # Mark as not running
         self._is_running = False
-        self._session = None
 
         logger.debug(f"Cleanup complete for {self.name}")
 
@@ -640,14 +679,10 @@ class DigitalEmployee(ABC):
 
     async def _init_loop(self) -> None:
         """Initialize proactive execution loop."""
-        # Convert user-friendly time units to seconds for internal use
-        # - cycle_interval: Already in seconds (how often to check for work)
-        # - strategic_planning: Hours -> seconds (deep planning sessions)
-        # - reflection: Hours -> seconds (learning sessions)
         loop_config = LoopConfig(
-            cycle_interval=self.config.loop.cycle_interval_seconds,
-            strategic_planning_interval=self.config.loop.strategic_planning_interval_hours * 3600,
-            reflection_interval=self.config.loop.reflection_interval_hours * 3600,
+            cycle_interval_seconds=self.config.loop.cycle_interval_seconds,
+            strategic_planning_interval_hours=self.config.loop.strategic_planning_interval_hours,
+            deep_reflection_interval_hours=self.config.loop.reflection_interval_hours,
         )
 
         self._loop = ProactiveExecutionLoop(
