@@ -114,7 +114,7 @@ class LLMSettings(BaseModel):
         description="Primary LLM model to use",
     )
     fallback_model: str | None = Field(
-        default="gpt-4-1",
+        default="gpt-4.1",
         description="Fallback model if primary fails (None to disable)",
     )
     temperature: float = Field(

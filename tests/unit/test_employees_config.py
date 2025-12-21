@@ -122,7 +122,7 @@ class TestLLMSettings:
         """Test default LLM settings."""
         settings = LLMSettings()
         assert settings.primary_model == "claude-sonnet-4-5"
-        assert settings.fallback_model == "gpt-4-1"
+        assert settings.fallback_model == "gpt-4.1"
         assert settings.temperature == 0.7
         assert settings.max_tokens == 4096
 
