@@ -96,7 +96,7 @@ class CustomerSuccessManager(DigitalEmployee):
                 predicate="role",
                 object={"type": "csm", "focus": "customer_success"},
                 confidence=1.0,
-                source="initialization",
+                source="prior",  # Prior knowledge about role identity
             )
         except Exception as e:
             logger.error(f"Failed to initialize beliefs for {self.name}: {e}", exc_info=True)
@@ -105,7 +105,7 @@ class CustomerSuccessManager(DigitalEmployee):
         # Record start in episodic memory
         try:
             await self.memory.episodic.record_episode(
-                episode_type="system",
+                episode_type="event",
                 description=f"CSM {self.name} started and ready for autonomous operation",
                 content={
                     "event": "employee_started",
@@ -128,7 +128,7 @@ class CustomerSuccessManager(DigitalEmployee):
         if self._memory:
             try:
                 await self.memory.episodic.record_episode(
-                    episode_type="system",
+                    episode_type="event",
                     description=f"CSM {self.name} stopped",
                     content={"event": "employee_stopped"},
                     importance=0.3,

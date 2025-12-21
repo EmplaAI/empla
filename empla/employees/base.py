@@ -115,16 +115,26 @@ class DigitalEmployee(ABC):
         ...         return ["email", "calendar"]
     """
 
-    def __init__(self, config: EmployeeConfig):
+    def __init__(
+        self,
+        config: EmployeeConfig,
+        capability_registry: CapabilityRegistry | None = None,
+    ):
         """
         Initialize digital employee.
 
         Args:
             config: Employee configuration
+            capability_registry: Optional pre-configured capability registry.
+                If provided, this registry is used instead of creating a new one.
+                Useful for testing with simulated capabilities.
         """
         self.config = config
         self._employee_id: UUID | None = None
         self._tenant_id: UUID = config.tenant_id or uuid4()
+
+        # Injected dependencies (for testing)
+        self._injected_capabilities = capability_registry
 
         # Database (initialized in start(), cleaned up in stop())
         self._engine = None
@@ -609,19 +619,16 @@ class DigitalEmployee(ABC):
             session=session,
             employee_id=self.employee_id,
             tenant_id=self.tenant_id,
-            llm_service=self._llm,
         )
         self._goals = GoalSystem(
             session=session,
             employee_id=self.employee_id,
             tenant_id=self.tenant_id,
-            llm_service=self._llm,
         )
         self._intentions = IntentionStack(
             session=session,
             employee_id=self.employee_id,
             tenant_id=self.tenant_id,
-            llm_service=self._llm,
         )
 
         logger.debug("Initialized BDI components")
@@ -640,9 +647,19 @@ class DigitalEmployee(ABC):
         """
         Initialize and register capabilities.
 
+        If a capability registry was injected in __init__, use it directly.
+        Otherwise, create a new registry and validate capabilities.
+
         Raises:
             EmployeeConfigError: If unknown capabilities are specified
         """
+        # Use injected registry if provided (for testing with simulated capabilities)
+        if self._injected_capabilities is not None:
+            self._capabilities = self._injected_capabilities
+            logger.debug("Using injected capability registry")
+            return
+
+        # Create new registry for production use
         self._capabilities = CapabilityRegistry()
 
         # Get effective capabilities

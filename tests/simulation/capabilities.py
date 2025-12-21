@@ -828,3 +828,64 @@ def get_simulated_capabilities(
         )
 
     return capabilities
+
+
+def get_simulated_registry(
+    tenant_id: UUID,
+    employee_id: UUID,
+    environment: SimulatedEnvironment,
+    enabled_capabilities: list[str] | None = None,
+) -> "CapabilityRegistry":
+    """
+    Create a pre-populated CapabilityRegistry with simulated capabilities.
+
+    This is designed for use with DigitalEmployee's capability_registry injection:
+
+        registry = get_simulated_registry(tenant_id, employee_id, env)
+        employee = SalesAE(config, capability_registry=registry)
+
+    Parameters:
+        tenant_id: Tenant ID
+        employee_id: Employee ID
+        environment: Simulated environment to interact with
+        enabled_capabilities: List of capability types to enable (default: all)
+
+    Returns:
+        CapabilityRegistry with simulated capabilities pre-initialized
+    """
+    from empla.capabilities import CapabilityRegistry
+
+    # Create capabilities
+    capabilities = get_simulated_capabilities(
+        tenant_id=tenant_id,
+        employee_id=employee_id,
+        environment=environment,
+        enabled_capabilities=enabled_capabilities,
+    )
+
+    # Create registry and inject instances directly
+    registry = CapabilityRegistry()
+    registry._instances[employee_id] = capabilities
+
+    return registry
+
+
+async def initialize_simulated_capabilities(
+    registry: "CapabilityRegistry",
+    employee_id: UUID,
+) -> None:
+    """
+    Initialize all simulated capabilities in a registry.
+
+    Call this after injecting the registry into a DigitalEmployee
+    to ensure all capabilities are marked as initialized.
+
+    Parameters:
+        registry: Registry with simulated capabilities
+        employee_id: Employee ID whose capabilities to initialize
+    """
+    if employee_id not in registry._instances:
+        return
+
+    for capability in registry._instances[employee_id].values():
+        await capability.initialize()
