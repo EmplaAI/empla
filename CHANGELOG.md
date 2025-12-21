@@ -6,6 +6,96 @@
 
 ---
 
+## 2025-12-20 - First Deployable Digital Employees (Milestone 0)
+
+**Phase:** Milestone 0 - Product Layer
+
+### Added
+
+**Employees Module - The Product (~1,200 lines):**
+
+- **empla/employees/personality.py** (~250 lines) - Personality system
+  - Big Five personality traits (openness, conscientiousness, extraversion, agreeableness, neuroticism)
+  - CommunicationStyle: tone, formality, verbosity, emoji usage
+  - DecisionStyle: risk tolerance, decision speed, data vs intuition
+  - Pre-built templates: SALES_AE_PERSONALITY, CSM_PERSONALITY, PM_PERSONALITY
+  - to_system_prompt() for LLM context
+
+- **empla/employees/config.py** (~180 lines) - Configuration system
+  - EmployeeConfig: complete employee configuration
+  - GoalConfig: goal definition with priority and targets
+  - LoopSettings: cycle intervals, planning/reflection intervals
+  - LLMSettings: model selection, temperature, token limits
+  - Default goals for Sales AE, CSM, PM roles
+
+- **empla/employees/base.py** (~350 lines) - Base DigitalEmployee class
+  - Abstract base class tying together BDI + Memory + Capabilities + Loop
+  - Properties: employee_id, tenant_id, name, role, email, personality
+  - Lifecycle: start(), stop(), on_start(), on_stop()
+  - Status: get_status(), is_running
+  - MemorySystem container for all 4 memory types
+
+- **empla/employees/sales_ae.py** (~180 lines) - Sales AE employee
+  - First deployable digital employee
+  - Enthusiastic, high extraversion, pipeline-focused
+  - Default goals: 3x pipeline coverage, 4hr lead response, 25% win rate
+  - Sales-specific methods: check_pipeline_coverage, prioritize_accounts, draft_outreach_email
+
+- **empla/employees/csm.py** (~160 lines) - Customer Success Manager
+  - Second deployable digital employee
+  - Supportive, high agreeableness, retention-focused
+  - Default goals: 95% retention, NPS >50, onboarding within 5 days
+  - CSM-specific methods: get_at_risk_customers, check_customer_health, draft_check_in_email
+
+- **empla/employees/__init__.py** (~80 lines) - Clean public API
+
+**Tests for Employees Module (~600 lines):**
+
+- **tests/unit/test_employees_personality.py** - 35 tests for personality system
+- **tests/unit/test_employees_config.py** - 35 tests for configuration
+- **tests/unit/test_employees_base.py** - 25 tests for base class
+- **tests/unit/test_employees_roles.py** - 20 tests for SalesAE and CSM
+- **tests/integration/test_employee_lifecycle.py** - 16 tests for lifecycle
+
+### Changed
+
+- Updated empla/__init__.py to export employees module
+- Updated TODO.md with new milestone focus
+
+### Key Insight
+
+**The main objective is "Production-Ready Digital Employees + Extensible Platform"**
+
+Before this change:
+- ✅ Extensible Platform (11K+ lines of infrastructure)
+- ❌ Production-Ready Digital Employees (zero)
+
+After this change:
+- ✅ Extensible Platform (infrastructure)
+- ✅ Production-Ready Digital Employees (SalesAE, CSM)
+
+### Usage
+
+```python
+from empla.employees import SalesAE, EmployeeConfig
+
+config = EmployeeConfig(
+    name="Jordan Chen",
+    role="sales_ae",
+    email="jordan@company.com"
+)
+employee = SalesAE(config)
+await employee.start()
+```
+
+### Test Results
+
+- **131 tests passing** (all employee tests + existing tests)
+- **Execution time:** 1.28s
+- **Coverage:** 38.33% overall, 92.77% personality, 100% config
+
+---
+
 ## 2025-11-18 - E2E Autonomous Employee Simulation Framework (Phase 2.5)
 
 **Phase:** 2.5 - Validation & Testing Infrastructure
