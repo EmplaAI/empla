@@ -109,12 +109,12 @@ class LLMSettings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     primary_model: str = Field(
-        default="claude-sonnet-4",
+        default="claude-sonnet-4-5",
         min_length=1,
         description="Primary LLM model to use",
     )
     fallback_model: str | None = Field(
-        default="gpt-4o",
+        default="gpt-4-1",
         description="Fallback model if primary fails (None to disable)",
     )
     temperature: float = Field(

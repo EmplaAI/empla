@@ -175,11 +175,11 @@ class SalesAE(DigitalEmployee):
         for belief in beliefs:
             if belief.predicate == "coverage":
                 try:
-                    value = belief.obj.get("value")
+                    value = belief.object.get("value")
                     if value is not None:
                         return float(value)
                 except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid pipeline coverage value '{belief.obj.get('value')}': {e}")
+                    logger.warning(f"Invalid pipeline coverage value '{belief.object.get('value')}': {e}")
                     continue
 
         logger.debug("No pipeline coverage belief found, returning 0.0")
@@ -203,11 +203,11 @@ class SalesAE(DigitalEmployee):
 
         opportunities = []
         for fact in facts:
-            if fact.obj.get("stage") not in ["closed_won", "closed_lost"]:
+            if fact.object.get("stage") not in ["closed_won", "closed_lost"]:
                 opportunities.append({
                     "account": fact.subject,
-                    "stage": fact.obj.get("stage"),
-                    "value": fact.obj.get("value"),
+                    "stage": fact.object.get("stage"),
+                    "value": fact.object.get("value"),
                 })
 
         return opportunities

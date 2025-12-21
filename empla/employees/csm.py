@@ -161,13 +161,13 @@ class CustomerSuccessManager(DigitalEmployee):
         at_risk = []
         for belief in beliefs:
             if belief.predicate == "health_status":
-                health = belief.obj.get("status", "")
+                health = belief.object.get("status", "")
                 if health in ["at_risk", "critical"]:
                     at_risk.append({
                         "customer": belief.subject,
                         "health_status": health,
-                        "churn_risk": belief.obj.get("churn_risk", 0.0),
-                        "reason": belief.obj.get("reason", "unknown"),
+                        "churn_risk": belief.object.get("churn_risk", 0.0),
+                        "reason": belief.object.get("reason", "unknown"),
                     })
 
         # Sort by churn risk descending (highest risk first)
@@ -211,10 +211,10 @@ class CustomerSuccessManager(DigitalEmployee):
 
         for belief in beliefs:
             if belief.predicate == "health_status":
-                health["status"] = belief.obj.get("status", "unknown")
-                health["churn_risk"] = belief.obj.get("churn_risk", 0.0)
+                health["status"] = belief.object.get("status", "unknown")
+                health["churn_risk"] = belief.object.get("churn_risk", 0.0)
             elif belief.predicate == "usage_metrics":
-                health["metrics"] = belief.obj
+                health["metrics"] = belief.object
 
         return health
 

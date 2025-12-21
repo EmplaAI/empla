@@ -650,16 +650,15 @@ class DigitalEmployee(ABC):
         valid_capabilities = [ct.value.lower() for ct in CapabilityType]
 
         for cap_name in cap_list:
-            cap_name_lower = cap_name.lower()
             try:
                 cap_type = CapabilityType(cap_name.upper())
                 # Capabilities are enabled when needed via the registry
                 logger.debug(f"Capability available: {cap_type.value}")
-            except ValueError:
+            except ValueError as e:
                 # Unknown capability - raise error instead of just warning
                 raise EmployeeConfigError(
                     f"Unknown capability '{cap_name}'. Valid capabilities: {valid_capabilities}"
-                )
+                ) from e
 
         logger.debug(f"Initialized capabilities: {cap_list}")
 
