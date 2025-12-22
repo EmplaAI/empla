@@ -5,21 +5,22 @@ Pydantic schemas for employee CRUD operations.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+# Type aliases for constrained values
+EmployeeRole = Literal["sales_ae", "csm", "pm", "sdr", "recruiter", "custom"]
+EmployeeStatus = Literal["onboarding", "active", "paused", "stopped", "terminated"]
+LifecycleStage = Literal["shadow", "supervised", "autonomous"]
 
 
 class EmployeeCreate(BaseModel):
     """Schema for creating a new employee."""
 
     name: str = Field(..., min_length=2, max_length=200, description="Employee display name")
-    role: str = Field(
-        ...,
-        pattern=r"^(sales_ae|csm|pm|sdr|recruiter|custom)$",
-        description="Employee role",
-    )
+    role: EmployeeRole = Field(..., description="Employee role")
     email: EmailStr = Field(..., description="Employee email address")
     capabilities: list[str] = Field(
         default=["email"],
@@ -43,14 +44,8 @@ class EmployeeUpdate(BaseModel):
     capabilities: list[str] | None = None
     personality: dict[str, Any] | None = None
     config: dict[str, Any] | None = None
-    status: str | None = Field(
-        None,
-        pattern=r"^(onboarding|active|paused|terminated)$",
-    )
-    lifecycle_stage: str | None = Field(
-        None,
-        pattern=r"^(shadow|supervised|autonomous)$",
-    )
+    status: EmployeeStatus | None = None
+    lifecycle_stage: LifecycleStage | None = None
 
 
 class EmployeeResponse(BaseModel):
@@ -61,10 +56,10 @@ class EmployeeResponse(BaseModel):
     id: UUID
     tenant_id: UUID
     name: str
-    role: str
+    role: EmployeeRole
     email: str
-    status: str
-    lifecycle_stage: str
+    status: EmployeeStatus
+    lifecycle_stage: LifecycleStage
     capabilities: list[str]
     personality: dict[str, Any]
     config: dict[str, Any]
@@ -93,10 +88,13 @@ class EmployeeStatusResponse(BaseModel):
 
     id: UUID
     name: str
-    status: str
-    lifecycle_stage: str
+    status: EmployeeStatus
+    lifecycle_stage: LifecycleStage
     is_running: bool
+    is_paused: bool = False
+    has_error: bool = False
+    last_error: str | None = None
     current_intention: str | None = None
     last_activity: datetime | None = None
-    cycle_count: int = 0
-    error_count: int = 0
+    cycle_count: int = Field(default=0, ge=0)
+    error_count: int = Field(default=0, ge=0)

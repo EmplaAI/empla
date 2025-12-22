@@ -27,7 +27,7 @@ export interface EmplaConfig {
 /**
  * Employee status.
  */
-export type EmployeeStatus = 'onboarding' | 'active' | 'paused' | 'terminated';
+export type EmployeeStatus = 'onboarding' | 'active' | 'paused' | 'stopped' | 'terminated';
 
 /**
  * Employee lifecycle stage.
@@ -128,6 +128,9 @@ export interface EmployeeRuntimeStatus {
   status: EmployeeStatus;
   lifecycleStage: LifecycleStage;
   isRunning: boolean;
+  isPaused: boolean;
+  hasError: boolean;
+  lastError?: string;
   currentIntention?: string;
   lastActivity?: string;
   cycleCount?: number;

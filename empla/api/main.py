@@ -9,9 +9,14 @@ Usage:
 
     # Production
     uvicorn empla.api.main:app --host 0.0.0.0 --port 8000
+
+Environment Variables:
+    CORS_ORIGINS: Comma-separated list of allowed CORS origins
+                  Default: http://localhost:3000,http://localhost:5173
 """
 
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -22,6 +27,28 @@ from empla.api.v1.router import api_router
 from empla.models.database import get_engine, get_sessionmaker
 
 logger = logging.getLogger(__name__)
+
+# Default CORS origins for development
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:3000",  # React dev server
+    "http://localhost:5173",  # Vite dev server
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+
+
+def get_cors_origins() -> list[str]:
+    """
+    Get CORS origins from environment or use defaults.
+
+    Set CORS_ORIGINS env var as comma-separated list for production.
+    """
+    env_origins = os.environ.get("CORS_ORIGINS", "")
+    if env_origins:
+        origins = [origin.strip() for origin in env_origins.split(",") if origin.strip()]
+        if origins:
+            return origins
+    return DEFAULT_CORS_ORIGINS
 
 
 @asynccontextmanager
@@ -67,15 +94,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Configure CORS
+    # Configure CORS - use env var CORS_ORIGINS for production
+    cors_origins = get_cors_origins()
+    logger.info(f"Configuring CORS for origins: {cors_origins}")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",  # React dev server
-            "http://localhost:5173",  # Vite dev server
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-        ],
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

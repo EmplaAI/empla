@@ -66,6 +66,10 @@ export function useEmployeeControl(employeeId: string) {
       queryClient.setQueryData(employeeKeys.status(employeeId), data);
       invalidateQueries();
     },
+    onError: (error: Error) => {
+      console.error(`Failed to start employee ${employeeId}:`, error);
+      // Consumer can access error via startMutation.error
+    },
   });
 
   // Stop mutation
@@ -74,6 +78,9 @@ export function useEmployeeControl(employeeId: string) {
     onSuccess: (data) => {
       queryClient.setQueryData(employeeKeys.status(employeeId), data);
       invalidateQueries();
+    },
+    onError: (error: Error) => {
+      console.error(`Failed to stop employee ${employeeId}:`, error);
     },
   });
 
@@ -84,6 +91,9 @@ export function useEmployeeControl(employeeId: string) {
       queryClient.setQueryData(employeeKeys.status(employeeId), data);
       invalidateQueries();
     },
+    onError: (error: Error) => {
+      console.error(`Failed to pause employee ${employeeId}:`, error);
+    },
   });
 
   // Resume mutation
@@ -93,6 +103,9 @@ export function useEmployeeControl(employeeId: string) {
       queryClient.setQueryData(employeeKeys.status(employeeId), data);
       invalidateQueries();
     },
+    onError: (error: Error) => {
+      console.error(`Failed to resume employee ${employeeId}:`, error);
+    },
   });
 
   return {
@@ -100,7 +113,7 @@ export function useEmployeeControl(employeeId: string) {
     status: statusQuery.data,
     isLoading: statusQuery.isLoading,
     isRunning: statusQuery.data?.isRunning ?? false,
-    isPaused: statusQuery.data?.status === 'paused',
+    isPaused: statusQuery.data?.status === 'paused' && statusQuery.data?.isRunning,
     refetchStatus: statusQuery.refetch,
 
     // Actions
@@ -115,6 +128,13 @@ export function useEmployeeControl(employeeId: string) {
       stopMutation.isPending ||
       pauseMutation.isPending ||
       resumeMutation.isPending,
+
+    // Error state - consumers should check this to show error feedback
+    actionError:
+      startMutation.error ||
+      stopMutation.error ||
+      pauseMutation.error ||
+      resumeMutation.error,
   };
 }
 

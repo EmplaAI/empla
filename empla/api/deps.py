@@ -3,8 +3,7 @@ empla.api.deps - FastAPI Dependencies
 
 Provides reusable dependencies for API endpoints:
 - get_db: Database session
-- get_current_user: JWT authentication
-- get_current_tenant: Tenant context
+- get_current_user: JWT authentication (returns AuthContext with user and tenant)
 """
 
 import logging
@@ -46,7 +45,6 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
 
     async with sessionmaker() as session:
         yield session
-        # Note: async context manager handles session cleanup automatically
 
 
 # Type alias for database dependency
@@ -102,8 +100,18 @@ async def get_current_user(
 
     token = credentials.credentials
 
-    # Stub implementation: expect token format "user_id:tenant_id"
-    # TODO: Replace with proper JWT validation
+    # ==========================================================================
+    # SECURITY WARNING: Development-only stub implementation
+    # ==========================================================================
+    # Token format "user_id:tenant_id" provides NO cryptographic security.
+    # This is for development/testing ONLY.
+    #
+    # TODO(security): Before production deployment:
+    # - Implement proper JWT validation with signature verification
+    # - Add token expiration checking
+    # - Add rate limiting for auth endpoints
+    # - See docs/decisions/XXX-authentication.md for planned implementation
+    # ==========================================================================
     try:
         parts = token.split(":")
         if len(parts) != 2:

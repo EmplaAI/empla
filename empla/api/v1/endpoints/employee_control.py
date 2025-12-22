@@ -9,11 +9,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from empla.api.deps import CurrentUser, DBSession
 from empla.api.v1.schemas.employee import EmployeeStatusResponse
 from empla.models.employee import Employee
-from empla.services.employee_manager import get_employee_manager
+from empla.services.employee_manager import UnsupportedRoleError, get_employee_manager
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +84,15 @@ async def start_employee(
     manager = get_employee_manager()
 
     try:
-        runtime_status = await manager.start_employee(employee_id, db)
+        runtime_status = await manager.start_employee(employee_id, auth.tenant_id, db)
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+    except UnsupportedRoleError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     except ValueError as e:
@@ -95,7 +101,6 @@ async def start_employee(
             detail=str(e),
         ) from e
 
-    # Refresh to get updated status from manager
     await db.refresh(employee)
 
     logger.info(
@@ -109,6 +114,9 @@ async def start_employee(
         status=employee.status,
         lifecycle_stage=employee.lifecycle_stage,
         is_running=runtime_status.get("is_running", True),
+        is_paused=runtime_status.get("is_paused", False),
+        has_error=runtime_status.get("has_error", False),
+        last_error=runtime_status.get("last_error"),
     )
 
 
@@ -150,7 +158,6 @@ async def stop_employee(
         extra={"employee_id": str(employee_id), "user_id": str(auth.user_id)},
     )
 
-    # Refresh employee from database
     await db.refresh(employee)
 
     return EmployeeStatusResponse(
@@ -159,6 +166,8 @@ async def stop_employee(
         status=employee.status,
         lifecycle_stage=employee.lifecycle_stage,
         is_running=False,
+        is_paused=False,
+        has_error=False,
     )
 
 
@@ -195,9 +204,26 @@ async def pause_employee(
             detail=str(e),
         ) from e
 
-    # Update database status
-    employee.status = "paused"
-    await db.commit()
+    # Update database status with error handling
+    try:
+        employee.status = "paused"
+        await db.commit()
+    except SQLAlchemyError as e:
+        await db.rollback()
+        # Try to unpause in manager since DB failed
+        try:
+            await manager.resume_employee(employee_id)
+        except ValueError:
+            pass  # May not be pausable anymore
+        logger.error(
+            f"Failed to persist pause status for employee {employee_id}: {e}",
+            exc_info=True,
+            extra={"employee_id": str(employee_id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update employee status in database",
+        ) from e
 
     logger.info(
         f"Employee {employee_id} paused via API",
@@ -209,7 +235,9 @@ async def pause_employee(
         name=employee.name,
         status="paused",
         lifecycle_stage=employee.lifecycle_stage,
-        is_running=True,  # Still running but paused
+        is_running=True,  # Employee instance exists in memory
+        is_paused=True,   # But execution cycles are paused
+        has_error=False,
     )
 
 
@@ -244,9 +272,26 @@ async def resume_employee(
             detail=str(e),
         ) from e
 
-    # Update database status
-    employee.status = "active"
-    await db.commit()
+    # Update database status with error handling
+    try:
+        employee.status = "active"
+        await db.commit()
+    except SQLAlchemyError as e:
+        await db.rollback()
+        # Try to re-pause in manager since DB failed
+        try:
+            await manager.pause_employee(employee_id)
+        except ValueError:
+            pass  # May not be running anymore
+        logger.error(
+            f"Failed to persist active status for employee {employee_id}: {e}",
+            exc_info=True,
+            extra={"employee_id": str(employee_id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update employee status in database",
+        ) from e
 
     logger.info(
         f"Employee {employee_id} resumed via API",
@@ -259,6 +304,8 @@ async def resume_employee(
         status="active",
         lifecycle_stage=employee.lifecycle_stage,
         is_running=True,
+        is_paused=False,
+        has_error=False,
     )
 
 
@@ -292,4 +339,7 @@ async def get_employee_status(
         status=employee.status,
         lifecycle_stage=employee.lifecycle_stage,
         is_running=runtime_status.get("is_running", False),
+        is_paused=runtime_status.get("is_paused", False),
+        has_error=runtime_status.get("has_error", False),
+        last_error=runtime_status.get("last_error"),
     )

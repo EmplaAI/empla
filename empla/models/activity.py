@@ -6,6 +6,7 @@ Used for the activity feed in the dashboard.
 """
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID as UUIDType
 from uuid import uuid4
@@ -15,6 +16,52 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from empla.models.base import Base, TimestampedModel
+
+
+class ActivityEventType(StrEnum):
+    """
+    Standard event types for activities.
+
+    Using StrEnum provides type safety and string representation.
+    """
+
+    # Email events
+    EMAIL_SENT = "email_sent"
+    EMAIL_RECEIVED = "email_received"
+    EMAIL_DRAFTED = "email_drafted"
+
+    # Calendar events
+    MEETING_SCHEDULED = "meeting_scheduled"
+    MEETING_JOINED = "meeting_joined"
+    MEETING_COMPLETED = "meeting_completed"
+
+    # CRM events
+    DEAL_CREATED = "deal_created"
+    DEAL_UPDATED = "deal_updated"
+    DEAL_WON = "deal_won"
+    DEAL_LOST = "deal_lost"
+
+    # Goal/Intention events
+    GOAL_CREATED = "goal_created"
+    GOAL_PROGRESS = "goal_progress"
+    GOAL_ACHIEVED = "goal_achieved"
+    INTENTION_STARTED = "intention_started"
+    INTENTION_COMPLETED = "intention_completed"
+    INTENTION_FAILED = "intention_failed"
+
+    # Lifecycle events
+    EMPLOYEE_STARTED = "employee_started"
+    EMPLOYEE_STOPPED = "employee_stopped"
+    EMPLOYEE_PAUSED = "employee_paused"
+    EMPLOYEE_RESUMED = "employee_resumed"
+
+    # Decision events
+    DECISION_MADE = "decision_made"
+    STRATEGY_SELECTED = "strategy_selected"
+
+    # Error events
+    ERROR_OCCURRED = "error_occurred"
+    RETRY_ATTEMPTED = "retry_attempted"
 
 
 class EmployeeActivity(TimestampedModel, Base):
@@ -129,49 +176,6 @@ class EmployeeActivity(TimestampedModel, Base):
 
     def __repr__(self) -> str:
         return f"<EmployeeActivity(id={self.id}, type={self.event_type})>"
-
-
-# Event type constants for consistency
-class ActivityEventType:
-    """Standard event types for activities."""
-
-    # Email events
-    EMAIL_SENT = "email_sent"
-    EMAIL_RECEIVED = "email_received"
-    EMAIL_DRAFTED = "email_drafted"
-
-    # Calendar events
-    MEETING_SCHEDULED = "meeting_scheduled"
-    MEETING_JOINED = "meeting_joined"
-    MEETING_COMPLETED = "meeting_completed"
-
-    # CRM events
-    DEAL_CREATED = "deal_created"
-    DEAL_UPDATED = "deal_updated"
-    DEAL_WON = "deal_won"
-    DEAL_LOST = "deal_lost"
-
-    # Goal/Intention events
-    GOAL_CREATED = "goal_created"
-    GOAL_PROGRESS = "goal_progress"
-    GOAL_ACHIEVED = "goal_achieved"
-    INTENTION_STARTED = "intention_started"
-    INTENTION_COMPLETED = "intention_completed"
-    INTENTION_FAILED = "intention_failed"
-
-    # Lifecycle events
-    EMPLOYEE_STARTED = "employee_started"
-    EMPLOYEE_STOPPED = "employee_stopped"
-    EMPLOYEE_PAUSED = "employee_paused"
-    EMPLOYEE_RESUMED = "employee_resumed"
-
-    # Decision events
-    DECISION_MADE = "decision_made"
-    STRATEGY_SELECTED = "strategy_selected"
-
-    # Error events
-    ERROR_OCCURRED = "error_occurred"
-    RETRY_ATTEMPTED = "retry_attempted"
 
 
 __all__ = ["ActivityEventType", "EmployeeActivity"]

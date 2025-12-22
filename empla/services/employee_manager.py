@@ -21,6 +21,16 @@ from empla.models.employee import Employee as EmployeeModel
 
 logger = logging.getLogger(__name__)
 
+# Circuit breaker settings for employee loop errors
+MAX_CONSECUTIVE_ERRORS = 5
+ERROR_BACKOFF_SECONDS = 30
+
+
+class UnsupportedRoleError(ValueError):
+    """Raised when attempting to start an employee with an unsupported role."""
+
+    pass
+
 # Map role strings to employee classes
 EMPLOYEE_CLASSES: dict[str, type[DigitalEmployee]] = {
     "sales_ae": SalesAE,
@@ -39,20 +49,14 @@ class EmployeeManager:
 
     Usage:
         manager = get_employee_manager()
-        await manager.start_employee(employee_id, db)
+        await manager.start_employee(employee_id, tenant_id, db)
         status = manager.get_status(employee_id)
         await manager.stop_employee(employee_id)
     """
 
     _instance: "EmployeeManager | None" = None
-    _lock: asyncio.Lock | None = None
-
-    @classmethod
-    def _get_lock(cls) -> asyncio.Lock:
-        """Get or create the async lock (lazy initialization)."""
-        if cls._lock is None:
-            cls._lock = asyncio.Lock()
-        return cls._lock
+    # Initialize lock at class level to avoid race condition during lazy init
+    _lock: asyncio.Lock = asyncio.Lock()
 
     def __new__(cls) -> "EmployeeManager":
         """Ensure singleton instance."""
@@ -69,6 +73,7 @@ class EmployeeManager:
         self._instances: dict[UUID, DigitalEmployee] = {}
         self._tasks: dict[UUID, asyncio.Task[None]] = {}
         self._paused: set[UUID] = set()
+        self._error_states: dict[UUID, str] = {}  # Track last error per employee
         self._initialized = True
 
         logger.info("EmployeeManager initialized")
@@ -76,6 +81,7 @@ class EmployeeManager:
     async def start_employee(
         self,
         employee_id: UUID,
+        tenant_id: UUID,
         session: AsyncSession,
     ) -> dict[str, Any]:
         """
@@ -83,24 +89,27 @@ class EmployeeManager:
 
         Args:
             employee_id: UUID of the employee to start
+            tenant_id: UUID of the tenant (enforces tenant isolation)
             session: Database session for fetching employee data
 
         Returns:
             Status dictionary with employee info
 
         Raises:
-            ValueError: If employee not found or role not supported
+            ValueError: If employee not found
+            UnsupportedRoleError: If role is not supported
             RuntimeError: If employee is already running
         """
-        async with self._get_lock():
+        async with self._lock:
             # Check if already running
             if employee_id in self._instances:
                 raise RuntimeError(f"Employee {employee_id} is already running")
 
-            # Fetch employee from database
+            # Fetch employee from database with tenant isolation
             result = await session.execute(
                 select(EmployeeModel).where(
                     EmployeeModel.id == employee_id,
+                    EmployeeModel.tenant_id == tenant_id,
                     EmployeeModel.deleted_at.is_(None),
                 )
             )
@@ -112,7 +121,7 @@ class EmployeeManager:
             # Get employee class for role
             employee_class = EMPLOYEE_CLASSES.get(db_employee.role)
             if employee_class is None:
-                raise ValueError(
+                raise UnsupportedRoleError(
                     f"Unsupported role '{db_employee.role}'. "
                     f"Supported roles: {list(EMPLOYEE_CLASSES.keys())}"
                 )
@@ -158,7 +167,10 @@ class EmployeeManager:
         Run the employee's proactive loop in background.
 
         This task runs until the employee is stopped.
+        Implements circuit breaker pattern to stop on repeated failures.
         """
+        consecutive_errors = 0
+
         try:
             while employee.is_running and employee_id in self._instances:
                 # Check if paused
@@ -166,14 +178,39 @@ class EmployeeManager:
                     await asyncio.sleep(1)
                     continue
 
-                # Run one cycle
+                # Run one cycle with circuit breaker pattern
                 try:
                     await employee.run_once()
+                    consecutive_errors = 0  # Reset on success
+                except asyncio.CancelledError:
+                    raise  # Let cancellation propagate
                 except Exception as e:
+                    consecutive_errors += 1
                     logger.error(
-                        f"Error in employee {employee_id} cycle: {e}",
+                        f"Error in employee {employee_id} cycle "
+                        f"(attempt {consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}",
                         exc_info=True,
+                        extra={
+                            "employee_id": str(employee_id),
+                            "error_type": type(e).__name__,
+                            "consecutive_errors": consecutive_errors,
+                        },
                     )
+
+                    # Circuit breaker: stop loop after too many consecutive errors
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        logger.error(
+                            f"Employee {employee_id} exceeded max consecutive errors "
+                            f"({MAX_CONSECUTIVE_ERRORS}), stopping loop",
+                            extra={"employee_id": str(employee_id)},
+                        )
+                        # Mark as in error state but keep instance for status reporting
+                        self._error_states[employee_id] = str(e)
+                        break
+
+                    # Back off on errors
+                    await asyncio.sleep(ERROR_BACKOFF_SECONDS)
+                    continue
 
                 # Wait before next cycle
                 await asyncio.sleep(employee.config.loop.cycle_interval_seconds)
@@ -181,14 +218,17 @@ class EmployeeManager:
         except asyncio.CancelledError:
             logger.info(f"Employee {employee_id} loop cancelled")
         except Exception as e:
-            logger.error(f"Employee {employee_id} loop failed: {e}", exc_info=True)
+            logger.error(
+                f"Employee {employee_id} loop failed with unexpected error: {e}",
+                exc_info=True,
+                extra={"employee_id": str(employee_id)},
+            )
+            self._error_states[employee_id] = str(e)
         finally:
-            # Clean up if still in instances
-            if employee_id in self._instances:
-                del self._instances[employee_id]
-            if employee_id in self._tasks:
-                del self._tasks[employee_id]
-            if employee_id in self._paused:
+            # Clean up under lock to avoid race conditions
+            async with self._lock:
+                self._instances.pop(employee_id, None)
+                self._tasks.pop(employee_id, None)
                 self._paused.discard(employee_id)
 
     async def stop_employee(
@@ -209,7 +249,7 @@ class EmployeeManager:
         Raises:
             ValueError: If employee is not running
         """
-        async with self._get_lock():
+        async with self._lock:
             if employee_id not in self._instances:
                 raise ValueError(f"Employee {employee_id} is not running")
 
@@ -231,22 +271,20 @@ class EmployeeManager:
             await employee.stop()
 
             # Clean up
-            if employee_id in self._instances:
-                del self._instances[employee_id]
-            if employee_id in self._tasks:
-                del self._tasks[employee_id]
-            if employee_id in self._paused:
-                self._paused.discard(employee_id)
+            self._instances.pop(employee_id, None)
+            self._tasks.pop(employee_id, None)
+            self._paused.discard(employee_id)
+            self._error_states.pop(employee_id, None)
 
             # Update database if session provided
-            # Note: "paused" means not running but can be restarted (vs "terminated" = permanent)
+            # Note: Setting status to "stopped" (can be restarted, vs "terminated" = permanent)
             if session:
                 result = await session.execute(
                     select(EmployeeModel).where(EmployeeModel.id == employee_id)
                 )
                 db_employee = result.scalar_one_or_none()
                 if db_employee:
-                    db_employee.status = "paused"
+                    db_employee.status = "stopped"
                     await session.commit()
 
             logger.info(f"Employee {employee_id} stopped")
@@ -316,16 +354,22 @@ class EmployeeManager:
             - id: Employee ID
             - name: Employee name
             - role: Employee role
-            - is_running: Whether running
-            - is_paused: Whether paused
+            - is_running: Whether instance exists in memory
+            - is_paused: Whether execution is paused
+            - has_error: Whether employee stopped due to error
+            - last_error: Last error message (if any)
             - started_at: When started
             - cycle_count: Number of cycles run (if available)
         """
+        error_state = self._error_states.get(employee_id)
+
         if employee_id not in self._instances:
             return {
                 "id": str(employee_id),
                 "is_running": False,
                 "is_paused": False,
+                "has_error": error_state is not None,
+                "last_error": error_state,
             }
 
         employee = self._instances[employee_id]
@@ -338,6 +382,8 @@ class EmployeeManager:
             "email": base_status.get("email"),
             "is_running": True,
             "is_paused": employee_id in self._paused,
+            "has_error": error_state is not None,
+            "last_error": error_state,
             "started_at": base_status.get("started_at"),
             "capabilities": base_status.get("capabilities"),
         }
@@ -359,14 +405,37 @@ class EmployeeManager:
         """Check if an employee is currently paused."""
         return employee_id in self._paused
 
-    async def stop_all(self) -> None:
-        """Stop all running employees."""
+    async def stop_all(self) -> dict[str, list[UUID]]:
+        """
+        Stop all running employees.
+
+        Returns:
+            Dictionary with 'stopped' and 'failed' lists of employee IDs.
+            Callers should check 'failed' to handle partial failures.
+        """
         employee_ids = list(self._instances.keys())
+        stopped: list[UUID] = []
+        failed: list[UUID] = []
+
         for employee_id in employee_ids:
             try:
                 await self.stop_employee(employee_id)
+                stopped.append(employee_id)
             except Exception as e:
-                logger.error(f"Error stopping employee {employee_id}: {e}")
+                logger.error(
+                    f"Error stopping employee {employee_id}: {e}",
+                    exc_info=True,
+                    extra={"employee_id": str(employee_id)},
+                )
+                failed.append(employee_id)
+
+        if failed:
+            logger.warning(
+                f"Failed to stop {len(failed)} of {len(employee_ids)} employees",
+                extra={"failed_employees": [str(eid) for eid in failed]},
+            )
+
+        return {"stopped": stopped, "failed": failed}
 
 
 def get_employee_manager() -> EmployeeManager:
