@@ -10,6 +10,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -101,6 +102,11 @@ export function EmplaProvider({
   const [authToken, setAuthTokenState] = useState<string | undefined>(
     config.authToken
   );
+
+  // Sync authToken state when config.authToken changes (e.g., after token refresh)
+  useEffect(() => {
+    setAuthTokenState(config.authToken);
+  }, [config.authToken]);
 
   // Destructure config values for stable memoization
   const { apiUrl, onAuthError } = config;

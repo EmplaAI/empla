@@ -18,14 +18,13 @@ export default defineConfig({
       fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
     },
     rollupOptions: {
-      external: ['react', 'react-dom', 'react/jsx-runtime'],
-      output: {
-        globals: {
-          react: 'React',
-          'react-dom': 'ReactDOM',
-          'react/jsx-runtime': 'jsxRuntime',
-        },
-      },
+      // Mark peer dependencies as external to avoid bundling them
+      external: [
+        'react',
+        'react-dom',
+        'react/jsx-runtime',
+        '@tanstack/react-query',
+      ],
     },
   },
   resolve: {

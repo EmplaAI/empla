@@ -20,6 +20,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def get_employee_for_tenant(
+    db: DBSession,
+    employee_id: UUID,
+    tenant_id: UUID,
+) -> Employee:
+    """
+    Fetch employee and verify it belongs to the tenant.
+
+    Args:
+        db: Database session
+        employee_id: Employee UUID
+        tenant_id: Tenant UUID
+
+    Returns:
+        Employee if found and belongs to tenant
+
+    Raises:
+        HTTPException: If employee not found or doesn't belong to tenant
+    """
+    result = await db.execute(
+        select(Employee).where(
+            Employee.id == employee_id,
+            Employee.tenant_id == tenant_id,
+            Employee.deleted_at.is_(None),
+        )
+    )
+    employee = result.scalar_one_or_none()
+
+    if employee is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+
+    return employee
+
+
 @router.post("/{employee_id}/start", response_model=EmployeeStatusResponse)
 async def start_employee(
     db: DBSession,
@@ -42,22 +79,7 @@ async def start_employee(
     Raises:
         HTTPException: If employee not found or already running
     """
-    # Verify employee belongs to tenant
-    result = await db.execute(
-        select(Employee).where(
-            Employee.id == employee_id,
-            Employee.tenant_id == auth.tenant_id,
-            Employee.deleted_at.is_(None),
-        )
-    )
-    employee = result.scalar_one_or_none()
-
-    if employee is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found",
-        )
-
+    employee = await get_employee_for_tenant(db, employee_id, auth.tenant_id)
     manager = get_employee_manager()
 
     try:
@@ -112,22 +134,7 @@ async def stop_employee(
     Raises:
         HTTPException: If employee not found or not running
     """
-    # Verify employee belongs to tenant
-    result = await db.execute(
-        select(Employee).where(
-            Employee.id == employee_id,
-            Employee.tenant_id == auth.tenant_id,
-            Employee.deleted_at.is_(None),
-        )
-    )
-    employee = result.scalar_one_or_none()
-
-    if employee is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found",
-        )
-
+    employee = await get_employee_for_tenant(db, employee_id, auth.tenant_id)
     manager = get_employee_manager()
 
     try:
@@ -177,22 +184,7 @@ async def pause_employee(
     Raises:
         HTTPException: If employee not found or not running
     """
-    # Verify employee belongs to tenant
-    result = await db.execute(
-        select(Employee).where(
-            Employee.id == employee_id,
-            Employee.tenant_id == auth.tenant_id,
-            Employee.deleted_at.is_(None),
-        )
-    )
-    employee = result.scalar_one_or_none()
-
-    if employee is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found",
-        )
-
+    employee = await get_employee_for_tenant(db, employee_id, auth.tenant_id)
     manager = get_employee_manager()
 
     try:
@@ -241,22 +233,7 @@ async def resume_employee(
     Raises:
         HTTPException: If employee not found or not paused
     """
-    # Verify employee belongs to tenant
-    result = await db.execute(
-        select(Employee).where(
-            Employee.id == employee_id,
-            Employee.tenant_id == auth.tenant_id,
-            Employee.deleted_at.is_(None),
-        )
-    )
-    employee = result.scalar_one_or_none()
-
-    if employee is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found",
-        )
-
+    employee = await get_employee_for_tenant(db, employee_id, auth.tenant_id)
     manager = get_employee_manager()
 
     try:
@@ -305,22 +282,7 @@ async def get_employee_status(
     Raises:
         HTTPException: If employee not found
     """
-    # Verify employee belongs to tenant
-    result = await db.execute(
-        select(Employee).where(
-            Employee.id == employee_id,
-            Employee.tenant_id == auth.tenant_id,
-            Employee.deleted_at.is_(None),
-        )
-    )
-    employee = result.scalar_one_or_none()
-
-    if employee is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Employee not found",
-        )
-
+    employee = await get_employee_for_tenant(db, employee_id, auth.tenant_id)
     manager = get_employee_manager()
     runtime_status = manager.get_status(employee_id)
 

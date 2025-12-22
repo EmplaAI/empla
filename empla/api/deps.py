@@ -16,6 +16,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from empla.models.tenant import Tenant, User
 
@@ -44,10 +45,8 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
         )
 
     async with sessionmaker() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session
+        # Note: async context manager handles session cleanup automatically
 
 
 # Type alias for database dependency
@@ -120,33 +119,28 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         ) from e
 
-    # Fetch user and tenant from database
+    # Fetch user with tenant in single query (performance optimization)
     result = await db.execute(
-        select(User).where(User.id == user_id, User.deleted_at.is_(None))
+        select(User)
+        .options(selectinload(User.tenant))
+        .where(
+            User.id == user_id,
+            User.tenant_id == tenant_id,
+            User.deleted_at.is_(None),
+        )
     )
     user = result.scalar_one_or_none()
 
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
+            detail="User not found or invalid tenant",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if user.tenant_id != tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid tenant",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    tenant = user.tenant
 
-    # Fetch tenant
-    result = await db.execute(
-        select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
-    )
-    tenant = result.scalar_one_or_none()
-
-    if tenant is None:
+    if tenant is None or tenant.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tenant not found",
