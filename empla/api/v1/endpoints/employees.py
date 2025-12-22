@@ -20,6 +20,7 @@ from empla.api.v1.schemas.employee import (
     EmployeeUpdate,
 )
 from empla.models.employee import Employee
+from empla.services.employee_manager import get_employee_manager
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,16 @@ async def list_employees(
     # Calculate pages
     pages = (total + page_size - 1) // page_size if total > 0 else 1
 
+    # Check runtime status for each employee
+    manager = get_employee_manager()
+    items = []
+    for emp in employees:
+        response = EmployeeResponse.model_validate(emp)
+        response.is_running = manager.is_running(emp.id)
+        items.append(response)
+
     return EmployeeListResponse(
-        items=[EmployeeResponse.model_validate(e) for e in employees],
+        items=items,
         total=total,
         page=page,
         page_size=page_size,
@@ -181,7 +190,12 @@ async def get_employee(
             detail="Employee not found",
         )
 
-    return EmployeeResponse.model_validate(employee)
+    # Check runtime status
+    manager = get_employee_manager()
+    response = EmployeeResponse.model_validate(employee)
+    response.is_running = manager.is_running(employee.id)
+
+    return response
 
 
 @router.put("/{employee_id}", response_model=EmployeeResponse)
@@ -255,7 +269,12 @@ async def update_employee(
         extra={"employee_id": str(employee.id), "updates": list(update_data.keys())},
     )
 
-    return EmployeeResponse.model_validate(employee)
+    # Check runtime status
+    manager = get_employee_manager()
+    response = EmployeeResponse.model_validate(employee)
+    response.is_running = manager.is_running(employee.id)
+
+    return response
 
 
 @router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
