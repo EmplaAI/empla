@@ -8,7 +8,7 @@ In production, replace with proper JWT authentication.
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 
@@ -110,7 +110,7 @@ async def login(
     token = f"{user.id}:{tenant.id}"
 
     logger.info(
-        f"User logged in: {user.email}",
+        "User logged in",
         extra={"user_id": str(user.id), "tenant_id": str(tenant.id)},
     )
 
@@ -127,14 +127,14 @@ async def login(
 @router.get("/me", response_model=LoginResponse)
 async def get_current_user_info(
     db: DBSession,
-    token: str,
+    authorization: str = Header(..., alias="Authorization"),
 ) -> LoginResponse:
     """
     Get current user info from token.
 
     Args:
         db: Database session
-        token: Authentication token
+        authorization: Authorization header (Bearer token)
 
     Returns:
         Current user info
@@ -142,6 +142,15 @@ async def get_current_user_info(
     Raises:
         HTTPException: If token is invalid
     """
+    # Extract token from "Bearer <token>" format
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = authorization[7:]  # Remove "Bearer " prefix
+
     try:
         parts = token.split(":")
         if len(parts) != 2:

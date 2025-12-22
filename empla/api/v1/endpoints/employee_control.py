@@ -73,6 +73,9 @@ async def start_employee(
             detail=str(e),
         ) from e
 
+    # Refresh to get updated status from manager
+    await db.refresh(employee)
+
     logger.info(
         f"Employee {employee_id} started via API",
         extra={"employee_id": str(employee_id), "user_id": str(auth.user_id)},

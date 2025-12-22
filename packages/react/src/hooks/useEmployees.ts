@@ -15,7 +15,7 @@ import type { Employee, EmployeeCreate, EmployeeUpdate, PaginatedResponse } from
 export const employeeKeys = {
   all: ['employees'] as const,
   lists: () => [...employeeKeys.all, 'list'] as const,
-  list: (params?: { page?: number; status?: string; role?: string }) =>
+  list: (params?: { page?: number; pageSize?: number; status?: string; role?: string }) =>
     [...employeeKeys.lists(), params] as const,
   details: () => [...employeeKeys.all, 'detail'] as const,
   detail: (id: string) => [...employeeKeys.details(), id] as const,

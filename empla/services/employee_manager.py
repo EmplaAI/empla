@@ -45,7 +45,14 @@ class EmployeeManager:
     """
 
     _instance: "EmployeeManager | None" = None
-    _lock = asyncio.Lock()
+    _lock: asyncio.Lock | None = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """Get or create the async lock (lazy initialization)."""
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
 
     def __new__(cls) -> "EmployeeManager":
         """Ensure singleton instance."""
@@ -85,7 +92,7 @@ class EmployeeManager:
             ValueError: If employee not found or role not supported
             RuntimeError: If employee is already running
         """
-        async with self._lock:
+        async with self._get_lock():
             # Check if already running
             if employee_id in self._instances:
                 raise RuntimeError(f"Employee {employee_id} is already running")
@@ -202,7 +209,7 @@ class EmployeeManager:
         Raises:
             ValueError: If employee is not running
         """
-        async with self._lock:
+        async with self._get_lock():
             if employee_id not in self._instances:
                 raise ValueError(f"Employee {employee_id} is not running")
 
@@ -232,6 +239,7 @@ class EmployeeManager:
                 self._paused.discard(employee_id)
 
             # Update database if session provided
+            # Note: "paused" means not running but can be restarted (vs "terminated" = permanent)
             if session:
                 result = await session.execute(
                     select(EmployeeModel).where(EmployeeModel.id == employee_id)

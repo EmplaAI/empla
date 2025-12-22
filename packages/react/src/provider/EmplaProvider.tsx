@@ -102,6 +102,12 @@ export function EmplaProvider({
     config.authToken
   );
 
+  // Destructure config values for stable memoization
+  const { apiUrl, onAuthError } = config;
+
+  // Memoize onAuthError to prevent recreation if parent passes inline function
+  const memoizedOnAuthError = useCallback(() => onAuthError?.(), [onAuthError]);
+
   // Create query client (memoized)
   const queryClient = useMemo(
     () => providedQueryClient ?? createQueryClient(),
@@ -112,11 +118,11 @@ export function EmplaProvider({
   const api = useMemo(
     () =>
       createApiClient({
-        baseUrl: config.apiUrl,
+        baseUrl: apiUrl,
         authToken,
-        onAuthError: config.onAuthError,
+        onAuthError: memoizedOnAuthError,
       }),
-    [config.apiUrl, authToken, config.onAuthError]
+    [apiUrl, authToken, memoizedOnAuthError]
   );
 
   // Set auth token
@@ -124,36 +130,42 @@ export function EmplaProvider({
     setAuthTokenState(token);
   }, []);
 
-  // Login
+  // Login - sets token state which triggers API client recreation via useMemo
   const login = useCallback(
     async (email: string, tenantSlug: string): Promise<LoginResponse> => {
       const response = await api.login(email, tenantSlug);
       setAuthTokenState(response.token);
-      api.setAuthToken(response.token);
+      // Note: API client will be recreated with new token on next render
       return response;
     },
     [api]
   );
 
-  // Logout
+  // Logout - clears token state which triggers API client recreation via useMemo
   const logout = useCallback(() => {
     setAuthTokenState(undefined);
-    api.setAuthToken(undefined);
+    // Note: API client will be recreated without token on next render
     queryClient.clear();
-  }, [api, queryClient]);
+  }, [queryClient]);
+
+  // Memoize config object for stable context value
+  const memoizedConfig = useMemo<EmplaConfig>(
+    () => ({ apiUrl, authToken, onAuthError }),
+    [apiUrl, authToken, onAuthError]
+  );
 
   // Context value
   const contextValue = useMemo<EmplaContextValue>(
     () => ({
       api,
-      config,
+      config: memoizedConfig,
       isAuthenticated: !!authToken,
       authToken,
       login,
       logout,
       setAuthToken,
     }),
-    [api, config, authToken, login, logout, setAuthToken]
+    [api, memoizedConfig, authToken, login, logout, setAuthToken]
   );
 
   return (

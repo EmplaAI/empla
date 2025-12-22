@@ -6,7 +6,7 @@ Used by the dashboard activity feed.
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -191,9 +191,7 @@ class ActivityService:
         Returns:
             Dictionary of event_type -> count
         """
-        since = datetime.now(UTC).replace(
-            hour=datetime.now(UTC).hour - hours if hours < 24 else 0
-        )
+        since = datetime.now(UTC) - timedelta(hours=hours)
 
         query = (
             select(
