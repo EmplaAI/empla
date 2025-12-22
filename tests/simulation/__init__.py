@@ -43,6 +43,8 @@ from tests.simulation.capabilities import (
     SimulatedCRMCapability,
     SimulatedEmailCapability,
     get_simulated_capabilities,
+    get_simulated_registry,
+    initialize_simulated_capabilities,
 )
 from tests.simulation.environment import (
     CustomerHealth,
@@ -72,4 +74,7 @@ __all__ = [
     "SimulatedCalendarCapability",
     "SimulatedCRMCapability",
     "get_simulated_capabilities",
+    # Registry helper (for DigitalEmployee injection)
+    "get_simulated_registry",
+    "initialize_simulated_capabilities",
 ]
