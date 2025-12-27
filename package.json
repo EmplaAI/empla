@@ -1,0 +1,14 @@
+{
+  "name": "empla-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:dashboard": "npm run dev -w @empla/dashboard",
+    "build:dashboard": "npm run build -w @empla/dashboard",
+    "build:react": "npm run build -w @empla/react",
+    "dev": "npm run dev:dashboard"
+  }
+}
