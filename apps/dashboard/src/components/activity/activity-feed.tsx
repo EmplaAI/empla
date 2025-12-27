@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Activity as ActivityIcon } from 'lucide-react';
+import { ArrowRight, Activity as ActivityIcon, AlertCircle } from 'lucide-react';
 import { useActivity, type Activity } from '@empla/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -44,8 +44,25 @@ function EmptyState() {
   );
 }
 
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-8 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10">
+        <AlertCircle className="h-5 w-5 text-destructive" />
+      </div>
+      <p className="mt-3 text-sm font-medium text-muted-foreground">
+        Failed to load activity
+      </p>
+      <p className="text-xs text-muted-foreground">{message}</p>
+      <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
+        Try again
+      </Button>
+    </div>
+  );
+}
+
 export function ActivityFeed({ limit = 10, employeeId, showHeader = true }: ActivityFeedProps) {
-  const { data, isLoading } = useActivity({
+  const { data, isLoading, error, refetch } = useActivity({
     employeeId,
     pageSize: limit,
     autoRefresh: true,
@@ -70,6 +87,11 @@ export function ActivityFeed({ limit = 10, employeeId, showHeader = true }: Acti
       <CardContent className={showHeader ? '' : 'pt-6'}>
         {isLoading ? (
           <ActivityFeedSkeleton />
+        ) : error ? (
+          <ErrorState
+            message={error instanceof Error ? error.message : 'An unexpected error occurred'}
+            onRetry={() => refetch()}
+          />
         ) : activities.length === 0 ? (
           <EmptyState />
         ) : (

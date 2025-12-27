@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProviders } from '@/providers/app-providers';
 import { AuthGuard } from '@/components/auth/auth-guard';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { LoginPage } from '@/routes/login';
 import { DashboardPage } from '@/routes/dashboard';
@@ -12,7 +13,8 @@ export function App() {
   return (
     <BrowserRouter>
       <AppProviders>
-        <Routes>
+        <ErrorBoundary>
+          <Routes>
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
 
@@ -33,6 +35,7 @@ export function App() {
           {/* Catch all - redirect to home */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </AppProviders>
     </BrowserRouter>
   );

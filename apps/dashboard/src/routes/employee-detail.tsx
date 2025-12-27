@@ -1,7 +1,7 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Trash2, Edit, Loader2 } from 'lucide-react';
+import { ArrowLeft, Trash2, Edit, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { useEmployee, useDeleteEmployee } from '@empla/react';
+import { useEmployee, useDeleteEmployee, ApiError } from '@empla/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -59,21 +59,53 @@ function NotFound() {
   );
 }
 
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-destructive/30 bg-destructive/10">
+        <AlertCircle className="h-6 w-6 text-destructive" />
+      </div>
+      <h2 className="mt-4 font-display text-2xl font-bold">Something went wrong</h2>
+      <p className="mt-2 text-muted-foreground">{message}</p>
+      <div className="mt-4 flex gap-2">
+        <Button variant="outline" onClick={onRetry}>
+          Try again
+        </Button>
+        <Button asChild>
+          <Link to="/employees">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Employees
+          </Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: employee, isLoading, error, refetch } = useEmployee(id!);
   const deleteEmployee = useDeleteEmployee();
 
+  // Early return if no ID provided
+  if (!id) {
+    return <NotFound />;
+  }
+
+  const { data: employee, isLoading, error, refetch } = useEmployee(id);
+
   const handleDelete = () => {
-    if (!id) return;
     deleteEmployee.mutate(id, {
       onSuccess: () => {
-        toast.success('Employee deleted');
+        toast.success('Employee deleted', {
+          description: `${employee?.name ?? 'Employee'} has been removed`,
+        });
         navigate('/employees');
       },
-      onError: () => {
-        toast.error('Failed to delete employee');
+      onError: (error) => {
+        toast.error('Failed to delete employee', {
+          description: error instanceof Error ? error.message : 'Please try again',
+        });
       },
     });
   };
@@ -82,7 +114,22 @@ export function EmployeeDetailPage() {
     return <EmployeeDetailSkeleton />;
   }
 
-  if (error || !employee) {
+  // Handle errors with appropriate UI
+  if (error) {
+    // Check if it's a 404 error
+    if (error instanceof ApiError && error.status === 404) {
+      return <NotFound />;
+    }
+    // Other errors show error state with retry option
+    return (
+      <ErrorState
+        message={error instanceof Error ? error.message : 'Failed to load employee'}
+        onRetry={() => refetch()}
+      />
+    );
+  }
+
+  if (!employee) {
     return <NotFound />;
   }
 

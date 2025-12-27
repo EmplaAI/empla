@@ -22,8 +22,10 @@ export function EmployeeControls({ employee, onActionComplete }: EmployeeControl
         });
         onActionComplete?.();
       },
-      onError: () => {
-        toast.error('Failed to start employee');
+      onError: (error) => {
+        toast.error('Failed to start employee', {
+          description: error instanceof Error ? error.message : 'Please try again',
+        });
       },
     });
   };
@@ -36,8 +38,10 @@ export function EmployeeControls({ employee, onActionComplete }: EmployeeControl
         });
         onActionComplete?.();
       },
-      onError: () => {
-        toast.error('Failed to stop employee');
+      onError: (error) => {
+        toast.error('Failed to stop employee', {
+          description: error instanceof Error ? error.message : 'Please try again',
+        });
       },
     });
   };
@@ -50,8 +54,10 @@ export function EmployeeControls({ employee, onActionComplete }: EmployeeControl
         });
         onActionComplete?.();
       },
-      onError: () => {
-        toast.error('Failed to pause employee');
+      onError: (error) => {
+        toast.error('Failed to pause employee', {
+          description: error instanceof Error ? error.message : 'Please try again',
+        });
       },
     });
   };
@@ -64,8 +70,10 @@ export function EmployeeControls({ employee, onActionComplete }: EmployeeControl
         });
         onActionComplete?.();
       },
-      onError: () => {
-        toast.error('Failed to resume employee');
+      onError: (error) => {
+        toast.error('Failed to resume employee', {
+          description: error instanceof Error ? error.message : 'Please try again',
+        });
       },
     });
   };

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, createContext, useContext, type ReactNode } from 'react';
+import { useState, useCallback, createContext, useContext, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EmplaProvider } from '@empla/react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -85,13 +85,6 @@ export function AppProviders({ children }: AppProvidersProps) {
     logout();
     window.location.href = '/login';
   }, [logout]);
-
-  // Sync auth state to localStorage
-  useEffect(() => {
-    if (auth.token) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
-    }
-  }, [auth]);
 
   const authValue: AuthContextValue = {
     ...auth,
