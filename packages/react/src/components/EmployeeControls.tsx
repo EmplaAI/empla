@@ -176,18 +176,14 @@ export function EmployeeControls({
     ...style,
   };
 
-  const handleAction = async (
+  const handleAction = (
     action: 'start' | 'stop' | 'pause' | 'resume',
-    mutate: () => void
+    mutate: typeof start.mutate
   ) => {
-    try {
-      mutate();
-      // Note: onSuccess in the mutation will handle completion
-      // We call onActionComplete here for immediate feedback
-      onActionComplete?.(action);
-    } catch (error) {
-      onActionError?.(action, error as Error);
-    }
+    mutate(undefined, {
+      onSuccess: () => onActionComplete?.(action),
+      onError: (error) => onActionError?.(action, error as Error),
+    });
   };
 
   const ButtonComponent = renderButton || DefaultButton;
@@ -201,7 +197,7 @@ export function EmployeeControls({
       label: 'Start',
       disabled: disabled || isActionPending,
       loading: start.isPending,
-      onClick: () => handleAction('start', () => start.mutate()),
+      onClick: () => handleAction('start', start.mutate),
       style: variantStyles.primary,
       variant: 'primary',
     });
@@ -212,7 +208,7 @@ export function EmployeeControls({
       label: 'Stop',
       disabled: disabled || isActionPending,
       loading: stop.isPending,
-      onClick: () => handleAction('stop', () => stop.mutate()),
+      onClick: () => handleAction('stop', stop.mutate),
       style: variantStyles.danger,
       variant: 'danger',
     });
@@ -225,7 +221,7 @@ export function EmployeeControls({
           label: 'Resume',
           disabled: disabled || isActionPending,
           loading: resume.isPending,
-          onClick: () => handleAction('resume', () => resume.mutate()),
+          onClick: () => handleAction('resume', resume.mutate),
           style: variantStyles.secondary,
           variant: 'secondary',
         });
@@ -235,7 +231,7 @@ export function EmployeeControls({
           label: 'Pause',
           disabled: disabled || isActionPending,
           loading: pause.isPending,
-          onClick: () => handleAction('pause', () => pause.mutate()),
+          onClick: () => handleAction('pause', pause.mutate),
           style: variantStyles.secondary,
           variant: 'secondary',
         });

@@ -4,7 +4,7 @@
  * List of employees with filtering, pagination, and optional controls.
  */
 
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 
 import { useEmployees } from '../hooks/useEmployees';
 import type { Employee, EmployeeRole, EmployeeStatus } from '../types';
@@ -83,6 +83,11 @@ export function EmployeeList({
   style,
 }: EmployeeListProps) {
   const [page, setPage] = useState(1);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [status, role]);
 
   const {
     data,

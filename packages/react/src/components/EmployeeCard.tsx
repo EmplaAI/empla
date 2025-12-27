@@ -4,11 +4,30 @@
  * Card display for an employee with status, role, and actions.
  */
 
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
 
 import type { Employee } from '../types';
 
 import { EmployeeStatusBadge, RunningIndicator } from './EmployeeStatusBadge';
+
+/**
+ * Inject pulse keyframes for skeleton animation.
+ * Only injects once per page load.
+ */
+let keyframesInjected = false;
+function injectPulseKeyframes(): void {
+  if (keyframesInjected || typeof document === 'undefined') return;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  `;
+  document.head.appendChild(style);
+  keyframesInjected = true;
+}
 
 /**
  * Human-readable role labels.
@@ -208,6 +227,11 @@ export interface EmployeeCardSkeletonProps {
  * Loading skeleton for EmployeeCard.
  */
 export function EmployeeCardSkeleton({ compact = false, className = '' }: EmployeeCardSkeletonProps) {
+  // Inject pulse keyframes on mount
+  useEffect(() => {
+    injectPulseKeyframes();
+  }, []);
+
   const cardStyle: CSSProperties = {
     backgroundColor: '#FFFFFF',
     border: '1px solid #E5E7EB',

@@ -92,15 +92,18 @@ export function EmployeeStatusBadge({
   style,
   label,
 }: EmployeeStatusBadgeProps) {
+  // Fallback colors for unknown values
+  const fallbackColors = { bg: '#F3F4F6', text: '#374151', border: '#9CA3AF' };
+
   const colors =
     variant === 'status'
-      ? STATUS_COLORS[value as EmployeeStatus]
-      : LIFECYCLE_COLORS[value as LifecycleStage];
+      ? STATUS_COLORS[value as EmployeeStatus] ?? fallbackColors
+      : LIFECYCLE_COLORS[value as LifecycleStage] ?? fallbackColors;
 
   const defaultLabel =
     variant === 'status'
-      ? STATUS_LABELS[value as EmployeeStatus]
-      : LIFECYCLE_LABELS[value as LifecycleStage];
+      ? STATUS_LABELS[value as EmployeeStatus] ?? value
+      : LIFECYCLE_LABELS[value as LifecycleStage] ?? value;
 
   const sizeStyles: Record<string, CSSProperties> = {
     sm: { padding: '2px 8px', fontSize: '11px' },

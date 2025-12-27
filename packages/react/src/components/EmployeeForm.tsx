@@ -250,7 +250,12 @@ export function EmployeeForm({
           capabilities: formData.capabilities,
         };
 
-    await onSubmit(data);
+    try {
+      await onSubmit(data);
+    } catch {
+      // Error handling is delegated to the parent via the `error` prop
+      // or handled by the mutation's onError callback
+    }
   };
 
   const handleCapabilityToggle = (capability: string) => {
@@ -419,7 +424,11 @@ export function DeleteEmployeeButton({
 }: DeleteEmployeeButtonProps) {
   const handleClick = async () => {
     if (window.confirm(confirmMessage)) {
-      await onDelete();
+      try {
+        await onDelete();
+      } catch {
+        // Error is expected to be handled by the caller
+      }
     }
   };
 
