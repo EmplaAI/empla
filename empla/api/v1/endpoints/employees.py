@@ -257,13 +257,16 @@ async def update_employee(
                 detail=f"Employee with email {data.email} already exists",
             )
 
+    # Capture original status before applying updates
+    previous_status = employee.status
+
     # Apply updates
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(employee, field, value)
 
-    # Handle status transitions
-    if data.status == "active" and employee.activated_at is None:
+    # Handle status transitions: set activated_at only on transition into active
+    if data.status == "active" and previous_status != "active":
         employee.activated_at = datetime.now(UTC)
 
     await db.commit()

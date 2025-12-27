@@ -256,6 +256,9 @@ class EmployeeManager:
             employee = self._instances[employee_id]
             status = self.get_status(employee_id)
 
+            # Capture tenant_id before cleanup for DB update with tenant isolation
+            tenant_id = employee.config.tenant_id
+
             logger.info(f"Stopping employee {employee_id}")
 
             # Cancel the background task
@@ -280,7 +283,10 @@ class EmployeeManager:
             # Note: Setting status to "stopped" (can be restarted, vs "terminated" = permanent)
             if session:
                 result = await session.execute(
-                    select(EmployeeModel).where(EmployeeModel.id == employee_id)
+                    select(EmployeeModel).where(
+                        EmployeeModel.id == employee_id,
+                        EmployeeModel.tenant_id == tenant_id,
+                    )
                 )
                 db_employee = result.scalar_one_or_none()
                 if db_employee:
