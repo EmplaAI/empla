@@ -86,13 +86,15 @@ export function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const deleteEmployee = useDeleteEmployee();
+  // Call hook unconditionally with enabled option to satisfy Rules of Hooks
+  const { data: employee, isLoading, error, refetch } = useEmployee(id ?? '', {
+    enabled: !!id,
+  });
 
   // Early return if no ID provided
   if (!id) {
     return <NotFound />;
   }
-
-  const { data: employee, isLoading, error, refetch } = useEmployee(id);
 
   const handleDelete = () => {
     deleteEmployee.mutate(id, {
