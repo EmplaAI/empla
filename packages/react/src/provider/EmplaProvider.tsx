@@ -112,7 +112,11 @@ export function EmplaProvider({
   const { apiUrl, onAuthError } = config;
 
   // Memoize onAuthError to prevent recreation if parent passes inline function
-  const memoizedOnAuthError = useCallback(() => onAuthError?.(), [onAuthError]);
+  // Use rest params to forward any arguments (future-proofing for error details)
+  const memoizedOnAuthError = useCallback(
+    (...args: Parameters<NonNullable<typeof onAuthError>>) => onAuthError?.(...args),
+    [onAuthError]
+  );
 
   // Create query client (memoized)
   const queryClient = useMemo(

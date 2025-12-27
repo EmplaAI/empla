@@ -305,18 +305,19 @@ class EmployeeManager:
             Status dictionary
 
         Raises:
-            ValueError: If employee is not running
+            ValueError: If employee is not running or already paused
         """
-        if employee_id not in self._instances:
-            raise ValueError(f"Employee {employee_id} is not running")
+        async with self._lock:
+            if employee_id not in self._instances:
+                raise ValueError(f"Employee {employee_id} is not running")
 
-        if employee_id in self._paused:
-            raise ValueError(f"Employee {employee_id} is already paused")
+            if employee_id in self._paused:
+                raise ValueError(f"Employee {employee_id} is already paused")
 
-        self._paused.add(employee_id)
-        logger.info(f"Employee {employee_id} paused")
+            self._paused.add(employee_id)
+            logger.info(f"Employee {employee_id} paused")
 
-        return self.get_status(employee_id)
+            return self.get_status(employee_id)
 
     async def resume_employee(self, employee_id: UUID) -> dict[str, Any]:
         """
@@ -329,18 +330,19 @@ class EmployeeManager:
             Status dictionary
 
         Raises:
-            ValueError: If employee is not paused
+            ValueError: If employee is not running or not paused
         """
-        if employee_id not in self._instances:
-            raise ValueError(f"Employee {employee_id} is not running")
+        async with self._lock:
+            if employee_id not in self._instances:
+                raise ValueError(f"Employee {employee_id} is not running")
 
-        if employee_id not in self._paused:
-            raise ValueError(f"Employee {employee_id} is not paused")
+            if employee_id not in self._paused:
+                raise ValueError(f"Employee {employee_id} is not paused")
 
-        self._paused.discard(employee_id)
-        logger.info(f"Employee {employee_id} resumed")
+            self._paused.discard(employee_id)
+            logger.info(f"Employee {employee_id} resumed")
 
-        return self.get_status(employee_id)
+            return self.get_status(employee_id)
 
     def get_status(self, employee_id: UUID) -> dict[str, Any]:
         """

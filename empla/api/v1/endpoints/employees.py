@@ -152,7 +152,12 @@ async def create_employee(
         extra={"employee_id": str(employee.id), "tenant_id": str(auth.tenant_id)},
     )
 
-    return EmployeeResponse.model_validate(employee)
+    # New employees are never running, but check for consistency with other endpoints
+    manager = get_employee_manager()
+    response = EmployeeResponse.model_validate(employee)
+    response.is_running = manager.is_running(employee.id)
+
+    return response
 
 
 @router.get("/{employee_id}", response_model=EmployeeResponse)

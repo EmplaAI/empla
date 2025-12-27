@@ -15,7 +15,6 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from empla.models.tenant import Tenant, User
 
@@ -127,11 +126,9 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         ) from e
 
-    # Fetch user with tenant in single query (performance optimization)
+    # Fetch user and tenant from database
     result = await db.execute(
-        select(User)
-        .options(selectinload(User.tenant))
-        .where(
+        select(User).where(
             User.id == user_id,
             User.tenant_id == tenant_id,
             User.deleted_at.is_(None),
@@ -146,9 +143,16 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    tenant = user.tenant
+    # Fetch tenant separately (User model doesn't define tenant relationship)
+    result = await db.execute(
+        select(Tenant).where(
+            Tenant.id == tenant_id,
+            Tenant.deleted_at.is_(None),
+        )
+    )
+    tenant = result.scalar_one_or_none()
 
-    if tenant is None or tenant.deleted_at is not None:
+    if tenant is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tenant not found",
