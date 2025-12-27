@@ -106,15 +106,21 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 export function StatsCards() {
-  const { data, isLoading, error, refetch } = useEmployees({ page: 1, pageSize: 100 });
+  // Fetch all employees to compute accurate stats
+  // Note: For large tenants (1000+ employees), consider adding a dedicated stats endpoint
+  const { data, isLoading, error, refetch } = useEmployees({ page: 1, pageSize: 1000 });
 
   const stats = useMemo(() => {
     const employees = data?.items ?? [];
+    const total = data?.total ?? 0;
+    // If we fetched fewer employees than total, status counts are approximate
+    const isApproximate = employees.length < total;
     return {
-      total: data?.total ?? 0,
+      total,
       active: employees.filter((e) => e.status === 'active').length,
       running: employees.filter((e) => e.isRunning).length,
       paused: employees.filter((e) => e.status === 'paused').length,
+      isApproximate,
     };
   }, [data]);
 
@@ -151,7 +157,7 @@ export function StatsCards() {
       />
       <StatCard
         title="Active"
-        value={stats.active}
+        value={stats.isApproximate ? `~${stats.active}` : stats.active}
         description="Ready to operate"
         icon={<Play className="h-5 w-5" />}
         color="green"
@@ -159,7 +165,7 @@ export function StatsCards() {
       />
       <StatCard
         title="Running"
-        value={stats.running}
+        value={stats.isApproximate ? `~${stats.running}` : stats.running}
         description="Currently executing"
         icon={<Play className="h-5 w-5" />}
         color="cyan"
@@ -167,7 +173,7 @@ export function StatsCards() {
       />
       <StatCard
         title="Paused"
-        value={stats.paused}
+        value={stats.isApproximate ? `~${stats.paused}` : stats.paused}
         description="On standby"
         icon={<Pause className="h-5 w-5" />}
         color="amber"

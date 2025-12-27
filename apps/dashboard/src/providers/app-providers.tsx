@@ -31,21 +31,32 @@ export function useAuth() {
 }
 
 function getStoredAuth(): AuthState {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-  } catch {
-    // Ignore parsing errors
-  }
-  return {
+  const defaults: AuthState = {
     token: null,
     userId: null,
     tenantId: null,
     userName: null,
     tenantName: null,
   };
+
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Merge with defaults to ensure all fields exist with correct null values
+      return {
+        token: typeof parsed.token === 'string' ? parsed.token : null,
+        userId: typeof parsed.userId === 'string' ? parsed.userId : null,
+        tenantId: typeof parsed.tenantId === 'string' ? parsed.tenantId : null,
+        userName: typeof parsed.userName === 'string' ? parsed.userName : null,
+        tenantName: typeof parsed.tenantName === 'string' ? parsed.tenantName : null,
+      };
+    }
+  } catch {
+    // Ignore parsing errors, clear corrupted data
+    localStorage.removeItem(STORAGE_KEY);
+  }
+  return defaults;
 }
 
 const queryClient = new QueryClient({
