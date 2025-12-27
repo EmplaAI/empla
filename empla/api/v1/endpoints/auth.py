@@ -9,7 +9,7 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 
 from empla.api.deps import DBSession
@@ -30,11 +30,13 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     """Login response with token."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     token: str
-    user_id: UUID
-    tenant_id: UUID
-    user_name: str
-    tenant_name: str
+    user_id: UUID = Field(serialization_alias="userId")
+    tenant_id: UUID = Field(serialization_alias="tenantId")
+    user_name: str = Field(serialization_alias="userName")
+    tenant_name: str = Field(serialization_alias="tenantName")
     role: str
 
 
@@ -47,7 +49,7 @@ class TokenInfo(BaseModel):
     role: str | None = None
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login", response_model=LoginResponse, response_model_by_alias=True)
 async def login(
     db: DBSession,
     data: LoginRequest,
@@ -124,7 +126,7 @@ async def login(
     )
 
 
-@router.get("/me", response_model=LoginResponse)
+@router.get("/me", response_model=LoginResponse, response_model_by_alias=True)
 async def get_current_user_info(
     db: DBSession,
     authorization: str = Header(..., alias="Authorization"),
