@@ -212,7 +212,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-package-lock.json
+
+# npm workspaces: commit root package-lock.json, ignore any nested ones
+# (nested lockfiles are artifacts from running npm install in subdirectories)
+packages/*/package-lock.json
 
 # Build outputs (JS/TS)
 *.tsbuildinfo
