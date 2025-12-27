@@ -113,7 +113,27 @@ export function createApiClient(config: ApiClientConfig) {
       return undefined as T;
     }
 
-    return response.json();
+    // Check content-type to detect non-JSON responses
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const rawText = await response.text();
+      throw new ApiError(
+        `Expected JSON response but received ${contentType || 'unknown content type'}`,
+        response.status,
+        { url: response.url, rawBody: rawText?.substring(0, 500) }
+      );
+    }
+
+    // Parse JSON with error handling
+    try {
+      return await response.json();
+    } catch (parseError) {
+      throw new ApiError(
+        `Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+        response.status,
+        { url: response.url, parseError: String(parseError) }
+      );
+    }
   }
 
   /**
@@ -161,8 +181,10 @@ export function createApiClient(config: ApiClientConfig) {
     role?: string;
   }): Promise<PaginatedResponse<Employee>> {
     const searchParams = new URLSearchParams();
-    if (params?.page) searchParams.set('page', params.page.toString());
-    if (params?.pageSize) searchParams.set('page_size', params.pageSize.toString());
+    if (params?.page !== undefined && params?.page !== null)
+      searchParams.set('page', params.page.toString());
+    if (params?.pageSize !== undefined && params?.pageSize !== null)
+      searchParams.set('page_size', params.pageSize.toString());
     if (params?.status) searchParams.set('status', params.status);
     if (params?.role) searchParams.set('role', params.role);
 
@@ -370,10 +392,13 @@ export function createApiClient(config: ApiClientConfig) {
     since?: string;
   }): Promise<PaginatedResponse<Activity>> {
     const searchParams = new URLSearchParams();
-    if (params?.page) searchParams.set('page', params.page.toString());
-    if (params?.pageSize) searchParams.set('page_size', params.pageSize.toString());
+    if (params?.page !== undefined && params?.page !== null)
+      searchParams.set('page', params.page.toString());
+    if (params?.pageSize !== undefined && params?.pageSize !== null)
+      searchParams.set('page_size', params.pageSize.toString());
     if (params?.eventType) searchParams.set('event_type', params.eventType);
-    if (params?.minImportance) searchParams.set('min_importance', params.minImportance.toString());
+    if (params?.minImportance !== undefined && params?.minImportance !== null)
+      searchParams.set('min_importance', params.minImportance.toString());
     if (params?.since) searchParams.set('since', params.since);
 
     const query = searchParams.toString();
