@@ -150,8 +150,10 @@ class EmployeeManager:
             self._tasks[employee_id] = task
 
             # Update database status
+            # Only set activated_at on first transition into "active"
+            if db_employee.status != "active":
+                db_employee.activated_at = datetime.now(UTC)
             db_employee.status = "active"
-            db_employee.activated_at = datetime.now(UTC)
             await session.commit()
 
             logger.info(f"Employee {employee_id} started successfully")
