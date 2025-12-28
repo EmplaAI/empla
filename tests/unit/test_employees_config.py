@@ -121,8 +121,8 @@ class TestLLMSettings:
     def test_default_values(self):
         """Test default LLM settings."""
         settings = LLMSettings()
-        assert settings.primary_model == "claude-sonnet-4-5"
-        assert settings.fallback_model == "gpt-4.1"
+        assert settings.primary_model == "gemini-3-flash-preview"
+        assert settings.fallback_model == "claude-sonnet-4"
         assert settings.temperature == 0.7
         assert settings.max_tokens == 4096
 

@@ -61,6 +61,14 @@ MODELS = {
         input_cost_per_1m=0.15,
         output_cost_per_1m=0.60,
     ),
+    "gemini-3-flash-preview": LLMModel(
+        provider=LLMProvider.VERTEX,
+        model_id="gemini-3-flash-preview",
+        max_tokens=8192,
+        temperature=0.7,
+        input_cost_per_1m=0.10,
+        output_cost_per_1m=0.40,
+    ),
 }
 
 
@@ -68,10 +76,10 @@ class LLMConfig(BaseModel):
     """LLM configuration."""
 
     # Primary model (main model for reasoning)
-    primary_model: str = "claude-sonnet-4"
+    primary_model: str = "gemini-3-flash-preview"
 
     # Fallback model (different provider for redundancy)
-    fallback_model: str | None = "gpt-4o"
+    fallback_model: str | None = "claude-sonnet-4"
 
     # Embedding model (use OpenAI for now)
     embedding_model: str = "text-embedding-3-large"
@@ -79,6 +87,14 @@ class LLMConfig(BaseModel):
     # API keys (exclude from serialization for security)
     anthropic_api_key: str | None = Field(default=None, exclude=True)
     openai_api_key: str | None = Field(default=None, exclude=True)
+
+    # Azure OpenAI configuration
+    azure_openai_api_key: str | None = Field(default=None, exclude=True)
+    azure_openai_endpoint: str | None = None  # e.g., "https://myresource.openai.azure.com"
+    azure_openai_deployment: str | None = None  # e.g., "gpt-4o-deployment"
+    azure_openai_api_version: str = "2024-08-01-preview"
+
+    # Google Vertex AI configuration
     vertex_project_id: str | None = None
     vertex_location: str = "us-central1"
 

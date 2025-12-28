@@ -109,6 +109,15 @@ class LLMService:
                 api_key=self.config.openai_api_key,
                 model_id=model_id,
             )
+        if provider == "azure_openai":
+            return LLMProviderFactory.create(
+                provider="azure_openai",
+                api_key=self.config.azure_openai_api_key,
+                model_id=model_id,
+                azure_endpoint=self.config.azure_openai_endpoint,
+                deployment_name=self.config.azure_openai_deployment,
+                api_version=self.config.azure_openai_api_version,
+            )
         if provider == "vertex":
             return LLMProviderFactory.create(
                 provider="vertex",
@@ -118,7 +127,8 @@ class LLMService:
                 location=self.config.vertex_location,
             )
         raise ValueError(
-            f"Unsupported LLM provider: {provider}. Supported providers: anthropic, openai, vertex"
+            f"Unsupported LLM provider: {provider}. "
+            "Supported providers: anthropic, openai, azure_openai, vertex"
         )
 
     async def generate(
@@ -352,4 +362,9 @@ class LLMService:
 
 
 # Export main classes
-__all__ = ["MODELS", "LLMConfig", "LLMService"]
+__all__ = [
+    "MODELS",
+    "LLMConfig",
+    "LLMService",
+    "LLMProviderFactory",
+]

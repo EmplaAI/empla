@@ -172,7 +172,7 @@ def llm_service():
 
         # Determine which provider to use based on available credentials
         if vertex_project:
-            primary_model = "gemini-2.0-flash"
+            primary_model = "gemini-3-flash-preview"
             fallback_model = None
             logger.info(f"Using Vertex AI with project: {vertex_project}")
         elif anthropic_key:

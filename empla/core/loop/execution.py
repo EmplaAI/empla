@@ -54,8 +54,8 @@ class GoalSystemProtocol(Protocol):
         """Get all active goals"""
         ...
 
-    async def update_goal_progress(self, goal: Any, beliefs: BeliefSystemProtocol) -> None:
-        """Update goal progress based on current beliefs"""
+    async def update_goal_progress(self, goal_id: Any, progress: dict[str, Any]) -> Any:
+        """Update goal progress"""
         ...
 
 
@@ -263,7 +263,9 @@ class ProactiveExecutionLoop:
                 # Update goal progress based on current beliefs
                 active_goals = await self.goals.get_active_goals()
                 for goal in active_goals:
-                    await self.goals.update_goal_progress(goal, self.beliefs)
+                    # TODO: Evaluate progress based on beliefs and goal.target
+                    # For now, just mark that we checked the goal
+                    await self.goals.update_goal_progress(goal.id, {})
 
                 logger.debug(
                     f"Goal progress updated for {len(active_goals)} active goals",
@@ -307,7 +309,7 @@ class ProactiveExecutionLoop:
 
                 # Sleep in small increments to check is_running flag frequently
                 # This allows prompt shutdown without waiting for full cycle_interval
-                sleep_remaining = self.cycle_interval
+                sleep_remaining: float = float(self.cycle_interval)
                 while sleep_remaining > 0 and self.is_running:
                     sleep_chunk = min(0.1, sleep_remaining)  # Check every 100ms
                     await asyncio.sleep(sleep_chunk)
@@ -333,7 +335,7 @@ class ProactiveExecutionLoop:
                     break
 
                 # Sleep in small increments to check is_running flag frequently
-                sleep_remaining = self.error_backoff_interval
+                sleep_remaining = float(self.error_backoff_interval)
                 while sleep_remaining > 0 and self.is_running:
                     sleep_chunk = min(0.1, sleep_remaining)  # Check every 100ms
                     await asyncio.sleep(sleep_chunk)
@@ -354,6 +356,97 @@ class ProactiveExecutionLoop:
                 "reason": exit_reason,
             },
         )
+
+    async def _run_cycle(self) -> IntentionResult | None:
+        """
+        Execute a single BDI reasoning cycle.
+
+        This is the core of the proactive loop, extracted for use by
+        DigitalEmployee.run_once() for testing and manual control.
+
+        The cycle performs:
+        1. PERCEIVE: Gather observations from environment
+        2. UPDATE BELIEFS: Process observations into world model updates
+        3. STRATEGIC REASONING: Form/abandon goals, generate strategies (when needed)
+        4. GOAL MANAGEMENT: Update goal progress
+        5. INTENTION EXECUTION: Execute highest priority work
+        6. LEARNING: Reflect on outcomes and learn
+
+        Returns:
+            IntentionResult if work was done, None if no work to do or cycle
+            completed without intention execution.
+
+        Raises:
+            Exception: If any phase fails critically (logged but not suppressed
+                      to allow caller to handle).
+        """
+        cycle_start = time.time()
+        self.cycle_count += 1
+
+        logger.debug(
+            f"Single cycle {self.cycle_count} starting",
+            extra={"employee_id": str(self.employee.id)},
+        )
+
+        # ============ PERCEIVE ============
+        perception_result = await self.perceive_environment()
+
+        logger.debug(
+            f"Perception complete: {len(perception_result.observations)} observations",
+            extra={
+                "employee_id": str(self.employee.id),
+                "observations": len(perception_result.observations),
+            },
+        )
+
+        # ============ UPDATE BELIEFS ============
+        changed_beliefs = await self.beliefs.update_beliefs(perception_result.observations)
+
+        logger.debug(
+            f"Beliefs updated: {len(changed_beliefs)} changes",
+            extra={
+                "employee_id": str(self.employee.id),
+                "changed_beliefs": len(changed_beliefs),
+            },
+        )
+
+        # ============ STRATEGIC REASONING ============
+        if self.should_run_strategic_planning(changed_beliefs):
+            await self.strategic_planning_cycle()
+            self.last_strategic_planning = datetime.now(UTC)
+
+        # ============ GOAL MANAGEMENT ============
+        active_goals = await self.goals.get_active_goals()
+        for goal in active_goals:
+            # TODO: Evaluate progress based on beliefs and goal.target
+            # For now, just mark that we checked the goal
+            await self.goals.update_goal_progress(goal.id, {})
+
+        logger.debug(
+            f"Goal progress updated for {len(active_goals)} active goals",
+            extra={"employee_id": str(self.employee.id)},
+        )
+
+        # ============ INTENTION EXECUTION ============
+        result = await self.execute_intentions()
+
+        # ============ LEARNING ============
+        if result:
+            await self.reflection_cycle(result)
+
+        # ============ METRICS ============
+        cycle_duration = time.time() - cycle_start
+
+        logger.debug(
+            f"Single cycle {self.cycle_count} complete",
+            extra={
+                "employee_id": str(self.employee.id),
+                "duration_seconds": cycle_duration,
+                "had_work": result is not None,
+            },
+        )
+
+        return result
 
     # ========================================================================
     # Phase 1: Perception

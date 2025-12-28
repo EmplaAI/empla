@@ -4,9 +4,12 @@ OpenAI provider implementation.
 This module implements the LLM provider interface for OpenAI's GPT models.
 """
 
+import json
 from collections.abc import AsyncIterator
+from typing import Any, cast
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 
 from empla.llm.models import LLMRequest, LLMResponse, TokenUsage
@@ -16,7 +19,7 @@ from empla.llm.provider import LLMProviderBase
 class OpenAIProvider(LLMProviderBase):
     """OpenAI GPT provider."""
 
-    def __init__(self, api_key: str, model_id: str, **kwargs):
+    def __init__(self, api_key: str, model_id: str, **kwargs: Any) -> None:
         super().__init__(api_key, model_id, **kwargs)
         self.client = AsyncOpenAI(api_key=api_key)
 
@@ -31,12 +34,14 @@ class OpenAIProvider(LLMProviderBase):
             LLM response
         """
         # Convert messages
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        messages: list[dict[str, Any]] = [
+            {"role": msg.role, "content": msg.content} for msg in request.messages
+        ]
 
         # Call OpenAI API
         response = await self.client.chat.completions.create(
             model=self.model_id,
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type]
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             stop=request.stop_sequences,
@@ -44,22 +49,26 @@ class OpenAIProvider(LLMProviderBase):
 
         # Convert to standard response
         choice = response.choices[0]
+        usage = response.usage
         return LLMResponse(
-            content=choice.message.content,
+            content=choice.message.content or "",
             model=response.model,
             usage=TokenUsage(
-                input_tokens=response.usage.prompt_tokens,
-                output_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens,
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+                total_tokens=usage.total_tokens if usage else 0,
             ),
-            finish_reason=choice.finish_reason,
+            finish_reason=choice.finish_reason or "stop",
         )
 
     async def generate_structured(
         self, request: LLMRequest, response_format: type[BaseModel]
     ) -> tuple[LLMResponse, BaseModel]:
         """
-        Generate structured output using OpenAI's native structured outputs.
+        Generate structured output using OpenAI's stable structured outputs API.
+
+        Uses the stable chat.completions.create() endpoint with response_format
+        parameter instead of the beta.parse() endpoint.
 
         Args:
             request: LLM request
@@ -69,30 +78,54 @@ class OpenAIProvider(LLMProviderBase):
             Tuple of (LLM response, parsed output)
         """
         # Convert messages
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        messages: list[dict[str, Any]] = [
+            {"role": msg.role, "content": msg.content} for msg in request.messages
+        ]
 
-        # Use OpenAI's response_format with strict mode
-        response = await self.client.beta.chat.completions.parse(
-            model=self.model_id,
-            messages=messages,
-            max_tokens=request.max_tokens,
-            temperature=request.temperature,
-            response_format=response_format,  # Native structured output
+        # Build JSON schema from Pydantic model for stable API
+        json_schema: dict[str, Any] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_format.__name__,
+                "strict": True,
+                "schema": response_format.model_json_schema(),
+            },
+        }
+
+        # Use stable API with response_format
+        # Note: type: ignore needed because OpenAI SDK uses strict literal types
+        response = cast(
+            ChatCompletion,
+            await self.client.chat.completions.create(  # type: ignore[call-overload]
+                model=self.model_id,
+                messages=messages,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                response_format=json_schema,
+            ),
         )
 
         # Parse response
         choice = response.choices[0]
-        parsed = choice.message.parsed
+        content = choice.message.content or ""
+        usage = response.usage
+
+        # Parse JSON response into Pydantic model
+        try:
+            parsed_data = json.loads(content)
+            parsed = response_format.model_validate(parsed_data)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValueError(f"Failed to parse structured output: {e}") from e
 
         llm_response = LLMResponse(
-            content=choice.message.content,
+            content=content,
             model=response.model,
             usage=TokenUsage(
-                input_tokens=response.usage.prompt_tokens,
-                output_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens,
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+                total_tokens=usage.total_tokens if usage else 0,
             ),
-            finish_reason=choice.finish_reason,
+            finish_reason=choice.finish_reason or "stop",
             structured_output=parsed,
         )
 

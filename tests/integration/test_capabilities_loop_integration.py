@@ -3,6 +3,7 @@ Integration tests for capabilities + proactive loop integration.
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -68,7 +69,7 @@ class MockTestCapability(BaseCapability):
         """
         return self.observations_to_return
 
-    async def execute_action(self, action: Action) -> ActionResult:
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
         Execute the given action in the mock capability and report a successful result.
 
@@ -106,17 +107,21 @@ class MockGoalSystem:
         """
         return []
 
-    async def update_goal_progress(self, goal, beliefs):
+    async def update_goal_progress(self, goal_id: Any, progress: dict[str, Any]) -> Any:
         """
-        Update the progress of a given goal based on the current beliefs.
+        Update the progress of a given goal.
 
         Parameters:
-            goal: The goal object whose progress should be updated (goal-like interface expected).
-            beliefs: An iterable of belief objects used to evaluate and update the goal's progress.
+            goal_id: The goal's unique identifier.
+            progress: Progress data to merge with current progress.
+
+        Returns:
+            Updated goal, or None. This mock returns None.
 
         Notes:
             This mock implementation performs no action.
         """
+        return None
 
 
 class MockIntentionStack:
@@ -251,8 +256,8 @@ async def test_loop_perceives_from_capability_registry():
     assert result.observations[0].content["email_id"] == "123"
     assert result.observations[1].content["email_id"] == "456"
 
-    # Assert: Sources tracked
-    assert "CapabilityType.EMAIL" in result.sources_checked
+    # Assert: Sources tracked (uses enum value, not enum name)
+    assert "email" in result.sources_checked
 
 
 @pytest.mark.asyncio
