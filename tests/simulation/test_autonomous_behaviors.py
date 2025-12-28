@@ -188,7 +188,7 @@ def mock_llm():
         # Determine which provider to use based on available credentials
         if vertex_project:
             # Use Vertex AI / Gemini
-            primary_model = "gemini-2.0-flash"  # Fast and cheap for testing
+            primary_model = "gemini-3-flash-preview"  # Fast and cheap for testing
             fallback_model = None
             logger.info(f"Using Vertex AI with project: {vertex_project}")
         elif anthropic_key:

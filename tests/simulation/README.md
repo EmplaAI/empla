@@ -97,7 +97,7 @@ pytest tests/simulation/test_autonomous_behaviors.py -v
 ```
 
 **Provider auto-selection order:**
-1. Vertex AI (if `VERTEX_PROJECT_ID` or `GCP_PROJECT_ID` is set) → uses `gemini-2.0-flash`
+1. Vertex AI (if `VERTEX_PROJECT_ID` or `GCP_PROJECT_ID` is set) → uses `gemini-3-flash-preview`
 2. Anthropic (if `ANTHROPIC_API_KEY` is set) → uses `claude-sonnet-4`
 3. OpenAI (if `OPENAI_API_KEY` is set) → uses `gpt-4o-mini`
 

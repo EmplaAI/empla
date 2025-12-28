@@ -163,7 +163,7 @@ def llm_config(llm_provider) -> LLMConfig:
         "claude": "claude-sonnet-4",
         "openai": "gpt-4o-mini",
         "azure": "gpt-4o",  # Azure deployment name set separately
-        "gemini": "gemini-2.0-flash",
+        "gemini": "gemini-3-flash-preview",
     }
 
     return LLMConfig(
@@ -185,7 +185,7 @@ def llm_settings(llm_provider) -> LLMSettings:
         "claude": "claude-sonnet-4",
         "openai": "gpt-4o-mini",
         "azure": "gpt-4o",
-        "gemini": "gemini-2.0-flash",
+        "gemini": "gemini-3-flash-preview",
     }
     return LLMSettings(
         primary_model=model_map[llm_provider],
