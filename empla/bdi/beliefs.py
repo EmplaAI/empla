@@ -149,6 +149,39 @@ class BeliefExtractionResult(BaseModel):
     )
 
 
+class BeliefChangeResult:
+    """
+    Represents a change to a belief, matching the BeliefChange protocol.
+
+    This is returned by update_beliefs to indicate what beliefs were
+    created or modified.
+
+    Attributes:
+        subject: The entity the belief is about
+        predicate: The property or relationship
+        importance: How significant this change is (0.0-1.0)
+        old_confidence: Previous confidence level (0.0 for new beliefs)
+        new_confidence: New confidence level after update
+        belief: The actual Belief object that was created/updated
+    """
+
+    def __init__(
+        self,
+        subject: str,
+        predicate: str,
+        importance: float,
+        old_confidence: float,
+        new_confidence: float,
+        belief: "Belief",
+    ):
+        self.subject = subject
+        self.predicate = predicate
+        self.importance = importance
+        self.old_confidence = old_confidence
+        self.new_confidence = new_confidence
+        self.belief = belief
+
+
 class BeliefSystem:
     """
     BDI Belief System.
@@ -158,7 +191,7 @@ class BeliefSystem:
     and decay over time if not reinforced.
 
     Example:
-        >>> belief_system = BeliefSystem(session, employee_id, tenant_id)
+        >>> belief_system = BeliefSystem(session, employee_id, tenant_id, llm_service)
         >>> await belief_system.update_belief(
         ...     subject="Acme Corp",
         ...     predicate="pipeline_health",
@@ -173,6 +206,7 @@ class BeliefSystem:
         session: AsyncSession,
         employee_id: UUID,
         tenant_id: UUID,
+        llm_service: "LLMService",
     ):
         """
         Initialize BeliefSystem.
@@ -181,41 +215,29 @@ class BeliefSystem:
             session: SQLAlchemy async session
             employee_id: Employee this belief system belongs to
             tenant_id: Tenant ID for multi-tenancy
+            llm_service: LLM service for belief extraction from observations
         """
         self.session = session
         self.employee_id = employee_id
         self.tenant_id = tenant_id
+        self._llm_service = llm_service
 
     async def update_beliefs(
         self,
         observations: list["Observation"],
-    ) -> list[dict[str, Any]]:
+    ) -> list[BeliefChangeResult]:
         """
         Update beliefs based on a list of observations.
 
         This is the batch interface used by the ProactiveExecutionLoop.
-        For now, this is a minimal implementation that returns an empty list.
-        Full LLM-based belief extraction can be enabled by setting an LLM service.
+        It extracts beliefs from each observation using the LLM service.
 
         Args:
             observations: List of observations from perception phase
 
         Returns:
-            List of belief changes (as dicts matching BeliefChange protocol)
-
-        Note:
-            This method is designed to work without LLM for testing scenarios.
-            For production use with LLM-based extraction, use
-            extract_beliefs_from_observation() directly.
+            List of BeliefChangeResult objects indicating what beliefs changed
         """
-        # For now, return empty list - beliefs are not automatically extracted
-        # without explicit LLM integration. This allows the loop to run
-        # without requiring LLM credentials in test scenarios.
-        #
-        # In future, this could:
-        # 1. Check if LLM service is available
-        # 2. If yes, call extract_beliefs_from_observation for each observation
-        # 3. Track and return belief changes
         logger.debug(
             f"update_beliefs called with {len(observations)} observations",
             extra={
@@ -223,7 +245,59 @@ class BeliefSystem:
                 "observation_count": len(observations),
             },
         )
-        return []
+
+        all_changes: list[BeliefChangeResult] = []
+
+        for observation in observations:
+            try:
+                # Use existing extract_beliefs_from_observation method
+                beliefs = await self.extract_beliefs_from_observation(
+                    observation=observation,
+                    llm_service=self._llm_service,
+                )
+
+                # Convert beliefs to BeliefChangeResult objects
+                for belief in beliefs:
+                    # Calculate importance based on observation priority and confidence
+                    importance = min(
+                        1.0,
+                        (observation.priority / 10.0) * belief.confidence,
+                    )
+
+                    # For newly extracted beliefs, old_confidence is 0.0
+                    # The update_belief method handles merging with existing beliefs
+                    change = BeliefChangeResult(
+                        subject=belief.subject,
+                        predicate=belief.predicate,
+                        importance=importance,
+                        old_confidence=0.0,  # New belief from observation
+                        new_confidence=belief.confidence,
+                        belief=belief,
+                    )
+                    all_changes.append(change)
+
+            except Exception as e:
+                # Log error but continue processing other observations
+                logger.warning(
+                    f"Failed to extract beliefs from observation: {e}",
+                    extra={
+                        "observation_id": str(observation.observation_id),
+                        "observation_type": observation.observation_type,
+                        "employee_id": str(self.employee_id),
+                    },
+                )
+                continue
+
+        logger.info(
+            f"Extracted {len(all_changes)} beliefs from {len(observations)} observations",
+            extra={
+                "employee_id": str(self.employee_id),
+                "belief_count": len(all_changes),
+                "observation_count": len(observations),
+            },
+        )
+
+        return all_changes
 
     async def get_belief(
         self,

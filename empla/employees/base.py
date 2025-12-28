@@ -631,6 +631,7 @@ class DigitalEmployee(ABC):
             session=session,
             employee_id=self.employee_id,
             tenant_id=self.tenant_id,
+            llm_service=self._llm,
         )
         self._goals = GoalSystem(
             session=session,
