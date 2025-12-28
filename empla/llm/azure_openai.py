@@ -6,10 +6,12 @@ Azure OpenAI requires different configuration (endpoint, deployment name)
 compared to standard OpenAI.
 """
 
+import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from openai import AsyncAzureOpenAI
+from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 
 from empla.llm.models import LLMRequest, LLMResponse, TokenUsage
@@ -109,7 +111,10 @@ class AzureOpenAIProvider(LLMProviderBase):
         self, request: LLMRequest, response_format: type[BaseModel]
     ) -> tuple[LLMResponse, BaseModel]:
         """
-        Generate structured output using Azure OpenAI's native structured outputs.
+        Generate structured output using Azure OpenAI's stable structured outputs API.
+
+        Uses the stable chat.completions.create() endpoint with response_format
+        parameter instead of the beta.parse() endpoint.
 
         Args:
             request: LLM request
@@ -118,22 +123,46 @@ class AzureOpenAIProvider(LLMProviderBase):
         Returns:
             Tuple of (LLM response, parsed output)
         """
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        messages: list[dict[str, Any]] = [
+            {"role": msg.role, "content": msg.content} for msg in request.messages
+        ]
 
-        response = await self.client.beta.chat.completions.parse(
-            model=self.deployment_name,
-            messages=messages,
-            max_tokens=request.max_tokens,
-            temperature=request.temperature,
-            response_format=response_format,
+        # Build JSON schema from Pydantic model for stable API
+        json_schema: dict[str, Any] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_format.__name__,
+                "strict": True,
+                "schema": response_format.model_json_schema(),
+            },
+        }
+
+        # Use stable API with response_format
+        # Note: type: ignore needed because OpenAI SDK uses strict literal types
+        response = cast(
+            ChatCompletion,
+            await self.client.chat.completions.create(  # type: ignore[call-overload]
+                model=self.deployment_name,
+                messages=messages,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                response_format=json_schema,
+            ),
         )
 
         choice = response.choices[0]
-        parsed = choice.message.parsed
+        content = choice.message.content or ""
         usage = response.usage
 
+        # Parse JSON response into Pydantic model
+        try:
+            parsed_data = json.loads(content)
+            parsed = response_format.model_validate(parsed_data)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValueError(f"Failed to parse structured output: {e}") from e
+
         llm_response = LLMResponse(
-            content=choice.message.content or "",
+            content=content,
             model=response.model,
             usage=TokenUsage(
                 input_tokens=usage.prompt_tokens if usage else 0,
@@ -143,10 +172,6 @@ class AzureOpenAIProvider(LLMProviderBase):
             finish_reason=choice.finish_reason or "stop",
             structured_output=parsed,
         )
-
-        # Note: parsed may be None if parsing fails, caller should handle this
-        if parsed is None:
-            raise ValueError("Failed to parse structured output from model response")
 
         return llm_response, parsed
 
