@@ -189,7 +189,7 @@ class BeliefSystem:
     async def update_beliefs(
         self,
         observations: list["Observation"],
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """
         Update beliefs based on a list of observations.
 

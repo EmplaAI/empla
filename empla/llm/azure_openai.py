@@ -93,15 +93,16 @@ class AzureOpenAIProvider(LLMProviderBase):
         )
 
         choice = response.choices[0]
+        usage = response.usage
         return LLMResponse(
-            content=choice.message.content,
+            content=choice.message.content or "",
             model=response.model,
             usage=TokenUsage(
-                input_tokens=response.usage.prompt_tokens,
-                output_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens,
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+                total_tokens=usage.total_tokens if usage else 0,
             ),
-            finish_reason=choice.finish_reason,
+            finish_reason=choice.finish_reason or "stop",
         )
 
     async def generate_structured(
@@ -129,18 +130,23 @@ class AzureOpenAIProvider(LLMProviderBase):
 
         choice = response.choices[0]
         parsed = choice.message.parsed
+        usage = response.usage
 
         llm_response = LLMResponse(
-            content=choice.message.content,
+            content=choice.message.content or "",
             model=response.model,
             usage=TokenUsage(
-                input_tokens=response.usage.prompt_tokens,
-                output_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens,
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+                total_tokens=usage.total_tokens if usage else 0,
             ),
-            finish_reason=choice.finish_reason,
+            finish_reason=choice.finish_reason or "stop",
             structured_output=parsed,
         )
+
+        # Note: parsed may be None if parsing fails, caller should handle this
+        if parsed is None:
+            raise ValueError("Failed to parse structured output from model response")
 
         return llm_response, parsed
 

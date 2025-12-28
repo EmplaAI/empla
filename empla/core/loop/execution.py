@@ -54,7 +54,7 @@ class GoalSystemProtocol(Protocol):
         """Get all active goals"""
         ...
 
-    async def update_goal_progress(self, goal_id: Any, progress: dict) -> Any:
+    async def update_goal_progress(self, goal_id: Any, progress: dict[str, Any]) -> Any:
         """Update goal progress"""
         ...
 
@@ -309,7 +309,7 @@ class ProactiveExecutionLoop:
 
                 # Sleep in small increments to check is_running flag frequently
                 # This allows prompt shutdown without waiting for full cycle_interval
-                sleep_remaining = self.cycle_interval
+                sleep_remaining: float = float(self.cycle_interval)
                 while sleep_remaining > 0 and self.is_running:
                     sleep_chunk = min(0.1, sleep_remaining)  # Check every 100ms
                     await asyncio.sleep(sleep_chunk)
@@ -335,7 +335,7 @@ class ProactiveExecutionLoop:
                     break
 
                 # Sleep in small increments to check is_running flag frequently
-                sleep_remaining = self.error_backoff_interval
+                sleep_remaining = float(self.error_backoff_interval)
                 while sleep_remaining > 0 and self.is_running:
                     sleep_chunk = min(0.1, sleep_remaining)  # Check every 100ms
                     await asyncio.sleep(sleep_chunk)

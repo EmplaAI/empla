@@ -11,15 +11,14 @@ These tests:
 - Are parametrized to test all available providers
 """
 
-import os
 import logging
-from datetime import UTC, datetime
+import os
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import event
 
-from empla.employees import SalesAE, CustomerSuccessManager
+from empla.employees import CustomerSuccessManager, SalesAE
 from empla.employees.config import EmployeeConfig, LLMSettings, LoopSettings
 from empla.llm import LLMService
 from empla.llm.config import LLMConfig
@@ -27,10 +26,6 @@ from empla.models.database import get_engine, get_sessionmaker
 from empla.models.tenant import Tenant, User
 from tests.simulation import (
     SimulatedEnvironment,
-    SimulatedDeal,
-    SimulatedCustomer,
-    DealStage,
-    CustomerHealth,
 )
 
 logger = logging.getLogger(__name__)
@@ -171,7 +166,7 @@ def llm_config(llm_provider) -> LLMConfig:
         "gemini": "gemini-2.0-flash",
     }
 
-    config = LLMConfig(
+    return LLMConfig(
         primary_model=model_map[llm_provider],
         fallback_model=None,  # Test each provider in isolation
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
@@ -181,8 +176,6 @@ def llm_config(llm_provider) -> LLMConfig:
         azure_openai_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
         vertex_project_id=os.getenv("VERTEX_PROJECT_ID"),
     )
-
-    return config
 
 
 @pytest.fixture
@@ -240,7 +233,7 @@ class TestLLMServiceIntegration:
 
         llm = LLMService(llm_config)
 
-        response, parsed = await llm.generate_structured(
+        _response, parsed = await llm.generate_structured(
             prompt="Generate a greeting and a random number between 1-100.",
             response_format=TestOutput,
             max_tokens=100,
@@ -396,7 +389,7 @@ class TestCrossProviderConsistency:
         Extract a belief about the customer's interest level.
         """
 
-        response, belief = await llm.generate_structured(
+        _response, belief = await llm.generate_structured(
             prompt=prompt,
             response_format=ExtractedBelief,
             system="You are an AI that extracts beliefs from observations.",
@@ -435,7 +428,7 @@ class TestCrossProviderConsistency:
         Keep it brief and professional.
         """
 
-        response, email = await llm.generate_structured(
+        _response, email = await llm.generate_structured(
             prompt=prompt,
             response_format=GeneratedEmail,
             system="You are a professional sales AI assistant.",

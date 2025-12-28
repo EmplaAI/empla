@@ -19,16 +19,17 @@ The fixtures auto-detect available API keys and configure the appropriate model.
 
 import logging
 import os
-from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete
 
-from empla.employees import SalesAE, CustomerSuccessManager
-from empla.employees.config import EmployeeConfig, LoopSettings, LLMSettings
-from empla.employees.exceptions import EmployeeConfigError, EmployeeNotStartedError, EmployeeStartupError
-
+from empla.employees import CustomerSuccessManager, SalesAE
+from empla.employees.config import EmployeeConfig, LLMSettings, LoopSettings
+from empla.employees.exceptions import (
+    EmployeeConfigError,
+    EmployeeNotStartedError,
+)
 
 # ============================================================================
 # API Key Detection
@@ -375,7 +376,7 @@ class TestEmployeeLifecycle:
         self, sales_ae_with_simulated_caps
     ):
         """Verify start() initializes BDI, memory, and capabilities."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         # Should not be running initially
         assert not employee._is_running
@@ -400,7 +401,7 @@ class TestEmployeeLifecycle:
     @pytest.mark.asyncio
     async def test_employee_stops_and_cleans_up(self, sales_ae_with_simulated_caps):
         """Verify stop() gracefully shuts down and cleans up."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         await employee.start(run_loop=False)
         assert employee._is_running
@@ -414,7 +415,7 @@ class TestEmployeeLifecycle:
     @pytest.mark.asyncio
     async def test_run_once_executes_single_cycle(self, sales_ae_with_simulated_caps):
         """Verify run_once() executes a single BDI cycle."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         await employee.start(run_loop=False)
 
@@ -430,7 +431,7 @@ class TestEmployeeLifecycle:
     @pytest.mark.asyncio
     async def test_run_once_raises_if_not_started(self, sales_ae_with_simulated_caps):
         """Verify run_once() raises error if employee not started."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         # Should not be running
         assert not employee._is_running
@@ -442,7 +443,7 @@ class TestEmployeeLifecycle:
     @pytest.mark.asyncio
     async def test_double_start_is_idempotent(self, sales_ae_with_simulated_caps):
         """Verify calling start() twice doesn't cause issues."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         await employee.start(run_loop=False)
         started_at_1 = employee._started_at
@@ -490,7 +491,7 @@ class TestSalesAEBDICycle:
         self, sales_ae_with_simulated_caps
     ):
         """Verify SalesAE has default goals after start."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         await employee.start(run_loop=False)
 
@@ -508,7 +509,7 @@ class TestSalesAEBDICycle:
         self, sales_ae_with_simulated_caps
     ):
         """Verify beliefs are updated during the BDI cycle."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         await employee.start(run_loop=False)
 
@@ -536,7 +537,7 @@ class TestCSMBDICycle:
     @pytest.mark.asyncio
     async def test_csm_starts_with_correct_role(self, csm_with_simulated_caps):
         """Verify CSM starts with CSM-specific configuration."""
-        employee, env = csm_with_simulated_caps
+        employee, _env = csm_with_simulated_caps
 
         await employee.start(run_loop=False)
 
@@ -548,7 +549,7 @@ class TestCSMBDICycle:
     @pytest.mark.asyncio
     async def test_csm_has_default_goals(self, csm_with_simulated_caps):
         """Verify CSM has retention-focused goals."""
-        employee, env = csm_with_simulated_caps
+        employee, _env = csm_with_simulated_caps
 
         await employee.start(run_loop=False)
 
@@ -616,7 +617,7 @@ class TestErrorScenarios:
     @pytest.mark.asyncio
     async def test_employee_stop_is_idempotent(self, sales_ae_with_simulated_caps):
         """Verify calling stop() multiple times is safe."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         await employee.start(run_loop=False)
         await employee.stop()
@@ -640,7 +641,7 @@ class TestRoleSpecificMethods:
         self, sales_ae_with_simulated_caps
     ):
         """Verify SalesAE has sales-specific default properties."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         # Check default capabilities
         assert "email" in employee.default_capabilities
@@ -655,7 +656,7 @@ class TestRoleSpecificMethods:
     @pytest.mark.asyncio
     async def test_csm_has_csm_specific_properties(self, csm_with_simulated_caps):
         """Verify CSM has CSM-specific default properties."""
-        employee, env = csm_with_simulated_caps
+        employee, _env = csm_with_simulated_caps
 
         # Check default capabilities
         assert "email" in employee.default_capabilities
@@ -673,7 +674,7 @@ class TestRoleSpecificMethods:
         self, sales_ae_with_simulated_caps
     ):
         """Verify get_status() returns correct information."""
-        employee, env = sales_ae_with_simulated_caps
+        employee, _env = sales_ae_with_simulated_caps
 
         await employee.start(run_loop=False)
 
