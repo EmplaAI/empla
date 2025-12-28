@@ -204,22 +204,67 @@ class AzureOpenAIProvider(LLMProviderBase):
         """
         Generate embeddings using Azure OpenAI API.
 
-        Note: Requires an embedding model deployment in Azure.
+        Requires an explicit embedding deployment to be configured via the
+        `embedding_deployment` kwarg when initializing the provider.
 
         Args:
             texts: List of texts to embed
 
         Returns:
             List of embedding vectors
+
+        Raises:
+            ValueError: If no embedding deployment is configured
+            RuntimeError: If the embedding deployment is not accessible
+
+        Example:
+            >>> provider = AzureOpenAIProvider(
+            ...     api_key="...",
+            ...     model_id="gpt-4o",
+            ...     azure_endpoint="https://myresource.openai.azure.com",
+            ...     deployment_name="gpt-4o-deployment",
+            ...     embedding_deployment="text-embedding-3-large-deployment",
+            ... )
         """
-        # Use embedding deployment name from kwargs or fall back to text-embedding-3-large
-        embedding_deployment = self.kwargs.get("embedding_deployment") or self.deployment_name
-        if not embedding_deployment.startswith("text-embedding-"):
-            embedding_deployment = "text-embedding-3-large"
+        # Require explicit embedding deployment - no silent fallbacks
+        embedding_deployment = self.kwargs.get("embedding_deployment")
 
-        response = await self.client.embeddings.create(
-            model=embedding_deployment,
-            input=texts,
-        )
+        if not embedding_deployment:
+            raise ValueError(
+                "Azure OpenAI embedding deployment not configured. "
+                "To use embeddings, provide 'embedding_deployment' when initializing "
+                "AzureOpenAIProvider:\n\n"
+                "    provider = AzureOpenAIProvider(\n"
+                "        api_key='...',\n"
+                "        model_id='gpt-4o',\n"
+                "        azure_endpoint='https://myresource.openai.azure.com',\n"
+                "        deployment_name='gpt-4o-deployment',\n"
+                "        embedding_deployment='your-embedding-deployment-name',  # Required\n"
+                "    )\n\n"
+                "The embedding_deployment must be the name of an Azure OpenAI embedding "
+                "model deployment (e.g., 'text-embedding-3-large' or 'text-embedding-ada-002')."
+            )
 
-        return [item.embedding for item in response.data]
+        try:
+            response = await self.client.embeddings.create(
+                model=embedding_deployment,
+                input=texts,
+            )
+            return [item.embedding for item in response.data]
+
+        except Exception as e:
+            # Catch deployment errors and provide helpful guidance
+            error_msg = str(e).lower()
+            if "not found" in error_msg or "does not exist" in error_msg:
+                raise RuntimeError(
+                    f"Azure OpenAI embedding deployment '{embedding_deployment}' not found. "
+                    f"Please verify that:\n"
+                    f"  1. The deployment '{embedding_deployment}' exists in your "
+                    f"Azure OpenAI resource\n"
+                    f"  2. The deployment is an embedding model "
+                    f"(e.g., text-embedding-3-large)\n"
+                    f"  3. The API key has access to this deployment\n\n"
+                    f"Original error: {e}"
+                ) from e
+            # Re-raise other errors as-is
+            raise
