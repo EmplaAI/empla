@@ -32,24 +32,18 @@ from empla.models.memory import (
 from empla.models.tenant import Tenant, User
 
 __all__ = [
-    # Base
+    "AuditLog",
     "Base",
-    # Tenant
-    "Tenant",
-    "User",
-    # Employee
+    "Belief",
+    "BeliefHistory",
     "Employee",
     "EmployeeGoal",
     "EmployeeIntention",
-    # Belief
-    "Belief",
-    "BeliefHistory",
-    # Memory
     "EpisodicMemory",
-    "SemanticMemory",
-    "ProceduralMemory",
-    "WorkingMemory",
-    # Audit
-    "AuditLog",
     "Metric",
+    "ProceduralMemory",
+    "SemanticMemory",
+    "Tenant",
+    "User",
+    "WorkingMemory",
 ]

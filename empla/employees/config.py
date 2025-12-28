@@ -306,13 +306,13 @@ PM_DEFAULT_GOALS = [
 
 
 __all__ = [
+    # Default goals
+    "CSM_DEFAULT_GOALS",
+    "PM_DEFAULT_GOALS",
+    "SALES_AE_DEFAULT_GOALS",
     # Config classes
     "EmployeeConfig",
     "GoalConfig",
     "LLMSettings",
     "LoopSettings",
-    # Default goals
-    "CSM_DEFAULT_GOALS",
-    "PM_DEFAULT_GOALS",
-    "SALES_AE_DEFAULT_GOALS",
 ]

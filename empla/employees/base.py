@@ -41,7 +41,6 @@ from empla.employees.config import EmployeeConfig, GoalConfig
 from empla.employees.exceptions import (
     EmployeeConfigError,
     EmployeeNotStartedError,
-    EmployeeShutdownError,
     EmployeeStartupError,
 )
 from empla.employees.personality import Personality
@@ -76,7 +75,7 @@ class MemorySystem:
         session: AsyncSession,
         employee_id: UUID,
         tenant_id: UUID,
-    ):
+    ) -> None:
         self.episodic = EpisodicMemorySystem(session, employee_id, tenant_id)
         self.semantic = SemanticMemorySystem(session, employee_id, tenant_id)
         self.procedural = ProceduralMemorySystem(session, employee_id, tenant_id)
@@ -119,7 +118,7 @@ class DigitalEmployee(ABC):
         self,
         config: EmployeeConfig,
         capability_registry: CapabilityRegistry | None = None,
-    ):
+    ) -> None:
         """
         Initialize digital employee.
 
@@ -407,7 +406,7 @@ class DigitalEmployee(ABC):
                 await asyncio.wait_for(self._loop_task, timeout=10.0)
             except asyncio.CancelledError:
                 logger.debug(f"Loop task cancelled for {self.name}")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"Loop task cancellation timed out for {self.name}")
                 shutdown_errors.append(("loop_task", TimeoutError("Cancellation timed out")))
 
@@ -466,7 +465,6 @@ class DigitalEmployee(ABC):
         Override this to add custom initialization logic.
         Errors raised here will cause startup to fail.
         """
-        pass
 
     async def on_stop(self) -> None:
         """
@@ -475,7 +473,6 @@ class DigitalEmployee(ABC):
         Override this to add custom cleanup logic.
         Errors raised here are logged but don't prevent shutdown.
         """
-        pass
 
     # =========================================================================
     # Initialization Helpers

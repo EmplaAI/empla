@@ -24,7 +24,7 @@ Example:
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class Tone(str, Enum):
@@ -284,14 +284,14 @@ PM_PERSONALITY = Personality(
 
 
 __all__ = [
+    # Templates
+    "CSM_PERSONALITY",
+    "PM_PERSONALITY",
+    "SALES_AE_PERSONALITY",
     "CommunicationStyle",
     "DecisionStyle",
     "Formality",
     "Personality",
     "Tone",
     "Verbosity",
-    # Templates
-    "CSM_PERSONALITY",
-    "PM_PERSONALITY",
-    "SALES_AE_PERSONALITY",
 ]

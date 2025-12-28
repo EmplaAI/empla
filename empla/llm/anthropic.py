@@ -6,6 +6,7 @@ This module implements the LLM provider interface for Anthropic's Claude models.
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
@@ -17,7 +18,7 @@ from empla.llm.provider import LLMProviderBase
 class AnthropicProvider(LLMProviderBase):
     """Anthropic Claude provider."""
 
-    def __init__(self, api_key: str, model_id: str, **kwargs):
+    def __init__(self, api_key: str, model_id: str, **kwargs: Any) -> None:
         super().__init__(api_key, model_id, **kwargs)
         self.client = AsyncAnthropic(api_key=api_key)
 

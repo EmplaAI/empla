@@ -130,7 +130,7 @@ class ProactiveExecutionLoop:
         memory: MemorySystemProtocol,
         capability_registry: Any | None = None,  # CapabilityRegistry from empla.capabilities
         config: LoopConfig | None = None,
-    ):
+    ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
 

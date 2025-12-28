@@ -59,7 +59,7 @@ class CapabilityRegistry:
         )
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty registry"""
         # Map of capability type -> implementation class
         self._capabilities: dict[CapabilityType, type[BaseCapability]] = {}

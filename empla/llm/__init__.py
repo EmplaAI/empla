@@ -34,13 +34,12 @@ Example:
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Optional
 
 from pydantic import BaseModel
 
 from empla.llm.config import MODELS, LLMConfig
 from empla.llm.models import LLMRequest, LLMResponse, Message
-from empla.llm.provider import LLMProviderFactory
+from empla.llm.provider import LLMProviderBase, LLMProviderFactory
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +60,7 @@ class LLMService:
         requests_count: Total number of requests made
     """
 
-    def __init__(self, config: LLMConfig):
+    def __init__(self, config: LLMConfig) -> None:
         """
         Initialize LLM service.
 
@@ -86,7 +85,7 @@ class LLMService:
         self.total_cost = 0.0
         self.requests_count = 0
 
-    def _create_provider(self, provider: str, model_id: str):
+    def _create_provider(self, provider: str, model_id: str) -> LLMProviderBase:
         """
         Create provider instance.
 
@@ -100,19 +99,19 @@ class LLMService:
         if provider == "anthropic":
             return LLMProviderFactory.create(
                 provider="anthropic",
-                api_key=self.config.anthropic_api_key,
+                api_key=self.config.anthropic_api_key or "",
                 model_id=model_id,
             )
         if provider == "openai":
             return LLMProviderFactory.create(
                 provider="openai",
-                api_key=self.config.openai_api_key,
+                api_key=self.config.openai_api_key or "",
                 model_id=model_id,
             )
         if provider == "azure_openai":
             return LLMProviderFactory.create(
                 provider="azure_openai",
-                api_key=self.config.azure_openai_api_key,
+                api_key=self.config.azure_openai_api_key or "",
                 model_id=model_id,
                 azure_endpoint=self.config.azure_openai_endpoint,
                 deployment_name=self.config.azure_openai_deployment,
@@ -311,12 +310,12 @@ class LLMService:
         from empla.llm.openai import OpenAIProvider
 
         openai_provider = OpenAIProvider(
-            api_key=self.config.openai_api_key,
+            api_key=self.config.openai_api_key or "",
             model_id=self.config.embedding_model,
         )
         return await openai_provider.embed(texts)
 
-    def _track_cost(self, response: LLMResponse, is_primary: bool = True):
+    def _track_cost(self, response: LLMResponse, is_primary: bool = True) -> None:
         """
         Track cost of LLM call.
 
@@ -329,7 +328,7 @@ class LLMService:
 
         # Find model config to calculate cost
         model_key = self.config.primary_model if is_primary else self.config.fallback_model
-        model_config = MODELS.get(model_key)
+        model_config = MODELS.get(model_key) if model_key else None
 
         if model_config:
             cost = response.usage.calculate_cost(model_config)
@@ -341,7 +340,7 @@ class LLMService:
                 f"(total: ${self.total_cost:.2f}, requests: {self.requests_count})"
             )
 
-    def get_cost_summary(self) -> dict:
+    def get_cost_summary(self) -> dict[str, Any]:
         """
         Get cost summary.
 
@@ -365,6 +364,6 @@ class LLMService:
 __all__ = [
     "MODELS",
     "LLMConfig",
-    "LLMService",
     "LLMProviderFactory",
+    "LLMService",
 ]

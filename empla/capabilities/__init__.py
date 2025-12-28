@@ -52,18 +52,18 @@ from empla.capabilities.email import (
 from empla.capabilities.registry import CapabilityRegistry
 
 __all__ = [
-    # Base abstractions
-    "BaseCapability",
-    "CapabilityType",
-    "CapabilityConfig",
-    "Observation",
     "Action",
     "ActionResult",
+    # Base abstractions
+    "BaseCapability",
+    "CapabilityConfig",
     "CapabilityRegistry",
+    "CapabilityType",
+    "Email",
     # Email capability
     "EmailCapability",
     "EmailConfig",
-    "EmailProvider",
     "EmailPriority",
-    "Email",
+    "EmailProvider",
+    "Observation",
 ]

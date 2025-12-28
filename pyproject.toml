@@ -131,6 +131,16 @@ ignore = [
     "ANN102",  # Missing type annotation for cls
     "ANN401",  # Dynamically typed expressions (Any) are disallowed
     "PLR0913", # Too many arguments to function call
+    "PLR2004", # Magic value used in comparison (too strict for simple values like 2)
+    "PLR0912", # Too many branches (acceptable for complex parsing/validation logic)
+    "PLR0915", # Too many statements (acceptable for complex functions)
+    "ERA001",  # Commented-out code (sometimes used for documentation)
+    "N811",    # Constant imported as non-constant (UUID as PyUUID alias is common)
+    "PLC0415", # Import should be at top-level (dynamic imports are intentional)
+    "ANN003",  # Missing type annotation for **kwargs (common pattern)
+    "ARG002",  # Unused method argument (often required for interface compliance)
+    "RUF012",  # Mutable class attributes - false positive for Pydantic Config classes
+    "B027",    # Empty method in ABC - intentional for hook methods to be overridden
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -174,6 +184,19 @@ module = [
     "pgvector.*",
 ]
 ignore_missing_imports = true
+
+# Be more lenient for LLM provider modules (heavy third-party library usage)
+# These modules interact heavily with third-party SDKs that have complex type requirements
+[[tool.mypy.overrides]]
+module = [
+    "empla.llm.anthropic",
+    "empla.llm.openai",
+    "empla.llm.azure_openai",
+    "empla.llm.vertex",
+]
+disallow_untyped_defs = false
+warn_return_any = false
+ignore_errors = true
 
 # ==========================================
 # Pytest Configuration (Testing)

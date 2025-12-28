@@ -51,7 +51,7 @@ class SemanticMemorySystem:
         session: AsyncSession,
         employee_id: UUID,
         tenant_id: UUID,
-    ):
+    ) -> None:
         """
         Initialize SemanticMemorySystem.
 
@@ -68,7 +68,7 @@ class SemanticMemorySystem:
         self,
         subject: str,
         predicate: str,
-        object: str | dict[str, Any],
+        fact_object: str | dict[str, Any],
         confidence: float = 0.8,
         fact_type: str = "entity",
         source: str | None = None,
@@ -118,7 +118,7 @@ class SemanticMemorySystem:
             ... )
         """
         # Convert dict objects to JSON strings for storage
-        object_str = json.dumps(object) if isinstance(object, dict) else object
+        object_str = json.dumps(fact_object) if isinstance(fact_object, dict) else fact_object
 
         # Check if fact already exists (same subject+predicate)
         existing = await self.get_fact(subject, predicate)
@@ -393,11 +393,14 @@ class SemanticMemorySystem:
                 next_level = set()
                 for fact in depth_facts:
                     # If object is a string and looks like an entity, add it
-                    if isinstance(fact.object, str) and len(fact.object) > 0:
-                        # Only add if not visited yet
-                        if fact.object not in visited_entities:
-                            next_level.add(fact.object)
-                            visited_entities.add(fact.object)
+                    # Only add if not visited yet
+                    if (
+                        isinstance(fact.object, str)
+                        and len(fact.object) > 0
+                        and fact.object not in visited_entities
+                    ):
+                        next_level.add(fact.object)
+                        visited_entities.add(fact.object)
 
                 current_level = list(next_level)
 

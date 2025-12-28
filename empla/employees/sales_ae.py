@@ -26,9 +26,9 @@ import logging
 from typing import Any
 
 from empla.employees.base import DigitalEmployee
-from empla.employees.config import GoalConfig, SALES_AE_DEFAULT_GOALS
+from empla.employees.config import SALES_AE_DEFAULT_GOALS, GoalConfig
 from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
-from empla.employees.personality import Personality, SALES_AE_PERSONALITY
+from empla.employees.personality import SALES_AE_PERSONALITY, Personality
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +325,7 @@ class SalesAE(DigitalEmployee):
             return response.content
         except Exception as e:
             logger.error(
-                f"LLM generation failed for outreach email",
+                "LLM generation failed for outreach email",
                 exc_info=True,
                 extra={"prospect": prospect_name, "company": company}
             )

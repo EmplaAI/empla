@@ -67,7 +67,7 @@ class WorkingMemory:
         employee_id: UUID,
         tenant_id: UUID,
         capacity: int = DEFAULT_CAPACITY,
-    ):
+    ) -> None:
         """
         Initialize WorkingMemory.
 

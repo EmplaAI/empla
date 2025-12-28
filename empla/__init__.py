@@ -40,37 +40,33 @@ from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
 from empla.core.loop import ProactiveExecutionLoop
 from empla.core.memory import (
     EpisodicMemorySystem,
-    SemanticMemorySystem,
     ProceduralMemorySystem,
+    SemanticMemorySystem,
     WorkingMemory,
 )
 
 # Pre-built employees
 from empla.employees import (
-    DigitalEmployee,
-    SalesAE,
-    CustomerSuccessManager,
     CSM,
+    CustomerSuccessManager,
+    DigitalEmployee,
     EmployeeConfig,
+    SalesAE,
 )
 
 __all__ = [
-    "__version__",
-    # Core BDI
+    "CSM",
     "BeliefSystem",
+    "CustomerSuccessManager",
+    "DigitalEmployee",
+    "EmployeeConfig",
+    "EpisodicMemorySystem",
     "GoalSystem",
     "IntentionStack",
-    # Core Loop
     "ProactiveExecutionLoop",
-    # Core Memory
-    "EpisodicMemorySystem",
-    "SemanticMemorySystem",
     "ProceduralMemorySystem",
-    "WorkingMemory",
-    # Employees
-    "DigitalEmployee",
     "SalesAE",
-    "CustomerSuccessManager",
-    "CSM",
-    "EmployeeConfig",
+    "SemanticMemorySystem",
+    "WorkingMemory",
+    "__version__",
 ]

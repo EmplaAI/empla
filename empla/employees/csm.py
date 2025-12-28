@@ -20,9 +20,9 @@ import logging
 from typing import Any
 
 from empla.employees.base import DigitalEmployee
-from empla.employees.config import GoalConfig, CSM_DEFAULT_GOALS
+from empla.employees.config import CSM_DEFAULT_GOALS, GoalConfig
 from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
-from empla.employees.personality import Personality, CSM_PERSONALITY
+from empla.employees.personality import CSM_PERSONALITY, Personality
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +280,7 @@ class CustomerSuccessManager(DigitalEmployee):
             return response.content
         except Exception as e:
             logger.error(
-                f"LLM generation failed for check-in email",
+                "LLM generation failed for check-in email",
                 exc_info=True,
                 extra={"customer": customer_name, "contact": contact_name}
             )

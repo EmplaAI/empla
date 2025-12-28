@@ -37,7 +37,7 @@ class ToolRegistry:
         >>> tool = registry.get_tool_by_name("send_email")
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty tool registry."""
         self._tools: dict[UUID, Tool] = {}
         self._implementations: dict[UUID, ToolImplementation] = {}

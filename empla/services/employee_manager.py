@@ -6,6 +6,7 @@ Handles start, stop, pause, resume operations.
 """
 
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -29,7 +30,6 @@ ERROR_BACKOFF_SECONDS = 30
 class UnsupportedRoleError(ValueError):
     """Raised when attempting to start an employee with an unsupported role."""
 
-    pass
 
 # Map role strings to employee classes
 EMPLOYEE_CLASSES: dict[str, type[DigitalEmployee]] = {
@@ -267,10 +267,8 @@ class EmployeeManager:
             if employee_id in self._tasks:
                 task = self._tasks[employee_id]
                 task.cancel()
-                try:
+                with contextlib.suppress(TimeoutError, asyncio.CancelledError):
                     await asyncio.wait_for(task, timeout=10.0)
-                except (TimeoutError, asyncio.CancelledError):
-                    pass
 
             # Stop the employee
             await employee.stop()
