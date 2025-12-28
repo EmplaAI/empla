@@ -68,7 +68,7 @@ class MockTestCapability(BaseCapability):
         """
         return self.observations_to_return
 
-    async def execute_action(self, action: Action) -> ActionResult:
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
         Execute the given action in the mock capability and report a successful result.
 
@@ -251,8 +251,8 @@ async def test_loop_perceives_from_capability_registry():
     assert result.observations[0].content["email_id"] == "123"
     assert result.observations[1].content["email_id"] == "456"
 
-    # Assert: Sources tracked
-    assert "CapabilityType.EMAIL" in result.sources_checked
+    # Assert: Sources tracked (uses enum value, not enum name)
+    assert "email" in result.sources_checked
 
 
 @pytest.mark.asyncio

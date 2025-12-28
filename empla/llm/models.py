@@ -15,6 +15,7 @@ class LLMProvider(str, Enum):
 
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
+    AZURE_OPENAI = "azure_openai"
     VERTEX = "vertex"
 
 

@@ -84,10 +84,11 @@ class LLMProviderFactory:
         Create LLM provider.
 
         Args:
-            provider: Provider name ("anthropic", "openai", "vertex")
+            provider: Provider name ("anthropic", "openai", "azure_openai", "vertex")
             api_key: API key for provider
             model_id: Model identifier
             **kwargs: Additional provider-specific config
+                For azure_openai: azure_endpoint, deployment_name, api_version
 
         Returns:
             Configured LLM provider instance
@@ -96,12 +97,14 @@ class LLMProviderFactory:
             ValueError: If provider is unknown
         """
         from empla.llm.anthropic import AnthropicProvider
+        from empla.llm.azure_openai import AzureOpenAIProvider
         from empla.llm.openai import OpenAIProvider
         from empla.llm.vertex import VertexAIProvider
 
         providers = {
             "anthropic": AnthropicProvider,
             "openai": OpenAIProvider,
+            "azure_openai": AzureOpenAIProvider,
             "vertex": VertexAIProvider,
         }
 

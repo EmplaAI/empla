@@ -490,13 +490,16 @@ class DigitalEmployee(ABC):
         """
         errors: list[str] = []
 
-        # Check LLM API keys
+        # Check LLM API keys - at least one provider must be configured
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         openai_key = os.getenv("OPENAI_API_KEY")
+        vertex_project = os.getenv("VERTEX_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+        azure_key = os.getenv("AZURE_OPENAI_API_KEY")
 
-        if not anthropic_key and not openai_key:
+        if not any([anthropic_key, openai_key, vertex_project, azure_key]):
             errors.append(
-                "No LLM API keys found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable"
+                "No LLM credentials found. Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, "
+                "VERTEX_PROJECT_ID (or GOOGLE_CLOUD_PROJECT), or AZURE_OPENAI_API_KEY"
             )
 
         if errors:
@@ -596,11 +599,16 @@ class DigitalEmployee(ABC):
         """
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         openai_key = os.getenv("OPENAI_API_KEY")
+        vertex_project = os.getenv("VERTEX_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+        azure_key = os.getenv("AZURE_OPENAI_API_KEY")
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
 
         # This should have been caught in _validate_config, but double-check
-        if not anthropic_key and not openai_key:
+        if not any([anthropic_key, openai_key, vertex_project, azure_key]):
             raise EmployeeConfigError(
-                "No LLM API keys found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY"
+                "No LLM credentials found. Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, "
+                "VERTEX_PROJECT_ID, or AZURE_OPENAI_API_KEY"
             )
 
         llm_config = LLMConfig(
@@ -608,6 +616,10 @@ class DigitalEmployee(ABC):
             fallback_model=self.config.llm.fallback_model,
             anthropic_api_key=anthropic_key or "",
             openai_api_key=openai_key or "",
+            vertex_project_id=vertex_project,
+            azure_openai_api_key=azure_key,
+            azure_openai_endpoint=azure_endpoint,
+            azure_openai_deployment=azure_deployment,
         )
         self._llm = LLMService(llm_config)
 
@@ -668,7 +680,8 @@ class DigitalEmployee(ABC):
 
         for cap_name in cap_list:
             try:
-                cap_type = CapabilityType(cap_name.upper())
+                # CapabilityType values are lowercase (e.g., "email", "calendar")
+                cap_type = CapabilityType(cap_name.lower())
                 # Capabilities are enabled when needed via the registry
                 logger.debug(f"Capability available: {cap_type.value}")
             except ValueError as e:
