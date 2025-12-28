@@ -263,9 +263,12 @@ class ProactiveExecutionLoop:
                 # Update goal progress based on current beliefs
                 active_goals = await self.goals.get_active_goals()
                 for goal in active_goals:
-                    # TODO: Evaluate progress based on beliefs and goal.target
-                    # For now, just mark that we checked the goal
-                    await self.goals.update_goal_progress(goal.id, {})
+                    progress = self._evaluate_goal_progress_from_beliefs(
+                        goal=goal,
+                        changed_beliefs=changed_beliefs,
+                    )
+                    if progress:
+                        await self.goals.update_goal_progress(goal.id, progress)
 
                 logger.debug(
                     f"Goal progress updated for {len(active_goals)} active goals",
@@ -418,9 +421,12 @@ class ProactiveExecutionLoop:
         # ============ GOAL MANAGEMENT ============
         active_goals = await self.goals.get_active_goals()
         for goal in active_goals:
-            # TODO: Evaluate progress based on beliefs and goal.target
-            # For now, just mark that we checked the goal
-            await self.goals.update_goal_progress(goal.id, {})
+            progress = self._evaluate_goal_progress_from_beliefs(
+                goal=goal,
+                changed_beliefs=changed_beliefs,
+            )
+            if progress:
+                await self.goals.update_goal_progress(goal.id, progress)
 
         logger.debug(
             f"Goal progress updated for {len(active_goals)} active goals",
@@ -618,6 +624,77 @@ class ProactiveExecutionLoop:
                 return True
 
         return False
+
+    def _evaluate_goal_progress_from_beliefs(
+        self,
+        goal: Any,
+        changed_beliefs: list[BeliefChange],
+    ) -> dict[str, Any]:
+        """
+        Evaluate goal progress based on recently changed beliefs.
+
+        Matches goal target metrics to belief subject/predicate patterns:
+        - "pipeline_coverage" matches beliefs with subject containing "pipeline"
+          and predicate containing "coverage"
+        - "deals_closed" matches subject containing "deals" and predicate "closed"
+
+        Args:
+            goal: The goal to evaluate progress for
+            changed_beliefs: List of belief changes from this cycle
+
+        Returns:
+            Progress dict to update the goal with, empty if no matching beliefs
+        """
+        target = getattr(goal, "target", {}) or {}
+        metric = target.get("metric", "")
+
+        if not metric:
+            return {}
+
+        # Parse metric into subject/predicate patterns
+        # Convention: underscore-separated metric maps to subject_predicate
+        parts = metric.lower().split("_", 1)
+        if len(parts) < 2:
+            # Single word metric - match as subject or predicate
+            subject_pattern = parts[0]
+            predicate_pattern = parts[0]
+        else:
+            subject_pattern = parts[0]
+            predicate_pattern = parts[1]
+
+        progress: dict[str, Any] = {}
+
+        for belief_change in changed_beliefs:
+            # Check if belief matches goal metric
+            subject_match = subject_pattern in belief_change.subject.lower()
+            predicate_match = predicate_pattern in belief_change.predicate.lower()
+
+            if subject_match and predicate_match:
+                # Extract value from belief
+                # BeliefChangeResult has a .belief attribute with the actual Belief
+                belief = getattr(belief_change, "belief", None)
+                if belief is not None:
+                    belief_object = getattr(belief, "object", {}) or {}
+                    value = belief_object.get("value")
+
+                    if value is not None:
+                        # Update progress with the metric value
+                        progress[metric] = value
+                        progress["last_belief_update"] = belief_change.subject
+                        progress["belief_confidence"] = belief_change.new_confidence
+
+                        logger.debug(
+                            f"Goal progress updated from belief: {metric}={value}",
+                            extra={
+                                "employee_id": str(self.employee.id),
+                                "goal_id": str(goal.id),
+                                "belief_subject": belief_change.subject,
+                                "belief_predicate": belief_change.predicate,
+                            },
+                        )
+                        break  # Use first matching belief
+
+        return progress
 
     async def strategic_planning_cycle(self) -> None:
         """

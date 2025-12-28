@@ -10,11 +10,15 @@ Components:
 
 Example:
     >>> from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
+    >>> from empla.llm import LLMService, LLMConfig
     >>> from empla.models.database import get_db
     >>>
     >>> async with get_db() as session:
+    ...     # Initialize LLM service
+    ...     llm_service = LLMService(LLMConfig(...))
+    ...
     ...     # Initialize BDI components
-    ...     beliefs = BeliefSystem(session, employee_id, tenant_id)
+    ...     beliefs = BeliefSystem(session, employee_id, tenant_id, llm_service)
     ...     goals = GoalSystem(session, employee_id, tenant_id)
     ...     intentions = IntentionStack(session, employee_id, tenant_id)
     ...

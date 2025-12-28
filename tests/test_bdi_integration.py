@@ -116,19 +116,29 @@ async def employee(session, tenant, user):
     return employee
 
 
+@pytest.fixture
+def mock_llm_service():
+    """Create a mock LLM service for tests that don't need belief extraction."""
+    mock_llm = AsyncMock()
+    # Default mock that returns empty beliefs - tests can override as needed
+    mock_llm.generate_structured = AsyncMock(return_value=(None, None))
+    return mock_llm
+
+
 @pytest.mark.asyncio
-async def test_belief_system_basic(session, employee, tenant):
+async def test_belief_system_basic(session, employee, tenant, mock_llm_service):
     """Test basic BeliefSystem operations."""
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
 
     # Add a belief
-    belief = await beliefs.update_belief(
+    result = await beliefs.update_belief(
         subject="Acme Corp",
         predicate="deal_stage",
         object={"stage": "negotiation", "amount": 50000},
         confidence=0.9,
         source="observation",
     )
+    belief = result.belief
 
     assert belief is not None
     assert belief.subject == "Acme Corp"
@@ -136,13 +146,14 @@ async def test_belief_system_basic(session, employee, tenant):
     assert belief.confidence == 0.9
 
     # Update the belief
-    updated = await beliefs.update_belief(
+    updated_result = await beliefs.update_belief(
         subject="Acme Corp",
         predicate="deal_stage",
         object={"stage": "closed_won", "amount": 50000},
         confidence=0.95,
         source="observation",
     )
+    updated = updated_result.belief
 
     assert updated.id == belief.id  # Same belief
     assert updated.object["stage"] == "closed_won"
@@ -304,9 +315,9 @@ async def test_intention_dependencies(session, employee, tenant):
 
 
 @pytest.mark.asyncio
-async def test_bdi_full_cycle(session, employee, tenant):
+async def test_bdi_full_cycle(session, employee, tenant, mock_llm_service):
     """Test full BDI cycle: Belief → Goal → Intention."""
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
     goals = GoalSystem(session, employee.id, tenant.id)
     intentions = IntentionStack(session, employee.id, tenant.id)
 
@@ -373,9 +384,9 @@ async def test_bdi_full_cycle(session, employee, tenant):
 
 
 @pytest.mark.asyncio
-async def test_belief_extraction_from_observation(session, employee, tenant):
+async def test_belief_extraction_from_observation(session, employee, tenant, mock_llm_service):
     """Test extracting beliefs from observation using LLM."""
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
 
     # Create a test observation
     observation = Observation(
@@ -440,13 +451,13 @@ async def test_belief_extraction_from_observation(session, employee, tenant):
     mock_llm.generate_structured = AsyncMock(return_value=(mock_response, extraction_result))
 
     # Extract beliefs
-    extracted_beliefs = await beliefs.extract_beliefs_from_observation(observation, mock_llm)
+    extracted_results = await beliefs.extract_beliefs_from_observation(observation, mock_llm)
 
     # Verify beliefs were created
-    assert len(extracted_beliefs) == 3
+    assert len(extracted_results) == 3
 
     # Verify first belief (deal_stage)
-    belief1 = extracted_beliefs[0]
+    belief1 = extracted_results[0].belief
     assert belief1.subject == "Acme Corp"
     assert belief1.predicate == "deal_stage"
     assert belief1.object["stage"] == "contract_review"
@@ -456,7 +467,7 @@ async def test_belief_extraction_from_observation(session, employee, tenant):
     assert str(observation.observation_id) in belief1.evidence
 
     # Verify second belief (sentiment)
-    belief2 = extracted_beliefs[1]
+    belief2 = extracted_results[1].belief
     assert belief2.subject == "Acme Corp"
     assert belief2.predicate == "sentiment"
     assert belief2.object["sentiment"] == "positive"
@@ -464,7 +475,7 @@ async def test_belief_extraction_from_observation(session, employee, tenant):
     assert belief2.belief_type == "evaluative"
 
     # Verify third belief (next_action)
-    belief3 = extracted_beliefs[2]
+    belief3 = extracted_results[2].belief
     assert belief3.subject == "Acme Corp"
     assert belief3.predicate == "next_action"
     assert belief3.object["action"] == "send_contract"
@@ -483,18 +494,19 @@ async def test_belief_extraction_from_observation(session, employee, tenant):
 
 
 @pytest.mark.asyncio
-async def test_belief_extraction_updates_existing_beliefs(session, employee, tenant):
+async def test_belief_extraction_updates_existing_beliefs(session, employee, tenant, mock_llm_service):
     """Test that belief extraction updates existing beliefs rather than duplicating."""
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
 
     # Create an existing belief
-    existing = await beliefs.update_belief(
+    existing_result = await beliefs.update_belief(
         subject="Acme Corp",
         predicate="deal_stage",
         object={"stage": "discovery", "amount": 50000},
         confidence=0.7,
         source="observation",
     )
+    existing = existing_result.belief
 
     # Create observation with updated information
     observation = Observation(
@@ -538,11 +550,11 @@ async def test_belief_extraction_updates_existing_beliefs(session, employee, ten
     mock_llm.generate_structured = AsyncMock(return_value=(mock_response, extraction_result))
 
     # Extract beliefs
-    extracted_beliefs = await beliefs.extract_beliefs_from_observation(observation, mock_llm)
+    extracted_results = await beliefs.extract_beliefs_from_observation(observation, mock_llm)
 
     # Should have updated the existing belief, not created a new one
-    assert len(extracted_beliefs) == 1
-    updated_belief = extracted_beliefs[0]
+    assert len(extracted_results) == 1
+    updated_belief = extracted_results[0].belief
 
     # Should be the same belief ID
     assert updated_belief.id == existing.id
@@ -564,9 +576,9 @@ async def test_belief_extraction_updates_existing_beliefs(session, employee, ten
 
 
 @pytest.mark.asyncio
-async def test_belief_extraction_with_empty_result(session, employee, tenant):
+async def test_belief_extraction_with_empty_result(session, employee, tenant, mock_llm_service):
     """Test belief extraction when LLM returns no beliefs."""
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
 
     # Create observation with no actionable content
     observation = Observation(
@@ -615,9 +627,9 @@ async def test_belief_extraction_with_empty_result(session, employee, tenant):
 
 
 @pytest.mark.asyncio
-async def test_belief_extraction_evidence_tracking(session, employee, tenant):
+async def test_belief_extraction_evidence_tracking(session, employee, tenant, mock_llm_service):
     """Test that belief extraction properly tracks observation as evidence."""
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
 
     # Create two observations about the same subject
     obs1 = Observation(
@@ -673,9 +685,9 @@ async def test_belief_extraction_evidence_tracking(session, employee, tenant):
     )
 
     # Extract from first observation
-    beliefs1 = await beliefs.extract_beliefs_from_observation(obs1, mock_llm)
-    assert len(beliefs1) == 1
-    assert str(obs1.observation_id) in beliefs1[0].evidence
+    results1 = await beliefs.extract_beliefs_from_observation(obs1, mock_llm)
+    assert len(results1) == 1
+    assert str(obs1.observation_id) in results1[0].belief.evidence
 
     # Mock LLM for second observation (should update the same belief)
     extraction2 = BeliefExtractionResult(
@@ -706,19 +718,19 @@ async def test_belief_extraction_evidence_tracking(session, employee, tenant):
     )
 
     # Extract from second observation
-    beliefs2 = await beliefs.extract_beliefs_from_observation(obs2, mock_llm)
-    assert len(beliefs2) == 1
+    results2 = await beliefs.extract_beliefs_from_observation(obs2, mock_llm)
+    assert len(results2) == 1
 
     # Should be the same belief (updated)
-    assert beliefs2[0].id == beliefs1[0].id
+    assert results2[0].belief.id == results1[0].belief.id
 
     # Should have both observations as evidence
-    assert str(obs1.observation_id) in beliefs2[0].evidence
-    assert str(obs2.observation_id) in beliefs2[0].evidence
+    assert str(obs1.observation_id) in results2[0].belief.evidence
+    assert str(obs2.observation_id) in results2[0].belief.evidence
 
     # Should have updated confidence and value
-    assert beliefs2[0].object["level"] == "high"
-    assert beliefs2[0].confidence == 0.9
+    assert results2[0].belief.object["level"] == "high"
+    assert results2[0].belief.confidence == 0.9
 
     await session.commit()
 
@@ -800,13 +812,13 @@ async def test_belief_type_validation():
 
 
 @pytest.mark.asyncio
-async def test_plan_generation_from_goal(session, employee, tenant):
+async def test_plan_generation_from_goal(session, employee, tenant, mock_llm_service):
     """Test generating a plan for a goal using LLM."""
     from empla.bdi.intentions import GeneratedIntention, PlanGenerationResult
 
     goals = GoalSystem(session, employee.id, tenant.id)
     intentions = IntentionStack(session, employee.id, tenant.id)
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
 
     # Create a goal
     goal = await goals.add_goal(

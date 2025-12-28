@@ -149,6 +149,59 @@ class BeliefExtractionResult(BaseModel):
     )
 
 
+class BeliefUpdateResult(BaseModel):
+    """
+    Result of updating or creating a belief.
+
+    Returned by update_belief to capture both the belief and metadata
+    about whether it was created or updated.
+
+    Attributes:
+        belief: The ORM Belief object that was created/updated
+        old_confidence: Previous confidence (None for new beliefs, actual value for updates)
+        was_created: True if this was a new belief, False if updated
+    """
+
+    belief: Any  # Belief ORM model (can't use forward ref with BaseModel easily)
+    old_confidence: float | None
+    was_created: bool
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+class BeliefChangeResult:
+    """
+    Represents a change to a belief, matching the BeliefChange protocol.
+
+    This is returned by update_beliefs to indicate what beliefs were
+    created or modified.
+
+    Attributes:
+        subject: The entity the belief is about
+        predicate: The property or relationship
+        importance: How significant this change is (0.0-1.0)
+        old_confidence: Previous confidence level (0.0 for new beliefs)
+        new_confidence: New confidence level after update
+        belief: The actual Belief object that was created/updated
+    """
+
+    def __init__(
+        self,
+        subject: str,
+        predicate: str,
+        importance: float,
+        old_confidence: float,
+        new_confidence: float,
+        belief: "Belief",
+    ):
+        self.subject = subject
+        self.predicate = predicate
+        self.importance = importance
+        self.old_confidence = old_confidence
+        self.new_confidence = new_confidence
+        self.belief = belief
+
+
 class BeliefSystem:
     """
     BDI Belief System.
@@ -158,7 +211,7 @@ class BeliefSystem:
     and decay over time if not reinforced.
 
     Example:
-        >>> belief_system = BeliefSystem(session, employee_id, tenant_id)
+        >>> belief_system = BeliefSystem(session, employee_id, tenant_id, llm_service)
         >>> await belief_system.update_belief(
         ...     subject="Acme Corp",
         ...     predicate="pipeline_health",
@@ -173,6 +226,7 @@ class BeliefSystem:
         session: AsyncSession,
         employee_id: UUID,
         tenant_id: UUID,
+        llm_service: "LLMService",
     ):
         """
         Initialize BeliefSystem.
@@ -181,41 +235,29 @@ class BeliefSystem:
             session: SQLAlchemy async session
             employee_id: Employee this belief system belongs to
             tenant_id: Tenant ID for multi-tenancy
+            llm_service: LLM service for belief extraction from observations
         """
         self.session = session
         self.employee_id = employee_id
         self.tenant_id = tenant_id
+        self._llm_service = llm_service
 
     async def update_beliefs(
         self,
         observations: list["Observation"],
-    ) -> list[dict[str, Any]]:
+    ) -> list[BeliefChangeResult]:
         """
         Update beliefs based on a list of observations.
 
         This is the batch interface used by the ProactiveExecutionLoop.
-        For now, this is a minimal implementation that returns an empty list.
-        Full LLM-based belief extraction can be enabled by setting an LLM service.
+        It extracts beliefs from each observation using the LLM service.
 
         Args:
             observations: List of observations from perception phase
 
         Returns:
-            List of belief changes (as dicts matching BeliefChange protocol)
-
-        Note:
-            This method is designed to work without LLM for testing scenarios.
-            For production use with LLM-based extraction, use
-            extract_beliefs_from_observation() directly.
+            List of BeliefChangeResult objects indicating what beliefs changed
         """
-        # For now, return empty list - beliefs are not automatically extracted
-        # without explicit LLM integration. This allows the loop to run
-        # without requiring LLM credentials in test scenarios.
-        #
-        # In future, this could:
-        # 1. Check if LLM service is available
-        # 2. If yes, call extract_beliefs_from_observation for each observation
-        # 3. Track and return belief changes
         logger.debug(
             f"update_beliefs called with {len(observations)} observations",
             extra={
@@ -223,7 +265,62 @@ class BeliefSystem:
                 "observation_count": len(observations),
             },
         )
-        return []
+
+        all_changes: list[BeliefChangeResult] = []
+
+        for observation in observations:
+            try:
+                # Use existing extract_beliefs_from_observation method
+                update_results = await self.extract_beliefs_from_observation(
+                    observation=observation,
+                    llm_service=self._llm_service,
+                )
+
+                # Convert BeliefUpdateResults to BeliefChangeResult objects
+                for result in update_results:
+                    belief = result.belief
+                    # Calculate importance based on observation priority and confidence
+                    importance = min(
+                        1.0,
+                        (observation.priority / 10.0) * belief.confidence,
+                    )
+
+                    # Use actual old_confidence from update_belief result
+                    # For new beliefs, old_confidence is None, so use 0.0
+                    old_confidence = result.old_confidence if result.old_confidence is not None else 0.0
+
+                    change = BeliefChangeResult(
+                        subject=belief.subject,
+                        predicate=belief.predicate,
+                        importance=importance,
+                        old_confidence=old_confidence,
+                        new_confidence=belief.confidence,
+                        belief=belief,
+                    )
+                    all_changes.append(change)
+
+            except Exception as e:
+                # Log error but continue processing other observations
+                logger.warning(
+                    f"Failed to extract beliefs from observation: {e}",
+                    extra={
+                        "observation_id": str(observation.observation_id),
+                        "observation_type": observation.observation_type,
+                        "employee_id": str(self.employee_id),
+                    },
+                )
+                continue
+
+        logger.info(
+            f"Extracted {len(all_changes)} beliefs from {len(observations)} observations",
+            extra={
+                "employee_id": str(self.employee_id),
+                "belief_count": len(all_changes),
+                "observation_count": len(observations),
+            },
+        )
+
+        return all_changes
 
     async def get_belief(
         self,
@@ -260,7 +357,7 @@ class BeliefSystem:
         belief_type: str = "state",
         evidence: list[UUID] | None = None,
         decay_rate: float = 0.1,
-    ) -> Belief:
+    ) -> BeliefUpdateResult:
         """
         Update or create a belief.
 
@@ -280,16 +377,18 @@ class BeliefSystem:
             decay_rate: Linear decay per day (0-1)
 
         Returns:
-            Updated or created Belief
+            BeliefUpdateResult containing the belief and metadata about the update
 
         Example:
-            >>> belief = await belief_system.update_belief(
+            >>> result = await belief_system.update_belief(
             ...     subject="Acme Corp",
             ...     predicate="deal_stage",
             ...     object={"stage": "negotiation", "amount": 50000},
             ...     confidence=0.9,
             ...     source="observation"
             ... )
+            >>> belief = result.belief
+            >>> was_new = result.was_created
         """
         # Get existing belief if any
         existing = await self.get_belief(subject, predicate)
@@ -325,7 +424,11 @@ class BeliefSystem:
                 reason=f"Updated from {source}",
             )
 
-            return existing
+            return BeliefUpdateResult(
+                belief=existing,
+                old_confidence=old_confidence,
+                was_created=False,
+            )
 
         # Create new belief
         # Convert UUIDs to strings for JSONB serialization
@@ -358,7 +461,11 @@ class BeliefSystem:
             reason=f"Created from {source}",
         )
 
-        return belief
+        return BeliefUpdateResult(
+            belief=belief,
+            old_confidence=None,
+            was_created=True,
+        )
 
     async def get_all_beliefs(
         self,
@@ -605,7 +712,7 @@ class BeliefSystem:
         self,
         observation: "Observation",
         llm_service: "LLMService",
-    ) -> list[Belief]:
+    ) -> list[BeliefUpdateResult]:
         """
         Extract structured beliefs from an observation using LLM.
 
@@ -621,7 +728,7 @@ class BeliefSystem:
             llm_service: LLM service for structured extraction
 
         Returns:
-            List of Beliefs that were created or updated
+            List of BeliefUpdateResult containing beliefs and update metadata
 
         Example:
             >>> from empla.llm import LLMService, LLMConfig
@@ -685,12 +792,14 @@ Extract all relevant beliefs from this observation. Focus on actionable informat
 
         # Use LLM to extract beliefs with error handling
         try:
-            _, extraction_result = await llm_service.generate_structured(
+            _, extraction_result_base = await llm_service.generate_structured(
                 prompt=user_prompt,
                 system=system_prompt,
                 response_format=BeliefExtractionResult,
                 temperature=0.3,  # Lower temperature for more consistent extraction
             )
+            # Type assertion since generate_structured returns BaseModel
+            extraction_result: BeliefExtractionResult = extraction_result_base  # type: ignore[assignment]
         except Exception as e:
             logger.error(
                 f"LLM belief extraction failed for observation {observation.observation_id}: {e}",
@@ -706,12 +815,12 @@ Extract all relevant beliefs from this observation. Focus on actionable informat
             return []
 
         # Process extracted beliefs
-        created_beliefs: list[Belief] = []
+        update_results: list[BeliefUpdateResult] = []
 
         for extracted in extraction_result.beliefs:
             # Create or update belief using existing update_belief method
             # Use "observation" as source since these beliefs are extracted from observations
-            belief = await self.update_belief(
+            result = await self.update_belief(
                 subject=extracted.subject,
                 predicate=extracted.predicate,
                 object=extracted.object,
@@ -722,12 +831,12 @@ Extract all relevant beliefs from this observation. Focus on actionable informat
                 decay_rate=0.1,  # Default decay rate
             )
 
-            created_beliefs.append(belief)
+            update_results.append(result)
 
         # Update observation to mark as processed
         # Note: This is done by the caller (ProactiveLoop) to avoid circular dependencies
 
-        return created_beliefs
+        return update_results
 
     def _format_observation_content(self, content: dict[str, Any]) -> str:
         """
