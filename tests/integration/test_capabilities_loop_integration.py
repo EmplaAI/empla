@@ -3,6 +3,7 @@ Integration tests for capabilities + proactive loop integration.
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -106,17 +107,21 @@ class MockGoalSystem:
         """
         return []
 
-    async def update_goal_progress(self, goal, beliefs):
+    async def update_goal_progress(self, goal_id: Any, progress: dict[str, Any]) -> Any:
         """
-        Update the progress of a given goal based on the current beliefs.
+        Update the progress of a given goal.
 
         Parameters:
-            goal: The goal object whose progress should be updated (goal-like interface expected).
-            beliefs: An iterable of belief objects used to evaluate and update the goal's progress.
+            goal_id: The goal's unique identifier.
+            progress: Progress data to merge with current progress.
+
+        Returns:
+            Updated goal, or None. This mock returns None.
 
         Notes:
             This mock implementation performs no action.
         """
+        return None
 
 
 class MockIntentionStack:
