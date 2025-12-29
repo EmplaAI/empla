@@ -418,10 +418,11 @@ class EventMonitoringSystem:
             # Evaluate comparison using operator mapping
             float_value = float(value)
             float_threshold = float(threshold)
+            float_epsilon = 1e-9  # Tolerance for floating-point equality
             comparisons = {
                 "less_than": float_value < float_threshold,
                 "greater_than": float_value > float_threshold,
-                "equals": float_value == float_threshold,
+                "equals": abs(float_value - float_threshold) < float_epsilon,
                 "less_than_or_equal": float_value <= float_threshold,
                 "greater_than_or_equal": float_value >= float_threshold,
             }
@@ -645,7 +646,7 @@ class EventMonitoringSystem:
         """
         # Pipeline coverage trigger
         self.register_threshold_trigger(
-            id="low_pipeline_coverage",
+            trigger_id="low_pipeline_coverage",
             name="Low Pipeline Coverage Alert",
             belief_subject="pipeline",
             belief_predicate="coverage",
@@ -662,7 +663,7 @@ class EventMonitoringSystem:
 
         # Customer health trigger
         self.register_threshold_trigger(
-            id="at_risk_customer",
+            trigger_id="at_risk_customer",
             name="At-Risk Customer Alert",
             belief_subject="customer",
             belief_predicate="health_score",
@@ -679,7 +680,7 @@ class EventMonitoringSystem:
 
         # Daily planning trigger
         self.register_time_trigger(
-            id="daily_planning",
+            trigger_id="daily_planning",
             name="Daily Planning Session",
             schedule="daily",
             action={
@@ -691,7 +692,7 @@ class EventMonitoringSystem:
 
         # Weekly review trigger
         self.register_time_trigger(
-            id="weekly_review",
+            trigger_id="weekly_review",
             name="Weekly Performance Review",
             schedule="weekly",
             action={
@@ -703,7 +704,7 @@ class EventMonitoringSystem:
 
         # Urgent email trigger
         self.register_external_trigger(
-            id="urgent_email",
+            trigger_id="urgent_email",
             name="Urgent Email Handler",
             source="email",
             event_type="urgent",

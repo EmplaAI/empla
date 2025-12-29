@@ -8,7 +8,7 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from pydantic import BaseModel, Field
 
@@ -893,10 +893,11 @@ class ProactiveExecutionLoop:
             # Get capability types from registry
             enabled = getattr(self.capability_registry, "get_enabled_capabilities", None)
             if enabled:
-                caps = enabled()
+                caps = enabled(self.employee.id)
                 return [str(getattr(c, "capability_type", c)) for c in caps]
             return []
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get capabilities: {e}")
             return []
 
     async def _analyze_situation_with_llm(
@@ -945,7 +946,7 @@ Analyze this situation and provide recommendations."""
                 response_format=SituationAnalysis,
                 temperature=0.3,
             )
-            return analysis  # type: ignore[return-value]
+            return cast(SituationAnalysis, analysis)
         except Exception as e:
             logger.warning(
                 f"LLM situation analysis failed: {e}",
@@ -1542,7 +1543,7 @@ Analyze this situation and provide recommendations."""
                     await self.beliefs.update_belief(
                         subject=action,
                         predicate="effectiveness",
-                        object={"value": 1.0 if success else 0.0, "last_result": success},
+                        belief_object={"value": 1.0 if success else 0.0, "last_result": success},
                         confidence=confidence,
                         source="execution_outcome",
                     )
@@ -1602,7 +1603,7 @@ Analyze this situation and provide recommendations."""
             await self.beliefs.update_belief(
                 subject="self",
                 predicate="recent_success_rate",
-                object={
+                belief_object={
                     "value": success_rate,
                     "successes": success_count,
                     "failures": failure_count,
