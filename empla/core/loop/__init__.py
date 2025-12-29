@@ -13,6 +13,7 @@ This is the "heartbeat" of empla - it continuously:
 See docs/design/proactive-loop.md for detailed design.
 """
 
+from empla.core.loop.events import Event, EventMonitoringSystem, EventTrigger
 from empla.core.loop.execution import ProactiveExecutionLoop
 from empla.core.loop.models import (
     LoopConfig,
@@ -21,6 +22,9 @@ from empla.core.loop.models import (
 )
 
 __all__ = [
+    "Event",
+    "EventMonitoringSystem",
+    "EventTrigger",
     "LoopConfig",
     "Observation",
     "PerceptionResult",
