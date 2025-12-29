@@ -6,6 +6,55 @@
 
 ---
 
+## 2025-12-29 - Test Suite Fixes & LLM Resource Cleanup
+
+**Phase:** Phase 2.5 - Real-World Integration
+
+### Fixed
+
+**Test Suite (PR #33):**
+- Fixed BDI API parameter mismatches: `object=` → `belief_object=` (4 occurrences)
+- Fixed BeliefSystem constructor calls to include required `llm_service` parameter
+- Fixed BeliefUpdateResult attribute access: `.predicate` → `.belief.predicate`
+- All 332 tests now pass with 0 errors, 0 failures
+
+**LLM Resource Cleanup:**
+- Added `close()` method to `LLMProviderBase` base class
+- Added `close()` to `OpenAIProvider` (closes AsyncOpenAI client)
+- Added `close()` to `AnthropicProvider` (closes AsyncAnthropic client)
+- Added `close()` to `AzureOpenAIProvider` (closes AsyncAzureOpenAI client)
+- Added `close()` to `LLMService` (closes primary + fallback providers)
+- Added LLM cleanup to `DigitalEmployee.stop()` method
+- Updated E2E tests with `llm_service` fixture for proper cleanup
+- Eliminated async socket cleanup warnings in test suite
+
+### Changed
+
+**CLAUDE.md:**
+- Updated development workflow to include explicit git branch/PR steps
+- Steps: Understand → Branch → Design → Implement → Test → Review → Commit → Push → PR
+
+**TODO.md:**
+- Updated to reflect accurate current implementation state
+- Phase 1: 100% complete, Phase 2: ~70% complete
+- Milestone 0 (First Deployable Employee): COMPLETE
+- Clear next priorities: Microsoft Graph API, Calendar, real observation sources
+
+### Test Results
+
+- **332 tests passed**, 21 skipped, 0 failed, 0 errors
+- **55.68% overall coverage**
+- All async resource cleanup issues resolved
+
+### Next Focus
+
+P0 priorities identified:
+1. Microsoft Graph API integration for EmailCapability
+2. Connect real observation sources to ProactiveExecutionLoop
+3. CalendarCapability with real Google/Microsoft API
+
+---
+
 ## 2025-12-20 - First Deployable Digital Employees (Milestone 0)
 
 **Phase:** Milestone 0 - Product Layer
