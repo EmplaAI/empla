@@ -16,7 +16,6 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import event
 
 from empla.employees import CustomerSuccessManager, SalesAE
 from empla.employees.config import EmployeeConfig, LLMSettings, LoopSettings
@@ -82,53 +81,57 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture
-async def session():
-    """Create a test database session with transaction isolation."""
+async def tenant_and_user():
+    """Create test tenant and user in the database.
+
+    Uses a separate session that properly commits, so the employee's
+    own session can see the tenant when it starts.
+    """
+    from sqlalchemy import delete
+
+    from empla.models.employee import Employee
+
     engine = get_engine(echo=False)
-    conn = await engine.connect()
-    trans = await conn.begin()
     sessionmaker = get_sessionmaker(engine)
-    session = sessionmaker(bind=conn)
-    nested = await conn.begin_nested()
 
-    @event.listens_for(session.sync_session, "after_transaction_end")
-    def restart_savepoint(_session, transaction):
-        if transaction.nested and not transaction._parent.nested:
-            conn.sync_connection.begin_nested()
+    tenant_id = uuid4()
 
-    yield session
+    async with sessionmaker() as session:
+        tenant = Tenant(
+            id=tenant_id,
+            name="LLM Test Company",
+            slug=f"llm-test-{tenant_id.hex[:8]}",
+            status="active",
+        )
+        session.add(tenant)
 
-    await session.close()
-    if nested.is_active:
-        await nested.rollback()
-    if trans.is_active:
-        await trans.rollback()
-    await conn.close()
+        user = User(
+            id=uuid4(),
+            tenant_id=tenant.id,
+            email=f"admin-{tenant_id.hex[:8]}@llm-test-company.com",
+            name="Admin User",
+            role="admin",
+        )
+        session.add(user)
+        await session.commit()
+
+        # Refresh to get committed state
+        await session.refresh(tenant)
+        await session.refresh(user)
+
+    yield tenant, user
+
+    # Cleanup after test
+    async with sessionmaker() as session:
+        # Delete employees first (they reference tenants)
+        await session.execute(delete(Employee).where(Employee.tenant_id == tenant_id))
+        # Delete users (they reference tenants)
+        await session.execute(delete(User).where(User.tenant_id == tenant_id))
+        # Delete tenant
+        await session.execute(delete(Tenant).where(Tenant.id == tenant_id))
+        await session.commit()
+
     await engine.dispose()
-
-
-@pytest.fixture
-async def tenant_and_user(session):
-    """Create test tenant and user in the database."""
-    tenant = Tenant(
-        id=uuid4(),
-        name="LLM Test Company",
-        slug="llm-test-company",
-        status="active",
-    )
-    session.add(tenant)
-
-    user = User(
-        id=uuid4(),
-        tenant_id=tenant.id,
-        email="admin@llm-test-company.com",
-        name="Admin User",
-        role="admin",
-    )
-    session.add(user)
-    await session.commit()
-
-    return tenant, user
 
 
 @pytest.fixture

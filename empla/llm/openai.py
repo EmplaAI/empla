@@ -83,12 +83,16 @@ class OpenAIProvider(LLMProviderBase):
         ]
 
         # Build JSON schema from Pydantic model for stable API
+        # OpenAI requires additionalProperties: false for strict mode
+        schema = response_format.model_json_schema()
+        self._add_additional_properties_false(schema)
+
         json_schema: dict[str, Any] = {
             "type": "json_schema",
             "json_schema": {
                 "name": response_format.__name__,
                 "strict": True,
-                "schema": response_format.model_json_schema(),
+                "schema": schema,
             },
         }
 
@@ -176,3 +180,31 @@ class OpenAIProvider(LLMProviderBase):
         )
 
         return [item.embedding for item in response.data]
+
+    def _add_additional_properties_false(self, schema: dict[str, Any]) -> None:
+        """
+        Recursively add additionalProperties: false to all objects in schema.
+
+        OpenAI's structured output with strict mode requires this property
+        to be set on all object types in the schema.
+        """
+        if not isinstance(schema, dict):
+            return
+
+        # Add to this level if it has properties (is an object type)
+        if "properties" in schema:
+            schema["additionalProperties"] = False
+
+        # Recurse into nested schemas
+        for _key, value in schema.items():
+            if isinstance(value, dict):
+                self._add_additional_properties_false(value)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        self._add_additional_properties_false(item)
+
+        # Handle $defs (Pydantic v2 uses $defs for nested models)
+        if "$defs" in schema:
+            for def_schema in schema["$defs"].values():
+                self._add_additional_properties_false(def_schema)
