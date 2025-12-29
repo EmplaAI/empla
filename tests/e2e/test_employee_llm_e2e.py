@@ -298,7 +298,7 @@ class TestSalesAEWithLLM:
         employee = SalesAE(config)
 
         try:
-            await employee.start()
+            await employee.start(run_loop=False)
 
             # Verify employee started with LLM configured
             assert employee._is_running
@@ -339,7 +339,7 @@ class TestCSMWithLLM:
         employee = CustomerSuccessManager(config)
 
         try:
-            await employee.start()
+            await employee.start(run_loop=False)
 
             assert employee._is_running
             assert employee._llm is not None
