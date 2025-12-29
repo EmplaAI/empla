@@ -8,15 +8,15 @@ import pytest
 from pydantic import ValidationError
 
 from empla.employees.personality import (
+    CSM_PERSONALITY,
+    PM_PERSONALITY,
+    SALES_AE_PERSONALITY,
     CommunicationStyle,
     DecisionStyle,
     Formality,
     Personality,
     Tone,
     Verbosity,
-    SALES_AE_PERSONALITY,
-    CSM_PERSONALITY,
-    PM_PERSONALITY,
 )
 
 

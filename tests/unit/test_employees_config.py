@@ -4,20 +4,21 @@ Tests for empla.employees.config module.
 Tests employee configuration, goal config, and settings.
 """
 
-import pytest
 from uuid import uuid4
+
+import pytest
 from pydantic import ValidationError
 
 from empla.employees.config import (
+    CSM_DEFAULT_GOALS,
+    PM_DEFAULT_GOALS,
+    SALES_AE_DEFAULT_GOALS,
     EmployeeConfig,
     GoalConfig,
     LLMSettings,
     LoopSettings,
-    SALES_AE_DEFAULT_GOALS,
-    CSM_DEFAULT_GOALS,
-    PM_DEFAULT_GOALS,
 )
-from empla.employees.personality import Personality, Tone, CommunicationStyle
+from empla.employees.personality import Personality
 
 
 class TestGoalConfig:

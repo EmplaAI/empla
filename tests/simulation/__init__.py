@@ -59,22 +59,19 @@ from tests.simulation.environment import (
 )
 
 __all__ = [
-    # Environment
-    "SimulatedEnvironment",
-    "SimulatedEmail",
+    "CustomerHealth",
+    "DealStage",
+    "EmailPriority",
+    "SimulatedCRMCapability",
+    "SimulatedCalendarCapability",
     "SimulatedCalendarEvent",
     "SimulatedContact",
-    "SimulatedDeal",
     "SimulatedCustomer",
-    "EmailPriority",
-    "DealStage",
-    "CustomerHealth",
-    # Capabilities
+    "SimulatedDeal",
+    "SimulatedEmail",
     "SimulatedEmailCapability",
-    "SimulatedCalendarCapability",
-    "SimulatedCRMCapability",
+    "SimulatedEnvironment",
     "get_simulated_capabilities",
-    # Registry helper (for DigitalEmployee injection)
     "get_simulated_registry",
     "initialize_simulated_capabilities",
 ]

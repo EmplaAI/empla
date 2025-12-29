@@ -34,13 +34,13 @@ Example:
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Optional
+from typing import Any
 
 from pydantic import BaseModel
 
 from empla.llm.config import MODELS, LLMConfig
 from empla.llm.models import LLMRequest, LLMResponse, Message
-from empla.llm.provider import LLMProviderFactory
+from empla.llm.provider import LLMProviderBase, LLMProviderFactory
 
 logger = logging.getLogger(__name__)
 
@@ -61,23 +61,28 @@ class LLMService:
         requests_count: Total number of requests made
     """
 
-    def __init__(self, config: LLMConfig):
+    def __init__(self, config: LLMConfig) -> None:
         """
         Initialize LLM service.
 
         Args:
             config: LLM configuration
+
+        Raises:
+            ValueError: If required API key is missing for configured provider
         """
         self.config = config
 
         # Initialize primary provider
         primary_model = MODELS[config.primary_model]
+        self._validate_api_key(primary_model.provider.value)
         self.primary = self._create_provider(primary_model.provider.value, primary_model.model_id)
 
         # Initialize fallback provider (if configured)
         self.fallback = None
         if config.fallback_model:
             fallback_model = MODELS[config.fallback_model]
+            self._validate_api_key(fallback_model.provider.value)
             self.fallback = self._create_provider(
                 fallback_model.provider.value, fallback_model.model_id
             )
@@ -86,7 +91,33 @@ class LLMService:
         self.total_cost = 0.0
         self.requests_count = 0
 
-    def _create_provider(self, provider: str, model_id: str):
+    def _validate_api_key(self, provider: str) -> None:
+        """
+        Validate that required API key is configured for the provider.
+
+        Args:
+            provider: Provider name
+
+        Raises:
+            ValueError: If required API key is missing
+        """
+        if provider == "anthropic" and not self.config.anthropic_api_key:
+            raise ValueError(
+                "anthropic_api_key is required for Anthropic provider. "
+                "Set ANTHROPIC_API_KEY environment variable or pass in config."
+            )
+        if provider == "openai" and not self.config.openai_api_key:
+            raise ValueError(
+                "openai_api_key is required for OpenAI provider. "
+                "Set OPENAI_API_KEY environment variable or pass in config."
+            )
+        if provider == "azure_openai" and not self.config.azure_openai_api_key:
+            raise ValueError(
+                "azure_openai_api_key is required for Azure OpenAI provider. "
+                "Set AZURE_OPENAI_API_KEY environment variable or pass in config."
+            )
+
+    def _create_provider(self, provider: str, model_id: str) -> LLMProviderBase:
         """
         Create provider instance.
 
@@ -98,21 +129,24 @@ class LLMService:
             Configured provider instance
         """
         if provider == "anthropic":
+            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="anthropic",
-                api_key=self.config.anthropic_api_key,
+                api_key=self.config.anthropic_api_key,  # type: ignore[arg-type]
                 model_id=model_id,
             )
         if provider == "openai":
+            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="openai",
-                api_key=self.config.openai_api_key,
+                api_key=self.config.openai_api_key,  # type: ignore[arg-type]
                 model_id=model_id,
             )
         if provider == "azure_openai":
+            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="azure_openai",
-                api_key=self.config.azure_openai_api_key,
+                api_key=self.config.azure_openai_api_key,  # type: ignore[arg-type]
                 model_id=model_id,
                 azure_endpoint=self.config.azure_openai_endpoint,
                 deployment_name=self.config.azure_openai_deployment,
@@ -277,12 +311,18 @@ class LLMService:
         Generate embeddings.
 
         Uses OpenAI embeddings (text-embedding-3-large) as default.
+        Falls back to creating a temporary OpenAI provider if primary/fallback
+        don't support embeddings.
 
         Args:
             texts: List of texts to embed
 
         Returns:
             List of embedding vectors
+
+        Raises:
+            ValueError: If OpenAI API key or embedding model is not configured
+                when falling back to OpenAI for embeddings
 
         Example:
             >>> embeddings = await llm.embed([
@@ -308,6 +348,19 @@ class LLMService:
                 pass
 
         # Create temporary OpenAI provider for embeddings
+        # Validate API key before creating provider (fail-fast)
+        if not self.config.openai_api_key:
+            raise ValueError(
+                "openai_api_key is required for embeddings when primary/fallback "
+                "providers don't support embed(). Set OPENAI_API_KEY environment "
+                "variable or pass in config."
+            )
+        if not self.config.embedding_model:
+            raise ValueError(
+                "embedding_model is required for embeddings. "
+                "Set a valid OpenAI embedding model (e.g., 'text-embedding-3-large')."
+            )
+
         from empla.llm.openai import OpenAIProvider
 
         openai_provider = OpenAIProvider(
@@ -316,7 +369,7 @@ class LLMService:
         )
         return await openai_provider.embed(texts)
 
-    def _track_cost(self, response: LLMResponse, is_primary: bool = True):
+    def _track_cost(self, response: LLMResponse, is_primary: bool = True) -> None:
         """
         Track cost of LLM call.
 
@@ -329,7 +382,7 @@ class LLMService:
 
         # Find model config to calculate cost
         model_key = self.config.primary_model if is_primary else self.config.fallback_model
-        model_config = MODELS.get(model_key)
+        model_config = MODELS.get(model_key) if model_key else None
 
         if model_config:
             cost = response.usage.calculate_cost(model_config)
@@ -341,7 +394,7 @@ class LLMService:
                 f"(total: ${self.total_cost:.2f}, requests: {self.requests_count})"
             )
 
-    def get_cost_summary(self) -> dict:
+    def get_cost_summary(self) -> dict[str, Any]:
         """
         Get cost summary.
 
@@ -365,6 +418,6 @@ class LLMService:
 __all__ = [
     "MODELS",
     "LLMConfig",
-    "LLMService",
     "LLMProviderFactory",
+    "LLMService",
 ]

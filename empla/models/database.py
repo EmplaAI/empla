@@ -45,15 +45,13 @@ def get_engine(database_url: str | None = None, echo: bool = False) -> AsyncEngi
     url = database_url or get_database_url()
 
     # Create async engine
-    engine = create_async_engine(
+    return create_async_engine(
         url,
         echo=echo,
         pool_pre_ping=True,  # Verify connections before using
         pool_size=10,  # Connection pool size
         max_overflow=20,  # Max overflow connections
     )
-
-    return engine
 
 
 def get_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

@@ -48,7 +48,7 @@ class EpisodicMemorySystem:
         session: AsyncSession,
         employee_id: UUID,
         tenant_id: UUID,
-    ):
+    ) -> None:
         """
         Initialize EpisodicMemorySystem.
 

@@ -17,8 +17,6 @@ Example:
 class EmployeeError(Exception):
     """Base exception for all employee-related errors."""
 
-    pass
-
 
 class EmployeeStartupError(EmployeeError):
     """
@@ -31,8 +29,6 @@ class EmployeeStartupError(EmployeeError):
     - Component initialization failures
     """
 
-    pass
-
 
 class EmployeeConfigError(EmployeeError):
     """
@@ -44,8 +40,6 @@ class EmployeeConfigError(EmployeeError):
     - Missing environment variables (e.g., API keys)
     - Invalid capability specifications
     """
-
-    pass
 
 
 class EmployeeNotStartedError(EmployeeError):
@@ -60,8 +54,6 @@ class EmployeeNotStartedError(EmployeeError):
     - LLM service
     """
 
-    pass
-
 
 class EmployeeShutdownError(EmployeeError):
     """
@@ -72,8 +64,6 @@ class EmployeeShutdownError(EmployeeError):
     - Database errors during cleanup
     - Loop cancellation issues
     """
-
-    pass
 
 
 class LLMGenerationError(EmployeeError):
@@ -87,14 +77,12 @@ class LLMGenerationError(EmployeeError):
     - Service unavailability
     """
 
-    pass
-
 
 __all__ = [
-    "EmployeeError",
-    "EmployeeStartupError",
     "EmployeeConfigError",
+    "EmployeeError",
     "EmployeeNotStartedError",
     "EmployeeShutdownError",
+    "EmployeeStartupError",
     "LLMGenerationError",
 ]

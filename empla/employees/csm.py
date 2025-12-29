@@ -20,9 +20,9 @@ import logging
 from typing import Any
 
 from empla.employees.base import DigitalEmployee
-from empla.employees.config import GoalConfig, CSM_DEFAULT_GOALS
+from empla.employees.config import CSM_DEFAULT_GOALS, GoalConfig
 from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
-from empla.employees.personality import Personality, CSM_PERSONALITY
+from empla.employees.personality import CSM_PERSONALITY, Personality
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class CustomerSuccessManager(DigitalEmployee):
             await self.beliefs.update_belief(
                 subject="self",
                 predicate="role",
-                object={"type": "csm", "focus": "customer_success"},
+                belief_object={"type": "csm", "focus": "customer_success"},
                 confidence=1.0,
                 source="prior",  # Prior knowledge about role identity
             )
@@ -163,12 +163,14 @@ class CustomerSuccessManager(DigitalEmployee):
             if belief.predicate == "health_status":
                 health = belief.object.get("status", "")
                 if health in ["at_risk", "critical"]:
-                    at_risk.append({
-                        "customer": belief.subject,
-                        "health_status": health,
-                        "churn_risk": belief.object.get("churn_risk", 0.0),
-                        "reason": belief.object.get("reason", "unknown"),
-                    })
+                    at_risk.append(
+                        {
+                            "customer": belief.subject,
+                            "health_status": health,
+                            "churn_risk": belief.object.get("churn_risk", 0.0),
+                            "reason": belief.object.get("reason", "unknown"),
+                        }
+                    )
 
         # Sort by churn risk descending (highest risk first)
         # This ensures CSM addresses most critical customers first
@@ -196,7 +198,9 @@ class CustomerSuccessManager(DigitalEmployee):
         try:
             beliefs = await self.beliefs.get_beliefs_about(customer_name)
         except Exception as e:
-            logger.error(f"Failed to query beliefs for customer {customer_name}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to query beliefs for customer {customer_name}: {e}", exc_info=True
+            )
             return {
                 "customer": customer_name,
                 "status": "unknown",
@@ -280,9 +284,9 @@ class CustomerSuccessManager(DigitalEmployee):
             return response.content
         except Exception as e:
             logger.error(
-                f"LLM generation failed for check-in email",
+                "LLM generation failed for check-in email",
                 exc_info=True,
-                extra={"customer": customer_name, "contact": contact_name}
+                extra={"customer": customer_name, "contact": contact_name},
             )
             raise LLMGenerationError(f"Failed to generate check-in email: {e}") from e
 

@@ -6,6 +6,7 @@ This module defines the base interface that all LLM providers must implement.
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -15,7 +16,7 @@ from empla.llm.models import LLMRequest, LLMResponse
 class LLMProviderBase(ABC):
     """Abstract base class for LLM providers."""
 
-    def __init__(self, api_key: str, model_id: str, **kwargs):
+    def __init__(self, api_key: str, model_id: str, **kwargs: Any) -> None:
         self.api_key = api_key
         self.model_id = model_id
         self.kwargs = kwargs
@@ -79,7 +80,7 @@ class LLMProviderFactory:
     """Factory for creating LLM providers."""
 
     @staticmethod
-    def create(provider: str, api_key: str, model_id: str, **kwargs) -> LLMProviderBase:
+    def create(provider: str, api_key: str, model_id: str, **kwargs: Any) -> LLMProviderBase:
         """
         Create LLM provider.
 

@@ -184,7 +184,7 @@ class IntentionStack:
         session: AsyncSession,
         employee_id: UUID,
         tenant_id: UUID,
-    ):
+    ) -> None:
         """
         Initialize IntentionStack.
 

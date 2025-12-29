@@ -78,9 +78,7 @@ class SimulatedCalendarEvent:
     id: str = field(default_factory=lambda: str(uuid4()))
     subject: str = ""
     start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
-    end_time: datetime = field(
-        default_factory=lambda: datetime.now(UTC) + timedelta(hours=1)
-    )
+    end_time: datetime = field(default_factory=lambda: datetime.now(UTC) + timedelta(hours=1))
     attendees: list[str] = field(default_factory=list)
     location: str = ""
     description: str = ""

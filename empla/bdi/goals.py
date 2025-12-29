@@ -40,7 +40,7 @@ class GoalSystem:
         session: AsyncSession,
         employee_id: UUID,
         tenant_id: UUID,
-    ):
+    ) -> None:
         """
         Initialize GoalSystem.
 

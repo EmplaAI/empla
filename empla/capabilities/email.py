@@ -72,11 +72,11 @@ class EmailConfig(CapabilityConfig):
 
     # Monitoring settings
     check_interval_seconds: int = 60
-    monitor_folders: list[str] = None
+    monitor_folders: list[str] | None = None
 
     # Triage settings
     auto_triage: bool = True
-    priority_keywords: dict[str, list[str]] = None
+    priority_keywords: dict[str, list[str]] | None = None
 
     # Response settings
     auto_respond: bool = False  # Require approval before sending
@@ -85,7 +85,7 @@ class EmailConfig(CapabilityConfig):
     # Privacy settings
     log_pii: bool = False  # If True, log full PII (email addresses, subjects, etc.)
 
-    def __init__(self, **data):
+    def __init__(self, **data: Any) -> None:
         """Initialize with sensible defaults"""
         if "monitor_folders" not in data or data["monitor_folders"] is None:
             data["monitor_folders"] = ["inbox", "sent"]
@@ -110,7 +110,7 @@ class EmailCapability(BaseCapability):
     - Sending with tracking
     """
 
-    def __init__(self, tenant_id: UUID, employee_id: UUID, config: EmailConfig):
+    def __init__(self, tenant_id: UUID, employee_id: UUID, config: EmailConfig) -> None:
         """
         Initialize EmailCapability.
 
@@ -162,7 +162,7 @@ class EmailCapability(BaseCapability):
             },
         )
 
-    async def _init_microsoft_graph(self):
+    async def _init_microsoft_graph(self) -> None:
         """
         Initialize Microsoft Graph client.
 
@@ -177,7 +177,7 @@ class EmailCapability(BaseCapability):
         # return GraphClient(credentials=self.config.credentials)
         logger.info("Microsoft Graph client initialization - placeholder")
 
-    async def _init_gmail(self):
+    async def _init_gmail(self) -> None:
         """
         Initialize Gmail client.
 
@@ -293,8 +293,8 @@ class EmailCapability(BaseCapability):
         # Check urgent keywords
         text = f"{email.subject} {email.body}".lower()
 
-        # Check configured priority keywords
-        for priority_str, keywords in self.config.priority_keywords.items():
+        # Check configured priority keywords (use empty dict if None for safety)
+        for priority_str, keywords in (self.config.priority_keywords or {}).items():
             # Convert string to EmailPriority enum
             priority = EmailPriority(priority_str)
             if any(kw in text for kw in keywords):
@@ -406,7 +406,7 @@ class EmailCapability(BaseCapability):
         for addr in addresses:
             if "@" in addr:
                 domains.add(addr.split("@")[1])
-        return sorted(list(domains))
+        return sorted(domains)
 
     def _redact_email_id(self, email_id: str) -> str:
         """
@@ -502,8 +502,8 @@ class EmailCapability(BaseCapability):
         to: list[str],
         subject: str,
         body: str,
-        cc: list[str] = None,
-        attachments: list[dict[str, Any]] = None,
+        cc: list[str] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> ActionResult:
         """
         Send new email.
@@ -544,7 +544,9 @@ class EmailCapability(BaseCapability):
             metadata={"sent_at": datetime.now(UTC).isoformat()},
         )
 
-    async def _reply_to_email(self, email_id: str, body: str, cc: list[str] = None) -> ActionResult:
+    async def _reply_to_email(
+        self, email_id: str, body: str, cc: list[str] | None = None
+    ) -> ActionResult:
         """
         Reply to existing email.
 

@@ -134,7 +134,7 @@ async def test_belief_system_basic(session, employee, tenant, mock_llm_service):
     result = await beliefs.update_belief(
         subject="Acme Corp",
         predicate="deal_stage",
-        object={"stage": "negotiation", "amount": 50000},
+        belief_object={"stage": "negotiation", "amount": 50000},
         confidence=0.9,
         source="observation",
     )
@@ -149,7 +149,7 @@ async def test_belief_system_basic(session, employee, tenant, mock_llm_service):
     updated_result = await beliefs.update_belief(
         subject="Acme Corp",
         predicate="deal_stage",
-        object={"stage": "closed_won", "amount": 50000},
+        belief_object={"stage": "closed_won", "amount": 50000},
         confidence=0.95,
         source="observation",
     )
@@ -325,7 +325,7 @@ async def test_bdi_full_cycle(session, employee, tenant, mock_llm_service):
     await beliefs.update_belief(
         subject="Pipeline",
         predicate="coverage",
-        object={"value": 2.0, "target": 3.0},
+        belief_object={"value": 2.0, "target": 3.0},
         confidence=0.9,
         source="observation",
     )
@@ -358,7 +358,7 @@ async def test_bdi_full_cycle(session, employee, tenant, mock_llm_service):
     await beliefs.update_belief(
         subject="Pipeline",
         predicate="coverage",
-        object={"value": 3.2, "target": 3.0},
+        belief_object={"value": 3.2, "target": 3.0},
         confidence=0.95,
         source="observation",
     )
@@ -414,7 +414,7 @@ async def test_belief_extraction_from_observation(session, employee, tenant, moc
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="deal_stage",
-                object={"stage": "contract_review", "amount": 100000},
+                belief_object={"stage": "contract_review", "amount": 100000},
                 confidence=0.9,
                 reasoning="Email subject mentions 'ready to close $100k deal' and asks for final contract",
                 belief_type="state",
@@ -422,7 +422,7 @@ async def test_belief_extraction_from_observation(session, employee, tenant, moc
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="sentiment",
-                object={"sentiment": "positive", "reason": "expressed excitement"},
+                belief_object={"sentiment": "positive", "reason": "expressed excitement"},
                 confidence=0.85,
                 reasoning="Body says 'excited to move forward' indicating positive sentiment",
                 belief_type="evaluative",
@@ -430,7 +430,7 @@ async def test_belief_extraction_from_observation(session, employee, tenant, moc
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="next_action",
-                object={"action": "send_contract", "urgency": "high"},
+                belief_object={"action": "send_contract", "urgency": "high"},
                 confidence=0.95,
                 reasoning="Explicit request to 'send the final contract'",
                 belief_type="event",
@@ -494,7 +494,9 @@ async def test_belief_extraction_from_observation(session, employee, tenant, moc
 
 
 @pytest.mark.asyncio
-async def test_belief_extraction_updates_existing_beliefs(session, employee, tenant, mock_llm_service):
+async def test_belief_extraction_updates_existing_beliefs(
+    session, employee, tenant, mock_llm_service
+):
     """Test that belief extraction updates existing beliefs rather than duplicating."""
     beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
 
@@ -502,7 +504,7 @@ async def test_belief_extraction_updates_existing_beliefs(session, employee, ten
     existing_result = await beliefs.update_belief(
         subject="Acme Corp",
         predicate="deal_stage",
-        object={"stage": "discovery", "amount": 50000},
+        belief_object={"stage": "discovery", "amount": 50000},
         confidence=0.7,
         source="observation",
     )
@@ -530,7 +532,7 @@ async def test_belief_extraction_updates_existing_beliefs(session, employee, ten
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="deal_stage",
-                object={"stage": "closed_won", "amount": 100000},
+                belief_object={"stage": "closed_won", "amount": 100000},
                 confidence=0.98,
                 reasoning="Email confirms contract signed and deal closed",
                 belief_type="state",
@@ -662,7 +664,7 @@ async def test_belief_extraction_evidence_tracking(session, employee, tenant, mo
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="interest_level",
-                object={"level": "moderate"},
+                belief_object={"level": "moderate"},
                 confidence=0.7,
                 reasoning="Email expresses initial interest",
                 belief_type="evaluative",
@@ -695,7 +697,7 @@ async def test_belief_extraction_evidence_tracking(session, employee, tenant, mo
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="interest_level",
-                object={"level": "high"},
+                belief_object={"level": "high"},
                 confidence=0.9,
                 reasoning="Meeting notes show strong interest and commitment to demo",
                 belief_type="evaluative",
@@ -746,7 +748,7 @@ async def test_belief_type_validation():
         belief = ExtractedBelief(
             subject="Test",
             predicate="test",
-            object={"value": "test"},
+            belief_object={"value": "test"},
             confidence=0.8,
             reasoning="test",
             belief_type=belief_type,
@@ -765,7 +767,7 @@ async def test_belief_type_validation():
         belief = ExtractedBelief(
             subject="Test",
             predicate="test",
-            object={"value": "test"},
+            belief_object={"value": "test"},
             confidence=0.8,
             reasoning="test",
             belief_type=input_val,
@@ -788,7 +790,7 @@ async def test_belief_type_validation():
         belief = ExtractedBelief(
             subject="Test",
             predicate="test",
-            object={"value": "test"},
+            belief_object={"value": "test"},
             confidence=0.8,
             reasoning="test",
             belief_type=input_val,
@@ -802,7 +804,7 @@ async def test_belief_type_validation():
             ExtractedBelief(
                 subject="Test",
                 predicate="test",
-                object={"value": "test"},
+                belief_object={"value": "test"},
                 confidence=0.8,
                 reasoning="test",
                 belief_type=invalid_type,
@@ -832,7 +834,7 @@ async def test_plan_generation_from_goal(session, employee, tenant, mock_llm_ser
     await beliefs.update_belief(
         subject="Acme Corp",
         predicate="interest_level",
-        object={"level": "high", "reason": "requested demo"},
+        belief_object={"level": "high", "reason": "requested demo"},
         confidence=0.85,
         source="observation",
     )

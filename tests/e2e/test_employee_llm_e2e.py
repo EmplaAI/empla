@@ -57,12 +57,14 @@ def has_vertex_config() -> bool:
 
 
 def has_any_llm_key() -> bool:
-    return any([
-        has_anthropic_key(),
-        has_openai_key(),
-        has_azure_openai_key(),
-        has_vertex_config(),
-    ])
+    return any(
+        [
+            has_anthropic_key(),
+            has_openai_key(),
+            has_azure_openai_key(),
+            has_vertex_config(),
+        ]
+    )
 
 
 # Skip entire module if no LLM keys available
@@ -137,18 +139,24 @@ def simulated_environment():
 
 @pytest.fixture(
     params=[
-        pytest.param("claude", marks=pytest.mark.skipif(
-            not has_anthropic_key(), reason="ANTHROPIC_API_KEY not set"
-        )),
-        pytest.param("openai", marks=pytest.mark.skipif(
-            not has_openai_key(), reason="OPENAI_API_KEY not set"
-        )),
-        pytest.param("azure", marks=pytest.mark.skipif(
-            not has_azure_openai_key(), reason="Azure OpenAI credentials not set"
-        )),
-        pytest.param("gemini", marks=pytest.mark.skipif(
-            not has_vertex_config(), reason="VERTEX_PROJECT_ID not set"
-        )),
+        pytest.param(
+            "claude",
+            marks=pytest.mark.skipif(not has_anthropic_key(), reason="ANTHROPIC_API_KEY not set"),
+        ),
+        pytest.param(
+            "openai",
+            marks=pytest.mark.skipif(not has_openai_key(), reason="OPENAI_API_KEY not set"),
+        ),
+        pytest.param(
+            "azure",
+            marks=pytest.mark.skipif(
+                not has_azure_openai_key(), reason="Azure OpenAI credentials not set"
+            ),
+        ),
+        pytest.param(
+            "gemini",
+            marks=pytest.mark.skipif(not has_vertex_config(), reason="VERTEX_PROJECT_ID not set"),
+        ),
     ]
 )
 def llm_provider(request):
@@ -216,14 +224,10 @@ class TestLLMServiceIntegration:
         assert len(response.content) > 0
         assert response.usage.total_tokens > 0
 
-        logger.info(
-            f"LLM {llm_provider} response: {response.content[:100]}..."
-        )
+        logger.info(f"LLM {llm_provider} response: {response.content[:100]}...")
 
     @pytest.mark.asyncio
-    async def test_llm_service_generates_structured_output(
-        self, llm_config, llm_provider
-    ):
+    async def test_llm_service_generates_structured_output(self, llm_config, llm_provider):
         """Verify LLM service can generate structured output."""
         from pydantic import BaseModel
 
@@ -245,14 +249,10 @@ class TestLLMServiceIntegration:
         assert isinstance(parsed.number, int)
         assert 1 <= parsed.number <= 100
 
-        logger.info(
-            f"LLM {llm_provider} structured output: {parsed}"
-        )
+        logger.info(f"LLM {llm_provider} structured output: {parsed}")
 
     @pytest.mark.asyncio
-    async def test_llm_service_handles_error_gracefully(
-        self, llm_config, llm_provider
-    ):
+    async def test_llm_service_handles_error_gracefully(self, llm_config, llm_provider):
         """Verify LLM service handles errors without crashing."""
         llm = LLMService(llm_config)
 
@@ -279,9 +279,7 @@ class TestSalesAEWithLLM:
     """Tests for SalesAE using real LLM for reasoning."""
 
     @pytest.mark.asyncio
-    async def test_sales_ae_llm_initialization(
-        self, tenant_and_user, llm_settings, llm_provider
-    ):
+    async def test_sales_ae_llm_initialization(self, tenant_and_user, llm_settings, llm_provider):
         """Verify SalesAE can initialize with LLM settings."""
         tenant, _ = tenant_and_user
 
@@ -306,9 +304,7 @@ class TestSalesAEWithLLM:
             # Run a cycle to ensure LLM is being used
             await employee.run_once()
 
-            logger.info(
-                f"SalesAE with {llm_provider} completed cycle successfully"
-            )
+            logger.info(f"SalesAE with {llm_provider} completed cycle successfully")
 
         finally:
             if employee._is_running:
@@ -324,9 +320,7 @@ class TestCSMWithLLM:
     """Tests for CSM using real LLM for reasoning."""
 
     @pytest.mark.asyncio
-    async def test_csm_llm_initialization(
-        self, tenant_and_user, llm_settings, llm_provider
-    ):
+    async def test_csm_llm_initialization(self, tenant_and_user, llm_settings, llm_provider):
         """Verify CSM can initialize with LLM settings."""
         tenant, _ = tenant_and_user
 
@@ -349,9 +343,7 @@ class TestCSMWithLLM:
 
             await employee.run_once()
 
-            logger.info(
-                f"CSM with {llm_provider} completed cycle successfully"
-            )
+            logger.info(f"CSM with {llm_provider} completed cycle successfully")
 
         finally:
             if employee._is_running:
@@ -367,9 +359,7 @@ class TestCrossProviderConsistency:
     """Tests to verify consistent behavior across LLM providers."""
 
     @pytest.mark.asyncio
-    async def test_belief_extraction_consistency(
-        self, llm_config, llm_provider
-    ):
+    async def test_belief_extraction_consistency(self, llm_config, llm_provider):
         """Verify belief extraction works consistently across providers."""
         from pydantic import BaseModel, Field
 
@@ -407,9 +397,7 @@ class TestCrossProviderConsistency:
         )
 
     @pytest.mark.asyncio
-    async def test_email_generation_consistency(
-        self, llm_config, llm_provider
-    ):
+    async def test_email_generation_consistency(self, llm_config, llm_provider):
         """Verify email generation works across providers."""
         from pydantic import BaseModel
 
@@ -440,6 +428,4 @@ class TestCrossProviderConsistency:
         assert len(email.body) > 0
         assert "@" not in email.subject  # Subject shouldn't contain email addresses
 
-        logger.info(
-            f"Provider {llm_provider} generated email: subject={email.subject}"
-        )
+        logger.info(f"Provider {llm_provider} generated email: subject={email.subject}")

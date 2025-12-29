@@ -250,6 +250,7 @@ def is_real_llm(llm_service) -> bool:
 
     # Fall back to environment variable check for real LLM services
     import os
+
     return os.getenv("RUN_WITH_REAL_LLM", "0").lower() in ("1", "true", "yes")
 
 

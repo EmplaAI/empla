@@ -76,8 +76,7 @@ def get_available_model() -> str:
 
 # Skip marker for tests that require LLM
 requires_llm = pytest.mark.skipif(
-    not has_any_llm_key(),
-    reason="Requires ANTHROPIC_API_KEY or OPENAI_API_KEY to be set"
+    not has_any_llm_key(), reason="Requires ANTHROPIC_API_KEY or OPENAI_API_KEY to be set"
 )
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
@@ -129,17 +128,11 @@ async def db_cleanup(shared_engine):
     async with sessionmaker() as session:
         # Delete employees first (foreign key constraint)
         for emp_id in created_employee_ids:
-            await session.execute(
-                delete(EmployeeModel).where(EmployeeModel.id == emp_id)
-            )
+            await session.execute(delete(EmployeeModel).where(EmployeeModel.id == emp_id))
         # Delete tenants (cascades to users)
         for tenant_id in created_tenant_ids:
-            await session.execute(
-                delete(User).where(User.tenant_id == tenant_id)
-            )
-            await session.execute(
-                delete(Tenant).where(Tenant.id == tenant_id)
-            )
+            await session.execute(delete(User).where(User.tenant_id == tenant_id))
+            await session.execute(delete(Tenant).where(Tenant.id == tenant_id))
         await session.commit()
 
 
@@ -239,9 +232,7 @@ def csm_config(tenant_and_user) -> EmployeeConfig:
 
 
 @pytest.fixture
-async def sales_ae_with_simulated_caps(
-    sales_ae_config, simulated_environment, db_cleanup
-):
+async def sales_ae_with_simulated_caps(sales_ae_config, simulated_environment, db_cleanup):
     """
     Create SalesAE with simulated capabilities.
 
@@ -372,9 +363,7 @@ class TestEmployeeLifecycle:
     """Tests for employee start/stop lifecycle management."""
 
     @pytest.mark.asyncio
-    async def test_employee_starts_and_initializes_components(
-        self, sales_ae_with_simulated_caps
-    ):
+    async def test_employee_starts_and_initializes_components(self, sales_ae_with_simulated_caps):
         """Verify start() initializes BDI, memory, and capabilities."""
         employee, _env = sales_ae_with_simulated_caps
 
@@ -467,9 +456,7 @@ class TestSalesAEBDICycle:
     """Tests for SalesAE BDI reasoning cycle with simulated environment."""
 
     @pytest.mark.asyncio
-    async def test_sales_ae_perceives_from_capabilities(
-        self, sales_ae_with_simulated_caps
-    ):
+    async def test_sales_ae_perceives_from_capabilities(self, sales_ae_with_simulated_caps):
         """Verify SalesAE perceives observations from simulated capabilities."""
         employee, env = sales_ae_with_simulated_caps
 
@@ -487,9 +474,7 @@ class TestSalesAEBDICycle:
         assert employee._loop.cycle_count >= 1
 
     @pytest.mark.asyncio
-    async def test_sales_ae_forms_goals_from_config(
-        self, sales_ae_with_simulated_caps
-    ):
+    async def test_sales_ae_forms_goals_from_config(self, sales_ae_with_simulated_caps):
         """Verify SalesAE has default goals after start."""
         employee, _env = sales_ae_with_simulated_caps
 
@@ -505,9 +490,7 @@ class TestSalesAEBDICycle:
         assert len(active_goals) > 0
 
     @pytest.mark.asyncio
-    async def test_sales_ae_beliefs_update_during_cycle(
-        self, sales_ae_with_simulated_caps
-    ):
+    async def test_sales_ae_beliefs_update_during_cycle(self, sales_ae_with_simulated_caps):
         """Verify beliefs are updated during the BDI cycle."""
         employee, _env = sales_ae_with_simulated_caps
 
@@ -637,9 +620,7 @@ class TestRoleSpecificMethods:
     """Tests for role-specific employee methods."""
 
     @pytest.mark.asyncio
-    async def test_sales_ae_has_sales_specific_properties(
-        self, sales_ae_with_simulated_caps
-    ):
+    async def test_sales_ae_has_sales_specific_properties(self, sales_ae_with_simulated_caps):
         """Verify SalesAE has sales-specific default properties."""
         employee, _env = sales_ae_with_simulated_caps
 
@@ -670,9 +651,7 @@ class TestRoleSpecificMethods:
 
     @requires_llm
     @pytest.mark.asyncio
-    async def test_employee_get_status_returns_info(
-        self, sales_ae_with_simulated_caps
-    ):
+    async def test_employee_get_status_returns_info(self, sales_ae_with_simulated_caps):
         """Verify get_status() returns correct information."""
         employee, _env = sales_ae_with_simulated_caps
 

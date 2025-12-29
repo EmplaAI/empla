@@ -193,7 +193,7 @@ class BeliefChangeResult:
         old_confidence: float,
         new_confidence: float,
         belief: "Belief",
-    ):
+    ) -> None:
         self.subject = subject
         self.predicate = predicate
         self.importance = importance
@@ -227,7 +227,7 @@ class BeliefSystem:
         employee_id: UUID,
         tenant_id: UUID,
         llm_service: "LLMService",
-    ):
+    ) -> None:
         """
         Initialize BeliefSystem.
 
@@ -287,7 +287,8 @@ class BeliefSystem:
 
                     # Use actual old_confidence from update_belief result
                     # For new beliefs, old_confidence is None, so use 0.0
-                    old_confidence = result.old_confidence if result.old_confidence is not None else 0.0
+                    old_conf = result.old_confidence
+                    old_confidence = old_conf if old_conf is not None else 0.0
 
                     change = BeliefChangeResult(
                         subject=belief.subject,
@@ -351,7 +352,7 @@ class BeliefSystem:
         self,
         subject: str,
         predicate: str,
-        object: dict[str, Any],
+        belief_object: dict[str, Any],
         confidence: float,
         source: str,
         belief_type: str = "state",
@@ -369,7 +370,7 @@ class BeliefSystem:
         Args:
             subject: What the belief is about (e.g., "Acme Corp")
             predicate: Property or relation (e.g., "pipeline_health")
-            object: Value (can be text, number, boolean, or complex object)
+            belief_object: Value (can be text, number, boolean, or complex object)
             confidence: Confidence level (0-1)
             source: How belief was formed (observation, inference, told_by_human, prior)
             belief_type: Type of belief (state, event, causal, evaluative)
@@ -383,7 +384,7 @@ class BeliefSystem:
             >>> result = await belief_system.update_belief(
             ...     subject="Acme Corp",
             ...     predicate="deal_stage",
-            ...     object={"stage": "negotiation", "amount": 50000},
+            ...     belief_object={"stage": "negotiation", "amount": 50000},
             ...     confidence=0.9,
             ...     source="observation"
             ... )
@@ -399,7 +400,7 @@ class BeliefSystem:
             old_confidence = existing.confidence
 
             # Update belief
-            existing.object = object
+            existing.object = belief_object
             existing.confidence = confidence
             existing.source = source
             existing.belief_type = belief_type
@@ -418,7 +419,7 @@ class BeliefSystem:
                 belief_id=existing.id,
                 change_type="updated",
                 old_value=old_value,
-                new_value=object,
+                new_value=belief_object,
                 old_confidence=old_confidence,
                 new_confidence=confidence,
                 reason=f"Updated from {source}",
@@ -438,7 +439,7 @@ class BeliefSystem:
             belief_type=belief_type,
             subject=subject,
             predicate=predicate,
-            object=object,
+            object=belief_object,
             confidence=confidence,
             source=source,
             evidence=[str(item) for item in evidence] if evidence else [],
@@ -455,7 +456,7 @@ class BeliefSystem:
             belief_id=belief.id,
             change_type="created",
             old_value=None,
-            new_value=object,
+            new_value=belief_object,
             old_confidence=None,
             new_confidence=confidence,
             reason=f"Created from {source}",
@@ -823,7 +824,7 @@ Extract all relevant beliefs from this observation. Focus on actionable informat
             result = await self.update_belief(
                 subject=extracted.subject,
                 predicate=extracted.predicate,
-                object=extracted.object,
+                belief_object=extracted.object,
                 confidence=extracted.confidence,
                 source="observation",
                 belief_type=extracted.belief_type,

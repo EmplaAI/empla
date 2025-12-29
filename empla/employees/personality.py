@@ -24,7 +24,7 @@ Example:
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class Tone(str, Enum):
@@ -74,28 +74,48 @@ class DecisionStyle(BaseModel):
     """How the employee makes decisions."""
 
     risk_tolerance: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="0=very conservative, 1=very aggressive"
+        default=0.5, ge=0.0, le=1.0, description="0=very conservative, 1=very aggressive"
     )
     decision_speed: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="0=very deliberate, 1=very quick"
+        default=0.5, ge=0.0, le=1.0, description="0=very deliberate, 1=very quick"
     )
     data_vs_intuition: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="0=pure intuition, 1=pure data-driven"
+        default=0.5, ge=0.0, le=1.0, description="0=pure intuition, 1=pure data-driven"
     )
     collaborative: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="0=independent, 1=consensus-seeking"
+        default=0.5, ge=0.0, le=1.0, description="0=independent, 1=consensus-seeking"
     )
 
     def to_prompt_context(self) -> str:
         """Convert to context for LLM prompts."""
-        risk = "conservative" if self.risk_tolerance < 0.4 else "moderate" if self.risk_tolerance < 0.7 else "aggressive"
-        speed = "deliberate" if self.decision_speed < 0.4 else "balanced" if self.decision_speed < 0.7 else "quick"
-        approach = "intuition-driven" if self.data_vs_intuition < 0.4 else "balanced" if self.data_vs_intuition < 0.7 else "data-driven"
-        collab = "independent" if self.collaborative < 0.4 else "collaborative" if self.collaborative < 0.7 else "highly collaborative"
+        risk = (
+            "conservative"
+            if self.risk_tolerance < 0.4
+            else "moderate"
+            if self.risk_tolerance < 0.7
+            else "aggressive"
+        )
+        speed = (
+            "deliberate"
+            if self.decision_speed < 0.4
+            else "balanced"
+            if self.decision_speed < 0.7
+            else "quick"
+        )
+        approach = (
+            "intuition-driven"
+            if self.data_vs_intuition < 0.4
+            else "balanced"
+            if self.data_vs_intuition < 0.7
+            else "data-driven"
+        )
+        collab = (
+            "independent"
+            if self.collaborative < 0.4
+            else "collaborative"
+            if self.collaborative < 0.7
+            else "highly collaborative"
+        )
 
         return f"Decision style: {risk} risk tolerance, {speed} decisions, {approach} approach, {collab} style."
 
@@ -117,25 +137,16 @@ class Personality(BaseModel):
     """
 
     # Big Five traits (0-1 scale)
-    openness: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="Innovation vs tradition"
-    )
+    openness: float = Field(default=0.5, ge=0.0, le=1.0, description="Innovation vs tradition")
     conscientiousness: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="Organized vs spontaneous"
+        default=0.5, ge=0.0, le=1.0, description="Organized vs spontaneous"
     )
-    extraversion: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="Outgoing vs reserved"
-    )
+    extraversion: float = Field(default=0.5, ge=0.0, le=1.0, description="Outgoing vs reserved")
     agreeableness: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="Cooperative vs competitive"
+        default=0.5, ge=0.0, le=1.0, description="Cooperative vs competitive"
     )
     neuroticism: float = Field(
-        default=0.3, ge=0.0, le=1.0,
-        description="Emotional reactivity (lower is calmer)"
+        default=0.3, ge=0.0, le=1.0, description="Emotional reactivity (lower is calmer)"
     )
 
     # Professional traits
@@ -144,16 +155,13 @@ class Personality(BaseModel):
 
     # Work style
     proactivity: float = Field(
-        default=0.7, ge=0.0, le=1.0,
-        description="Proactive vs reactive work style"
+        default=0.7, ge=0.0, le=1.0, description="Proactive vs reactive work style"
     )
     persistence: float = Field(
-        default=0.7, ge=0.0, le=1.0,
-        description="How persistent when facing obstacles"
+        default=0.7, ge=0.0, le=1.0, description="How persistent when facing obstacles"
     )
     attention_to_detail: float = Field(
-        default=0.5, ge=0.0, le=1.0,
-        description="Detail-oriented vs big picture"
+        default=0.5, ge=0.0, le=1.0, description="Detail-oriented vs big picture"
     )
 
     def to_system_prompt(self) -> str:
@@ -284,14 +292,14 @@ PM_PERSONALITY = Personality(
 
 
 __all__ = [
+    # Templates
+    "CSM_PERSONALITY",
+    "PM_PERSONALITY",
+    "SALES_AE_PERSONALITY",
     "CommunicationStyle",
     "DecisionStyle",
     "Formality",
     "Personality",
     "Tone",
     "Verbosity",
-    # Templates
-    "CSM_PERSONALITY",
-    "PM_PERSONALITY",
-    "SALES_AE_PERSONALITY",
 ]

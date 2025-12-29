@@ -6,6 +6,7 @@ This module implements the LLM provider interface for Google's Gemini models via
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -17,8 +18,13 @@ class VertexAIProvider(LLMProviderBase):
     """Google Vertex AI / Gemini provider."""
 
     def __init__(
-        self, api_key: str, model_id: str, project_id: str, location: str = "us-central1", **kwargs
-    ):
+        self,
+        api_key: str,
+        model_id: str,
+        project_id: str,
+        location: str = "us-central1",
+        **kwargs: Any,
+    ) -> None:
         super().__init__(api_key, model_id, **kwargs)
         self.project_id = project_id
         self.location = location
@@ -30,11 +36,11 @@ class VertexAIProvider(LLMProviderBase):
             # Initialize Vertex AI
             aiplatform.init(project=project_id, location=location)
             # Note: We'll create the model instance per-request to support system instructions
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "google-cloud-aiplatform is required for Vertex AI provider. "
                 "Install with: pip install google-cloud-aiplatform"
-            )
+            ) from err
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         """

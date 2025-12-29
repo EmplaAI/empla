@@ -4,21 +4,18 @@ Tests for empla.employees role implementations.
 Tests SalesAE and CustomerSuccessManager employees.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from empla.employees import (
-    SalesAE,
-    CustomerSuccessManager,
     CSM,
+    CustomerSuccessManager,
     EmployeeConfig,
+    SalesAE,
 )
-from empla.employees.config import GoalConfig, SALES_AE_DEFAULT_GOALS, CSM_DEFAULT_GOALS
+from empla.employees.config import CSM_DEFAULT_GOALS, SALES_AE_DEFAULT_GOALS, GoalConfig
 from empla.employees.personality import (
+    CSM_PERSONALITY,
+    SALES_AE_PERSONALITY,
     Personality,
     Tone,
-    SALES_AE_PERSONALITY,
-    CSM_PERSONALITY,
 )
 
 

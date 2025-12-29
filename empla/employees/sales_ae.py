@@ -26,9 +26,9 @@ import logging
 from typing import Any
 
 from empla.employees.base import DigitalEmployee
-from empla.employees.config import GoalConfig, SALES_AE_DEFAULT_GOALS
+from empla.employees.config import SALES_AE_DEFAULT_GOALS, GoalConfig
 from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
-from empla.employees.personality import Personality, SALES_AE_PERSONALITY
+from empla.employees.personality import SALES_AE_PERSONALITY, Personality
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ class SalesAE(DigitalEmployee):
             await self.beliefs.update_belief(
                 subject="self",
                 predicate="role",
-                object={"type": "sales_ae", "focus": "pipeline_building"},
+                belief_object={"type": "sales_ae", "focus": "pipeline_building"},
                 confidence=1.0,
                 source="prior",  # Prior knowledge about role identity
             )
@@ -179,7 +179,9 @@ class SalesAE(DigitalEmployee):
                     if value is not None:
                         return float(value)
                 except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid pipeline coverage value '{belief.object.get('value')}': {e}")
+                    logger.warning(
+                        f"Invalid pipeline coverage value '{belief.object.get('value')}': {e}"
+                    )
                     continue
 
         logger.debug("No pipeline coverage belief found, returning 0.0")
@@ -204,11 +206,13 @@ class SalesAE(DigitalEmployee):
         opportunities = []
         for fact in facts:
             if fact.object.get("stage") not in ["closed_won", "closed_lost"]:
-                opportunities.append({
-                    "account": fact.subject,
-                    "stage": fact.object.get("stage"),
-                    "value": fact.object.get("value"),
-                })
+                opportunities.append(
+                    {
+                        "account": fact.subject,
+                        "stage": fact.object.get("stage"),
+                        "value": fact.object.get("value"),
+                    }
+                )
 
         return opportunities
 
@@ -325,9 +329,9 @@ class SalesAE(DigitalEmployee):
             return response.content
         except Exception as e:
             logger.error(
-                f"LLM generation failed for outreach email",
+                "LLM generation failed for outreach email",
                 exc_info=True,
-                extra={"prospect": prospect_name, "company": company}
+                extra={"prospect": prospect_name, "company": company},
             )
             raise LLMGenerationError(f"Failed to generate outreach email: {e}") from e
 

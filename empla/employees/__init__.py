@@ -52,15 +52,16 @@ from empla.employees.base import DigitalEmployee, MemorySystem
 
 # Configuration
 from empla.employees.config import (
-    EmployeeConfig,
-    GoalConfig,
-    LLMSettings,
-    LoopSettings,
     # Default goals
     CSM_DEFAULT_GOALS,
     PM_DEFAULT_GOALS,
     SALES_AE_DEFAULT_GOALS,
+    EmployeeConfig,
+    GoalConfig,
+    LLMSettings,
+    LoopSettings,
 )
+from empla.employees.csm import CustomerSuccessManager
 
 # Exceptions
 from empla.employees.exceptions import (
@@ -74,58 +75,57 @@ from empla.employees.exceptions import (
 
 # Personality
 from empla.employees.personality import (
+    # Pre-built personalities
+    CSM_PERSONALITY,
+    PM_PERSONALITY,
+    SALES_AE_PERSONALITY,
     CommunicationStyle,
     DecisionStyle,
     Formality,
     Personality,
     Tone,
     Verbosity,
-    # Pre-built personalities
-    CSM_PERSONALITY,
-    PM_PERSONALITY,
-    SALES_AE_PERSONALITY,
 )
 
 # Pre-built employees
 from empla.employees.sales_ae import SalesAE
-from empla.employees.csm import CustomerSuccessManager
 
 # Convenience alias
 CSM = CustomerSuccessManager
 
 __all__ = [
+    "CSM",  # Alias
+    # Default goals
+    "CSM_DEFAULT_GOALS",
+    # Pre-built personalities
+    "CSM_PERSONALITY",
+    "PM_DEFAULT_GOALS",
+    "PM_PERSONALITY",
+    "SALES_AE_DEFAULT_GOALS",
+    "SALES_AE_PERSONALITY",
+    # Personality
+    "CommunicationStyle",
+    "CustomerSuccessManager",
+    "DecisionStyle",
     # Base classes
     "DigitalEmployee",
-    "MemorySystem",
     # Configuration
     "EmployeeConfig",
-    "GoalConfig",
-    "LLMSettings",
-    "LoopSettings",
     # Exceptions
     "EmployeeConfigError",
     "EmployeeError",
     "EmployeeNotStartedError",
     "EmployeeShutdownError",
     "EmployeeStartupError",
-    "LLMGenerationError",
-    # Personality
-    "CommunicationStyle",
-    "DecisionStyle",
     "Formality",
+    "GoalConfig",
+    "LLMGenerationError",
+    "LLMSettings",
+    "LoopSettings",
+    "MemorySystem",
     "Personality",
-    "Tone",
-    "Verbosity",
-    # Pre-built personalities
-    "CSM_PERSONALITY",
-    "PM_PERSONALITY",
-    "SALES_AE_PERSONALITY",
-    # Default goals
-    "CSM_DEFAULT_GOALS",
-    "PM_DEFAULT_GOALS",
-    "SALES_AE_DEFAULT_GOALS",
     # Pre-built employees
     "SalesAE",
-    "CustomerSuccessManager",
-    "CSM",  # Alias
+    "Tone",
+    "Verbosity",
 ]

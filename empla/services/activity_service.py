@@ -110,9 +110,7 @@ class ActivityService:
             Tuple of (activities, total_count)
         """
         # Base query
-        query = select(EmployeeActivity).where(
-            EmployeeActivity.tenant_id == tenant_id
-        )
+        query = select(EmployeeActivity).where(EmployeeActivity.tenant_id == tenant_id)
 
         # Apply filters
         if employee_id:
@@ -137,11 +135,7 @@ class ActivityService:
 
         # Apply pagination and ordering
         offset = (page - 1) * page_size
-        query = (
-            query.order_by(EmployeeActivity.occurred_at.desc())
-            .offset(offset)
-            .limit(page_size)
-        )
+        query = query.order_by(EmployeeActivity.occurred_at.desc()).offset(offset).limit(page_size)
 
         # Execute
         result = await self.session.execute(query)
@@ -215,6 +209,7 @@ class ActivityService:
 
 
 # Convenience functions for common activity recording
+
 
 async def record_email_sent(
     session: AsyncSession,

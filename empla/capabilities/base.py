@@ -209,7 +209,7 @@ class BaseCapability(ABC):
                 return ActionResult(success=True)
     """
 
-    def __init__(self, tenant_id: UUID, employee_id: UUID, config: CapabilityConfig):
+    def __init__(self, tenant_id: UUID, employee_id: UUID, config: CapabilityConfig) -> None:
         """
         Initialize the capability instance with tenant, employee, and configuration context.
 

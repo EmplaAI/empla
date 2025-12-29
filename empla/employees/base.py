@@ -41,7 +41,6 @@ from empla.employees.config import EmployeeConfig, GoalConfig
 from empla.employees.exceptions import (
     EmployeeConfigError,
     EmployeeNotStartedError,
-    EmployeeShutdownError,
     EmployeeStartupError,
 )
 from empla.employees.personality import Personality
@@ -76,7 +75,7 @@ class MemorySystem:
         session: AsyncSession,
         employee_id: UUID,
         tenant_id: UUID,
-    ):
+    ) -> None:
         self.episodic = EpisodicMemorySystem(session, employee_id, tenant_id)
         self.semantic = SemanticMemorySystem(session, employee_id, tenant_id)
         self.procedural = ProceduralMemorySystem(session, employee_id, tenant_id)
@@ -119,7 +118,7 @@ class DigitalEmployee(ABC):
         self,
         config: EmployeeConfig,
         capability_registry: CapabilityRegistry | None = None,
-    ):
+    ) -> None:
         """
         Initialize digital employee.
 
@@ -225,9 +224,7 @@ class DigitalEmployee(ABC):
     def llm(self) -> LLMService:
         """LLM service."""
         if self._llm is None:
-            raise EmployeeNotStartedError(
-                f"Cannot access LLM on {self.name}: call start() first"
-            )
+            raise EmployeeNotStartedError(f"Cannot access LLM on {self.name}: call start() first")
         return self._llm
 
     @property
@@ -243,9 +240,7 @@ class DigitalEmployee(ABC):
     def goals(self) -> GoalSystem:
         """Goal system."""
         if self._goals is None:
-            raise EmployeeNotStartedError(
-                f"Cannot access goals on {self.name}: call start() first"
-            )
+            raise EmployeeNotStartedError(f"Cannot access goals on {self.name}: call start() first")
         return self._goals
 
     @property
@@ -407,7 +402,7 @@ class DigitalEmployee(ABC):
                 await asyncio.wait_for(self._loop_task, timeout=10.0)
             except asyncio.CancelledError:
                 logger.debug(f"Loop task cancelled for {self.name}")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"Loop task cancellation timed out for {self.name}")
                 shutdown_errors.append(("loop_task", TimeoutError("Cancellation timed out")))
 
@@ -420,7 +415,9 @@ class DigitalEmployee(ABC):
                         try:
                             await cap.shutdown()
                         except Exception as e:
-                            logger.error(f"Failed to shutdown capability {cap_type}: {e}", exc_info=True)
+                            logger.error(
+                                f"Failed to shutdown capability {cap_type}: {e}", exc_info=True
+                            )
                             shutdown_errors.append((f"capability:{cap_type}", e))
 
         # Custom stop logic
@@ -466,7 +463,6 @@ class DigitalEmployee(ABC):
         Override this to add custom initialization logic.
         Errors raised here will cause startup to fail.
         """
-        pass
 
     async def on_stop(self) -> None:
         """
@@ -475,7 +471,6 @@ class DigitalEmployee(ABC):
         Override this to add custom cleanup logic.
         Errors raised here are logged but don't prevent shutdown.
         """
-        pass
 
     # =========================================================================
     # Initialization Helpers
@@ -751,9 +746,7 @@ class DigitalEmployee(ABC):
             EmployeeNotStartedError: If employee not started
         """
         if not self._is_running:
-            raise EmployeeNotStartedError(
-                f"Cannot run cycle on {self.name}: call start() first"
-            )
+            raise EmployeeNotStartedError(f"Cannot run cycle on {self.name}: call start() first")
 
         if self._loop:
             await self._loop._run_cycle()

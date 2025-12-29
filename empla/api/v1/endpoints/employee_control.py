@@ -4,6 +4,7 @@ empla.api.v1.endpoints.employee_control - Employee Lifecycle Control Endpoints
 REST API endpoints for starting, stopping, and controlling digital employees.
 """
 
+import contextlib
 import logging
 from uuid import UUID
 
@@ -211,10 +212,8 @@ async def pause_employee(
     except SQLAlchemyError as e:
         await db.rollback()
         # Try to unpause in manager since DB failed
-        try:
+        with contextlib.suppress(ValueError):
             await manager.resume_employee(employee_id)
-        except ValueError:
-            pass  # May not be pausable anymore
         logger.error(
             f"Failed to persist pause status for employee {employee_id}: {e}",
             exc_info=True,
@@ -236,7 +235,7 @@ async def pause_employee(
         status="paused",
         lifecycle_stage=employee.lifecycle_stage,
         is_running=True,  # Employee instance exists in memory
-        is_paused=True,   # But execution cycles are paused
+        is_paused=True,  # But execution cycles are paused
         has_error=False,
     )
 
@@ -279,10 +278,8 @@ async def resume_employee(
     except SQLAlchemyError as e:
         await db.rollback()
         # Try to re-pause in manager since DB failed
-        try:
+        with contextlib.suppress(ValueError):
             await manager.pause_employee(employee_id)
-        except ValueError:
-            pass  # May not be running anymore
         logger.error(
             f"Failed to persist active status for employee {employee_id}: {e}",
             exc_info=True,

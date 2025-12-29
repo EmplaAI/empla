@@ -17,7 +17,11 @@ and proactive loop as production - only the "outside world" is simulated.
 
 import logging
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from empla.capabilities import CapabilityRegistry
 
 from empla.capabilities.base import (
     Action,
