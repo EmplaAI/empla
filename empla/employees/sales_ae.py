@@ -206,11 +206,15 @@ class SalesAE(DigitalEmployee):
 
         opportunities = []
         for fact in facts:
-            # Parse JSON-encoded object back to dict
-            try:
-                fact_object = json.loads(fact.object) if fact.object.startswith("{") else {}
-            except json.JSONDecodeError:
-                fact_object = {}
+            # Parse fact.object to dict, handling various input types
+            if isinstance(fact.object, dict):
+                fact_object = fact.object
+            else:
+                try:
+                    parsed = json.loads(fact.object)
+                    fact_object = parsed if isinstance(parsed, dict) else {}
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    fact_object = {}
 
             if fact_object.get("stage") not in ["closed_won", "closed_lost"]:
                 opportunities.append(
