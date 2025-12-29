@@ -142,9 +142,9 @@ class EmailCapability(BaseCapability):
             ValueError: If provider is not supported
         """
         if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
-            await self._init_microsoft_graph()
+            self._client = await self._init_microsoft_graph()
         elif self.config.provider == EmailProvider.GMAIL:
-            await self._init_gmail()
+            self._client = await self._init_gmail()
         else:
             raise ValueError(f"Unsupported provider: {self.config.provider}")
 
@@ -162,7 +162,7 @@ class EmailCapability(BaseCapability):
             },
         )
 
-    async def _init_microsoft_graph(self) -> None:
+    async def _init_microsoft_graph(self) -> Any:
         """
         Initialize Microsoft Graph client.
 
@@ -170,26 +170,28 @@ class EmailCapability(BaseCapability):
         Use OAuth2 with delegated permissions
 
         Returns:
-            Microsoft Graph client instance
+            Microsoft Graph client instance (None until implemented)
         """
         # TODO: Implement Microsoft Graph authentication
         # from msgraph.core import GraphClient
         # return GraphClient(credentials=self.config.credentials)
         logger.info("Microsoft Graph client initialization - placeholder")
+        return None
 
-    async def _init_gmail(self) -> None:
+    async def _init_gmail(self) -> Any:
         """
         Initialize Gmail client.
 
         TODO: Implement Gmail API authentication
 
         Returns:
-            Gmail client instance
+            Gmail client instance (None until implemented)
         """
         # TODO: Implement Gmail API authentication
         # from googleapiclient.discovery import build
         # return build('gmail', 'v1', credentials=self.config.credentials)
         logger.info("Gmail client initialization - placeholder")
+        return None
 
     async def perceive(self) -> list[Observation]:
         """
