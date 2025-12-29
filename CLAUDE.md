@@ -64,12 +64,14 @@ Make it easy to create employees. If it takes >50 lines for a basic employee, re
 ### Implementing Features
 
 1. **Understand**: Read ARCHITECTURE.md, check TODO.md for priorities
-2. **Design**: For complex features, use `feature-dev:code-architect` agent
-3. **Implement**: Follow empla patterns (see skills: empla-bdi, empla-capability)
-4. **Test**: Run `uv run pytest`, aim for >80% coverage
-5. **Review**: Use `pr-review-toolkit:code-reviewer` on your changes
-6. **Commit**: Use `/commit` command
-7. **PR**: Use `/commit-push-pr` or create manually
+2. **Branch**: Create a feature branch (`git checkout -b feat/feature-name` or `fix/bug-name`)
+3. **Design**: For complex features, use `feature-dev:code-architect` agent
+4. **Implement**: Follow empla patterns (see skills: empla-bdi, empla-capability)
+5. **Test**: Run `uv run pytest`, ensure all tests pass with no errors
+6. **Review**: Use `pr-review-toolkit:code-reviewer` on your changes
+7. **Commit**: Use `/commit` command with descriptive message
+8. **Push**: Push branch to remote (`git push -u origin <branch-name>`)
+9. **PR**: Create pull request with `gh pr create` or `/commit-push-pr`
 
 ### Plugin Usage Reference
 
