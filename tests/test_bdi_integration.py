@@ -414,7 +414,7 @@ async def test_belief_extraction_from_observation(session, employee, tenant, moc
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="deal_stage",
-                belief_object={"stage": "contract_review", "amount": 100000},
+                object={"stage": "contract_review", "amount": 100000},
                 confidence=0.9,
                 reasoning="Email subject mentions 'ready to close $100k deal' and asks for final contract",
                 belief_type="state",
@@ -422,7 +422,7 @@ async def test_belief_extraction_from_observation(session, employee, tenant, moc
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="sentiment",
-                belief_object={"sentiment": "positive", "reason": "expressed excitement"},
+                object={"sentiment": "positive", "reason": "expressed excitement"},
                 confidence=0.85,
                 reasoning="Body says 'excited to move forward' indicating positive sentiment",
                 belief_type="evaluative",
@@ -430,7 +430,7 @@ async def test_belief_extraction_from_observation(session, employee, tenant, moc
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="next_action",
-                belief_object={"action": "send_contract", "urgency": "high"},
+                object={"action": "send_contract", "urgency": "high"},
                 confidence=0.95,
                 reasoning="Explicit request to 'send the final contract'",
                 belief_type="event",
@@ -532,7 +532,7 @@ async def test_belief_extraction_updates_existing_beliefs(
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="deal_stage",
-                belief_object={"stage": "closed_won", "amount": 100000},
+                object={"stage": "closed_won", "amount": 100000},
                 confidence=0.98,
                 reasoning="Email confirms contract signed and deal closed",
                 belief_type="state",
@@ -664,7 +664,7 @@ async def test_belief_extraction_evidence_tracking(session, employee, tenant, mo
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="interest_level",
-                belief_object={"level": "moderate"},
+                object={"level": "moderate"},
                 confidence=0.7,
                 reasoning="Email expresses initial interest",
                 belief_type="evaluative",
@@ -697,7 +697,7 @@ async def test_belief_extraction_evidence_tracking(session, employee, tenant, mo
             ExtractedBelief(
                 subject="Acme Corp",
                 predicate="interest_level",
-                belief_object={"level": "high"},
+                object={"level": "high"},
                 confidence=0.9,
                 reasoning="Meeting notes show strong interest and commitment to demo",
                 belief_type="evaluative",
@@ -748,7 +748,7 @@ async def test_belief_type_validation():
         belief = ExtractedBelief(
             subject="Test",
             predicate="test",
-            belief_object={"value": "test"},
+            object={"value": "test"},
             confidence=0.8,
             reasoning="test",
             belief_type=belief_type,
@@ -767,7 +767,7 @@ async def test_belief_type_validation():
         belief = ExtractedBelief(
             subject="Test",
             predicate="test",
-            belief_object={"value": "test"},
+            object={"value": "test"},
             confidence=0.8,
             reasoning="test",
             belief_type=input_val,
@@ -790,7 +790,7 @@ async def test_belief_type_validation():
         belief = ExtractedBelief(
             subject="Test",
             predicate="test",
-            belief_object={"value": "test"},
+            object={"value": "test"},
             confidence=0.8,
             reasoning="test",
             belief_type=input_val,
@@ -804,7 +804,7 @@ async def test_belief_type_validation():
             ExtractedBelief(
                 subject="Test",
                 predicate="test",
-                belief_object={"value": "test"},
+                object={"value": "test"},
                 confidence=0.8,
                 reasoning="test",
                 belief_type=invalid_type,

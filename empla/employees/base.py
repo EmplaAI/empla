@@ -427,6 +427,15 @@ class DigitalEmployee(ABC):
             logger.error(f"on_stop() hook failed for {self.name}: {e}", exc_info=True)
             shutdown_errors.append(("on_stop", e))
 
+        # Close LLM service
+        if self._llm:
+            try:
+                await self._llm.close()
+            except Exception as e:
+                logger.error(f"Error closing LLM service: {e}", exc_info=True)
+                shutdown_errors.append(("llm", e))
+            self._llm = None
+
         # Close database session and dispose engine
         if self._session:
             try:

@@ -208,3 +208,7 @@ class OpenAIProvider(LLMProviderBase):
         if "$defs" in schema:
             for def_schema in schema["$defs"].values():
                 self._add_additional_properties_false(def_schema)
+
+    async def close(self) -> None:
+        """Close the OpenAI client and release resources."""
+        await self.client.close()

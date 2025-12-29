@@ -204,6 +204,14 @@ def llm_settings(llm_provider) -> LLMSettings:
     )
 
 
+@pytest.fixture
+async def llm_service(llm_config):
+    """Create an LLM service and properly close it after the test."""
+    llm = LLMService(llm_config)
+    yield llm
+    await llm.close()
+
+
 # ============================================================================
 # Part 1: Basic LLM Integration Tests
 # ============================================================================
@@ -213,11 +221,9 @@ class TestLLMServiceIntegration:
     """Tests for basic LLM service functionality across providers."""
 
     @pytest.mark.asyncio
-    async def test_llm_service_generates_text(self, llm_config, llm_provider):
+    async def test_llm_service_generates_text(self, llm_service, llm_provider):
         """Verify LLM service can generate text with each provider."""
-        llm = LLMService(llm_config)
-
-        response = await llm.generate(
+        response = await llm_service.generate(
             prompt="Say 'Hello, test successful!' and nothing else.",
             max_tokens=50,
             temperature=0.1,
@@ -230,7 +236,7 @@ class TestLLMServiceIntegration:
         logger.info(f"LLM {llm_provider} response: {response.content[:100]}...")
 
     @pytest.mark.asyncio
-    async def test_llm_service_generates_structured_output(self, llm_config, llm_provider):
+    async def test_llm_service_generates_structured_output(self, llm_service, llm_provider):
         """Verify LLM service can generate structured output."""
         from pydantic import BaseModel
 
@@ -238,9 +244,7 @@ class TestLLMServiceIntegration:
             greeting: str
             number: int
 
-        llm = LLMService(llm_config)
-
-        _response, parsed = await llm.generate_structured(
+        _response, parsed = await llm_service.generate_structured(
             prompt="Generate a greeting and a random number between 1-100.",
             response_format=TestOutput,
             max_tokens=100,
@@ -255,13 +259,11 @@ class TestLLMServiceIntegration:
         logger.info(f"LLM {llm_provider} structured output: {parsed}")
 
     @pytest.mark.asyncio
-    async def test_llm_service_handles_error_gracefully(self, llm_config, llm_provider):
+    async def test_llm_service_handles_error_gracefully(self, llm_service, llm_provider):
         """Verify LLM service handles errors without crashing."""
-        llm = LLMService(llm_config)
-
         # Request with very low max_tokens should still work or fail gracefully
         try:
-            response = await llm.generate(
+            response = await llm_service.generate(
                 prompt="Write a long essay about AI.",
                 max_tokens=10,  # Very limited
                 temperature=0.1,
@@ -362,7 +364,7 @@ class TestCrossProviderConsistency:
     """Tests to verify consistent behavior across LLM providers."""
 
     @pytest.mark.asyncio
-    async def test_belief_extraction_consistency(self, llm_config, llm_provider):
+    async def test_belief_extraction_consistency(self, llm_service, llm_provider):
         """Verify belief extraction works consistently across providers."""
         from pydantic import BaseModel, Field
 
@@ -375,14 +377,12 @@ class TestCrossProviderConsistency:
             )
             description: str = Field(description="Brief description")
 
-        llm = LLMService(llm_config)
-
         prompt = """
         Based on this observation: "Customer responded within 5 minutes to our demo request email"
         Extract a belief about the customer's interest level.
         """
 
-        _response, belief = await llm.generate_structured(
+        _response, belief = await llm_service.generate_structured(
             prompt=prompt,
             response_format=ExtractedBelief,
             system="You are an AI that extracts beliefs from observations.",
@@ -400,15 +400,13 @@ class TestCrossProviderConsistency:
         )
 
     @pytest.mark.asyncio
-    async def test_email_generation_consistency(self, llm_config, llm_provider):
+    async def test_email_generation_consistency(self, llm_service, llm_provider):
         """Verify email generation works across providers."""
         from pydantic import BaseModel
 
         class GeneratedEmail(BaseModel):
             subject: str
             body: str
-
-        llm = LLMService(llm_config)
 
         prompt = """
         Generate a professional follow-up email for a sales prospect who:
@@ -419,7 +417,7 @@ class TestCrossProviderConsistency:
         Keep it brief and professional.
         """
 
-        _response, email = await llm.generate_structured(
+        _response, email = await llm_service.generate_structured(
             prompt=prompt,
             response_format=GeneratedEmail,
             system="You are a professional sales AI assistant.",

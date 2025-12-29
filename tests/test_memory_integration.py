@@ -232,7 +232,7 @@ async def test_semantic_memory_store_and_query(session, employee, tenant):
     fact = await semantic.store_fact(
         subject="Acme Corp",
         predicate="industry",
-        object="manufacturing",
+        fact_object="manufacturing",
         confidence=0.9,
     )
 
@@ -259,7 +259,7 @@ async def test_semantic_memory_update_existing(session, employee, tenant):
     fact1 = await semantic.store_fact(
         subject="Acme Corp",
         predicate="deal_stage",
-        object="negotiation",
+        fact_object="negotiation",
         confidence=0.8,
     )
 
@@ -267,7 +267,7 @@ async def test_semantic_memory_update_existing(session, employee, tenant):
     fact2 = await semantic.store_fact(
         subject="Acme Corp",
         predicate="deal_stage",
-        object="closed_won",
+        fact_object="closed_won",
         confidence=0.95,
     )
 
@@ -289,19 +289,19 @@ async def test_semantic_memory_query_by_subject(session, employee, tenant):
     await semantic.store_fact(
         subject="Acme Corp",
         predicate="industry",
-        object="manufacturing",
+        fact_object="manufacturing",
         confidence=0.9,
     )
     await semantic.store_fact(
         subject="Acme Corp",
         predicate="size",
-        object={"employees": 500},
+        fact_object={"employees": 500},
         confidence=0.85,
     )
     await semantic.store_fact(
         subject="Beta Inc",
         predicate="industry",
-        object="tech",
+        fact_object="tech",
         confidence=0.8,
     )
 
@@ -327,19 +327,19 @@ async def test_semantic_memory_entity_summary(session, employee, tenant):
     await semantic.store_fact(
         subject="Acme Corp",
         predicate="industry",
-        object="manufacturing",
+        fact_object="manufacturing",
         confidence=0.9,
     )
     await semantic.store_fact(
         subject="Acme Corp",
         predicate="location",
-        object="San Francisco",
+        fact_object="San Francisco",
         confidence=0.85,
     )
     await semantic.store_fact(
         subject="Acme Corp",
         predicate="deal_stage",
-        object="negotiation",
+        fact_object="negotiation",
         confidence=0.8,
     )
 
@@ -689,7 +689,7 @@ async def test_memory_systems_integration(session, employee, tenant):
     fact = await semantic.store_fact(
         subject="Acme Corp",
         predicate="customer_type",
-        object="enterprise",
+        fact_object="enterprise",
         confidence=0.95,
         source_type="episodic",
         source_id=episode.id,

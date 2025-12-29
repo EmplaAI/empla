@@ -165,3 +165,7 @@ class AnthropicProvider(LLMProviderBase):
             "Anthropic doesn't provide embeddings API. "
             "Use OpenAI or Voyage AI for embeddings instead."
         )
+
+    async def close(self) -> None:
+        """Close the Anthropic client and release resources."""
+        await self.client.close()
