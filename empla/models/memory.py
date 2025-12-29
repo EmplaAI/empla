@@ -132,7 +132,8 @@ class EpisodicMemory(TenantScopedModel):
             name="ck_episodes_importance",
         ),
         CheckConstraint(
-            "episode_type IN ('interaction', 'event', 'observation', 'feedback')",
+            "episode_type IN ('interaction', 'event', 'observation', 'feedback', "
+            "'strategic_planning', 'intention_execution', 'deep_reflection')",
             name="ck_episodes_episode_type",
         ),
         Index(
