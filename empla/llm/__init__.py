@@ -413,6 +413,26 @@ class LLMService:
             ),
         }
 
+    async def close(self) -> None:
+        """
+        Close the LLM service and release resources.
+
+        This closes all underlying provider connections (HTTP clients, etc.).
+        Should be called when the service is no longer needed to prevent
+        resource leaks.
+
+        Example:
+            >>> llm = LLMService(config)
+            >>> try:
+            ...     response = await llm.generate("Hello")
+            ... finally:
+            ...     await llm.close()
+        """
+        if self.primary:
+            await self.primary.close()
+        if self.fallback:
+            await self.fallback.close()
+
 
 # Export main classes
 __all__ = [

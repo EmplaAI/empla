@@ -268,3 +268,7 @@ class AzureOpenAIProvider(LLMProviderBase):
                 ) from e
             # Re-raise other errors as-is
             raise
+
+    async def close(self) -> None:
+        """Close the Azure OpenAI client and release resources."""
+        await self.client.close()

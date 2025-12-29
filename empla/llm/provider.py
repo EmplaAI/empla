@@ -75,6 +75,14 @@ class LLMProviderBase(ABC):
             List of embedding vectors
         """
 
+    async def close(self) -> None:
+        """
+        Close the provider and release resources.
+
+        Override in subclasses that need cleanup (e.g., close HTTP clients).
+        Default implementation does nothing.
+        """
+
 
 class LLMProviderFactory:
     """Factory for creating LLM providers."""
