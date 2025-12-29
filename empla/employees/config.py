@@ -161,7 +161,9 @@ class EmployeeConfig(BaseModel):
 
     # Identity
     name: str = Field(..., min_length=1, max_length=100, description="Employee display name")
-    role: str = Field(..., min_length=1, description="Employee role (e.g., sales_ae, csm, pm, or custom)")
+    role: str = Field(
+        ..., min_length=1, description="Employee role (e.g., sales_ae, csm, pm, or custom)"
+    )
     email: EmailStr = Field(..., description="Employee email address")
 
     # Tenant context

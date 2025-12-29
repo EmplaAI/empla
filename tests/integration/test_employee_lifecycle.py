@@ -4,11 +4,12 @@ Integration tests for employee lifecycle.
 Tests the full employee start/stop lifecycle with simulated environment.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from empla.employees import SalesAE, CustomerSuccessManager, EmployeeConfig
+import pytest
+
+from empla.employees import CustomerSuccessManager, EmployeeConfig, SalesAE
 from empla.employees.config import GoalConfig
 
 
@@ -208,11 +209,11 @@ class TestEmployeeImports:
     def test_can_import_from_employees(self):
         """Test can import from empla.employees."""
         from empla.employees import (
-            DigitalEmployee,
-            SalesAE,
-            CustomerSuccessManager,
             CSM,
+            CustomerSuccessManager,
+            DigitalEmployee,
             EmployeeConfig,
+            SalesAE,
         )
 
         assert DigitalEmployee is not None
@@ -224,10 +225,10 @@ class TestEmployeeImports:
     def test_can_import_from_main_package(self):
         """Test can import from empla main package."""
         from empla import (
-            SalesAE,
-            CustomerSuccessManager,
             CSM,
+            CustomerSuccessManager,
             EmployeeConfig,
+            SalesAE,
         )
 
         assert SalesAE is not None
@@ -238,11 +239,11 @@ class TestEmployeeImports:
     def test_can_import_personality(self):
         """Test can import personality classes."""
         from empla.employees import (
-            Personality,
             CommunicationStyle,
             DecisionStyle,
-            Tone,
             Formality,
+            Personality,
+            Tone,
             Verbosity,
         )
 
@@ -258,8 +259,8 @@ class TestEmployeeImports:
         from empla.employees import (
             EmployeeConfig,
             GoalConfig,
-            LoopSettings,
             LLMSettings,
+            LoopSettings,
         )
 
         assert EmployeeConfig is not None
@@ -270,9 +271,9 @@ class TestEmployeeImports:
     def test_can_import_personality_templates(self):
         """Test can import personality templates."""
         from empla.employees import (
-            SALES_AE_PERSONALITY,
             CSM_PERSONALITY,
             PM_PERSONALITY,
+            SALES_AE_PERSONALITY,
         )
 
         assert SALES_AE_PERSONALITY is not None
@@ -282,9 +283,9 @@ class TestEmployeeImports:
     def test_can_import_goal_templates(self):
         """Test can import goal templates."""
         from empla.employees import (
-            SALES_AE_DEFAULT_GOALS,
             CSM_DEFAULT_GOALS,
             PM_DEFAULT_GOALS,
+            SALES_AE_DEFAULT_GOALS,
         )
 
         assert SALES_AE_DEFAULT_GOALS is not None

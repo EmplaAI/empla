@@ -350,12 +350,12 @@ class ProceduralMemorySystem:
             if isinstance(value, str) and value.startswith(">"):
                 # Simple > operator support
                 threshold = float(value[1:])
-                if not (isinstance(situation[key], (int, float)) and situation[key] > threshold):
+                if not (isinstance(situation[key], int | float) and situation[key] > threshold):
                     return False
             elif isinstance(value, str) and value.startswith("<"):
                 # Simple < operator support
                 threshold = float(value[1:])
-                if not (isinstance(situation[key], (int, float)) and situation[key] < threshold):
+                if not (isinstance(situation[key], int | float) and situation[key] < threshold):
                     return False
             elif situation[key] != value:
                 return False

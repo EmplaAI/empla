@@ -163,12 +163,14 @@ class CustomerSuccessManager(DigitalEmployee):
             if belief.predicate == "health_status":
                 health = belief.object.get("status", "")
                 if health in ["at_risk", "critical"]:
-                    at_risk.append({
-                        "customer": belief.subject,
-                        "health_status": health,
-                        "churn_risk": belief.object.get("churn_risk", 0.0),
-                        "reason": belief.object.get("reason", "unknown"),
-                    })
+                    at_risk.append(
+                        {
+                            "customer": belief.subject,
+                            "health_status": health,
+                            "churn_risk": belief.object.get("churn_risk", 0.0),
+                            "reason": belief.object.get("reason", "unknown"),
+                        }
+                    )
 
         # Sort by churn risk descending (highest risk first)
         # This ensures CSM addresses most critical customers first
@@ -196,7 +198,9 @@ class CustomerSuccessManager(DigitalEmployee):
         try:
             beliefs = await self.beliefs.get_beliefs_about(customer_name)
         except Exception as e:
-            logger.error(f"Failed to query beliefs for customer {customer_name}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to query beliefs for customer {customer_name}: {e}", exc_info=True
+            )
             return {
                 "customer": customer_name,
                 "status": "unknown",
@@ -282,7 +286,7 @@ class CustomerSuccessManager(DigitalEmployee):
             logger.error(
                 "LLM generation failed for check-in email",
                 exc_info=True,
-                extra={"customer": customer_name, "contact": contact_name}
+                extra={"customer": customer_name, "contact": contact_name},
             )
             raise LLMGenerationError(f"Failed to generate check-in email: {e}") from e
 

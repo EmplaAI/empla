@@ -54,7 +54,6 @@ def get_engine(database_url: str | None = None, echo: bool = False) -> AsyncEngi
     )
 
 
-
 def get_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """
     Create async session factory.

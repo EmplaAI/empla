@@ -250,6 +250,7 @@ def is_real_llm(llm_service) -> bool:
 
     # Fall back to environment variable check for real LLM services
     import os
+
     return os.getenv("RUN_WITH_REAL_LLM", "0").lower() in ("1", "true", "yes")
 
 
@@ -366,9 +367,9 @@ async def test_sales_ae_low_pipeline_autonomous_response(
         assert len(extracted_beliefs) > 0, "Real LLM should extract at least one belief"
         # Just check that beliefs are related to pipeline
         belief_subjects = [b.subject for b in extracted_beliefs]
-        assert any("pipeline" in s.lower() for s in belief_subjects), (
-            f"Expected pipeline-related beliefs, got: {belief_subjects}"
-        )
+        assert any(
+            "pipeline" in s.lower() for s in belief_subjects
+        ), f"Expected pipeline-related beliefs, got: {belief_subjects}"
     else:
         # Mock LLM - exact assertions
         assert len(extracted_beliefs) == 2
@@ -755,9 +756,9 @@ async def test_csm_at_risk_customer_intervention(
         assert len(extracted_beliefs) > 0, "Real LLM should extract at least one belief"
         # Just check that beliefs are related to customer
         belief_subjects = [b.subject for b in extracted_beliefs]
-        assert any("acme" in s.lower() or "customer" in s.lower() for s in belief_subjects), (
-            f"Expected customer-related beliefs, got: {belief_subjects}"
-        )
+        assert any(
+            "acme" in s.lower() or "customer" in s.lower() for s in belief_subjects
+        ), f"Expected customer-related beliefs, got: {belief_subjects}"
     else:
         # Mock LLM - exact assertions
         assert len(extracted_beliefs) == 3

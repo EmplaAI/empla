@@ -1,0 +1,61 @@
+# Pre-commit hooks for empla
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Ruff - Fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      # Run the linter (auto-fix only, E501 line-length is allowed in docstrings)
+      - id: ruff
+        args: [--fix]
+        types_or: [python, pyi]
+        exclude: ^alembic/
+      # Run the formatter
+      - id: ruff-format
+        types_or: [python, pyi]
+        exclude: ^alembic/
+
+  # MyPy - Static type checker
+  # NOTE: Currently set to manual stage until remaining type errors are fixed
+  # Run manually: pre-commit run mypy --all-files --hook-stage manual
+  # Or: uv run mypy empla --config-file=pyproject.toml
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        # Only check empla package, not tests
+        args: [empla, --config-file=pyproject.toml]
+        # Additional dependencies needed for type checking
+        additional_dependencies:
+          - pydantic>=2.9.0
+          - sqlalchemy>=2.0.35
+          - fastapi>=0.115.0
+          - httpx>=0.27.0
+          - types-python-dateutil
+        pass_filenames: false
+        # Set to manual until type errors are fixed (44 remaining)
+        # Change to [pre-commit] once errors are resolved
+        stages: [manual]
+
+  # Basic pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^docs/
+      - id: end-of-file-fixer
+        exclude: ^docs/
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-toml
+
+# CI configuration
+ci:
+  autofix_commit_msg: "style: auto-fix from pre-commit hooks"
+  autoupdate_commit_msg: "chore: update pre-commit hooks"
+  skip: [mypy]  # Skip mypy in CI (run separately for better error messages)

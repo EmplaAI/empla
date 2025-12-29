@@ -235,7 +235,7 @@ async def pause_employee(
         status="paused",
         lifecycle_stage=employee.lifecycle_stage,
         is_running=True,  # Employee instance exists in memory
-        is_paused=True,   # But execution cycles are paused
+        is_paused=True,  # But execution cycles are paused
         has_error=False,
     )
 

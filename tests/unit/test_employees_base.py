@@ -4,9 +4,9 @@ Tests for empla.employees.base module.
 Tests the base DigitalEmployee class and its lifecycle.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+
+import pytest
 
 from empla.employees.base import DigitalEmployee, MemorySystem
 from empla.employees.config import EmployeeConfig, GoalConfig
@@ -381,6 +381,7 @@ class TestMemorySystem:
         """Test that MemorySystem defines all subsystems."""
         # Check class structure via inspection
         import inspect
+
         source = inspect.getsource(MemorySystem.__init__)
         assert "episodic" in source
         assert "semantic" in source

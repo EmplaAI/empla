@@ -97,6 +97,7 @@ build-backend = "hatchling.build"
 line-length = 100
 target-version = "py311"
 src = ["empla"]  # Top-level package directory
+exclude = ["alembic/"]  # Exclude migration files
 
 [tool.ruff.lint]
 # Enable comprehensive rule sets
@@ -127,8 +128,6 @@ select = [
 
 # Ignore specific rules
 ignore = [
-    "ANN101",  # Missing type annotation for self
-    "ANN102",  # Missing type annotation for cls
     "ANN401",  # Dynamically typed expressions (Any) are disallowed
     "PLR0913", # Too many arguments to function call
     "PLR2004", # Magic value used in comparison (too strict for simple values like 2)
@@ -141,6 +140,7 @@ ignore = [
     "ARG002",  # Unused method argument (often required for interface compliance)
     "RUF012",  # Mutable class attributes - false positive for Pydantic Config classes
     "B027",    # Empty method in ABC - intentional for hook methods to be overridden
+    "E501",    # Line too long - acceptable in docstrings and prompt strings
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -148,6 +148,18 @@ ignore = [
     "ANN",     # Don't require type hints in tests
     "ARG",     # Allow unused arguments in tests (fixtures)
     "PLR2004", # Allow magic values in tests
+    "E402",    # Allow imports not at top (pytest conditionals)
+    "SIM105",  # Allow try-except-pass in tests
+    "SIM117",  # Allow nested with statements in tests
+    "B018",    # Allow useless expressions in tests (assertions)
+    "B017",    # Allow blind exception assertions in tests
+    "A002",    # Allow shadowing builtins (like 'id') in test fixtures
+    "C401",    # Allow generators vs comprehensions (style)
+    "C416",    # Allow unnecessary comprehensions in tests
+    "F841",    # Allow unused local variables in tests
+    "PT003",   # Allow explicit scope in pytest.fixture
+    "PT011",   # Allow broad exceptions in pytest.raises
+    "UP038",   # Allow isinstance with tuple (MagicMock, AsyncMock)
 ]
 
 [tool.ruff.lint.isort]

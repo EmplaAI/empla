@@ -179,7 +179,9 @@ class SalesAE(DigitalEmployee):
                     if value is not None:
                         return float(value)
                 except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid pipeline coverage value '{belief.object.get('value')}': {e}")
+                    logger.warning(
+                        f"Invalid pipeline coverage value '{belief.object.get('value')}': {e}"
+                    )
                     continue
 
         logger.debug("No pipeline coverage belief found, returning 0.0")
@@ -204,11 +206,13 @@ class SalesAE(DigitalEmployee):
         opportunities = []
         for fact in facts:
             if fact.object.get("stage") not in ["closed_won", "closed_lost"]:
-                opportunities.append({
-                    "account": fact.subject,
-                    "stage": fact.object.get("stage"),
-                    "value": fact.object.get("value"),
-                })
+                opportunities.append(
+                    {
+                        "account": fact.subject,
+                        "stage": fact.object.get("stage"),
+                        "value": fact.object.get("value"),
+                    }
+                )
 
         return opportunities
 
@@ -327,7 +331,7 @@ class SalesAE(DigitalEmployee):
             logger.error(
                 "LLM generation failed for outreach email",
                 exc_info=True,
-                extra={"prospect": prospect_name, "company": company}
+                extra={"prospect": prospect_name, "company": company},
             )
             raise LLMGenerationError(f"Failed to generate outreach email: {e}") from e
 

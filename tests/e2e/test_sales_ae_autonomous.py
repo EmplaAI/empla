@@ -36,7 +36,6 @@ Running with Real LLM:
 
 import logging
 import os
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -202,7 +201,7 @@ def llm_service():
         )
 
         llm_service = LLMService(config)
-        logger.info(f"Using REAL LLM service for testing (costs tokens)")
+        logger.info("Using REAL LLM service for testing (costs tokens)")
         logger.info(f"Primary model: {config.primary_model}")
 
         return llm_service
@@ -353,9 +352,7 @@ class TestSalesAECreationWithSimulation:
     """Test SalesAE creation with simulated capabilities."""
 
     @pytest.mark.asyncio
-    async def test_sales_ae_creation_with_injected_registry(
-        self, sales_config, simulated_env
-    ):
+    async def test_sales_ae_creation_with_injected_registry(self, sales_config, simulated_env):
         """Test SalesAE can be created with an injected capability registry."""
         # Create a temporary employee_id for the registry
         temp_employee_id = uuid4()
@@ -464,29 +461,29 @@ class TestSalesAELifecycleWithSimulation:
                 employee._llm = llm_service
 
                 # Patch database operations to use our test session
-                with patch(
-                    "empla.employees.base.get_engine", return_value=db_session.get_bind()
-                ):
-                    with patch(
+                with (
+                    patch("empla.employees.base.get_engine", return_value=db_session.get_bind()),
+                    patch(
                         "empla.employees.base.get_sessionmaker",
                         return_value=lambda bind=None: db_session,
-                    ):
-                        # Start without running the loop
-                        await employee.start(run_loop=False)
+                    ),
+                ):
+                    # Start without running the loop
+                    await employee.start(run_loop=False)
 
-                        try:
-                            # Verify employee is running
-                            assert employee.is_running
+                    try:
+                        # Verify employee is running
+                        assert employee.is_running
 
-                            # Verify capabilities were injected (not created new)
-                            assert employee._capabilities is registry
+                        # Verify capabilities were injected (not created new)
+                        assert employee._capabilities is registry
 
-                            # Verify we can access capabilities
-                            assert employee.capabilities is registry
+                        # Verify we can access capabilities
+                        assert employee.capabilities is registry
 
-                        finally:
-                            # Clean up
-                            await employee.stop()
+                    finally:
+                        # Clean up
+                        await employee.stop()
 
     @pytest.mark.asyncio
     async def test_stop_when_not_started(self, sales_config, simulated_env):
@@ -700,43 +697,43 @@ class TestSalesAEWithFullBDICycle:
             with patch.object(employee, "_init_llm", new_callable=AsyncMock):
                 employee._llm = llm_service
 
-                with patch(
-                    "empla.employees.base.get_engine", return_value=db_session.get_bind()
-                ):
-                    with patch(
+                with (
+                    patch("empla.employees.base.get_engine", return_value=db_session.get_bind()),
+                    patch(
                         "empla.employees.base.get_sessionmaker",
                         return_value=lambda bind=None: db_session,
-                    ):
-                        await employee.start(run_loop=False)
+                    ),
+                ):
+                    await employee.start(run_loop=False)
 
-                        try:
-                            # After start, update the registry's employee_id mapping
-                            # to use the real employee_id
-                            real_employee_id = employee._employee_id
-                            if placeholder_id in registry._instances:
-                                registry._instances[real_employee_id] = registry._instances.pop(
-                                    placeholder_id
-                                )
-
-                            # Verify the setup
-                            assert employee.is_running
-                            assert employee._capabilities is registry
-
-                            # Initialize simulated capabilities with correct ID
-                            await initialize_simulated_capabilities(registry, real_employee_id)
-
-                            # Now perceive through the employee's capabilities
-                            observations = await registry.perceive_all(real_employee_id)
-
-                            # Should detect low pipeline
-                            assert len(observations) >= 1
-                            low_pipeline_obs = next(
-                                (o for o in observations if o.type == "low_pipeline_coverage"),
-                                None,
+                    try:
+                        # After start, update the registry's employee_id mapping
+                        # to use the real employee_id
+                        real_employee_id = employee._employee_id
+                        if placeholder_id in registry._instances:
+                            registry._instances[real_employee_id] = registry._instances.pop(
+                                placeholder_id
                             )
-                            assert low_pipeline_obs is not None
 
-                        finally:
-                            await employee.stop()
+                        # Verify the setup
+                        assert employee.is_running
+                        assert employee._capabilities is registry
 
-                        assert not employee.is_running
+                        # Initialize simulated capabilities with correct ID
+                        await initialize_simulated_capabilities(registry, real_employee_id)
+
+                        # Now perceive through the employee's capabilities
+                        observations = await registry.perceive_all(real_employee_id)
+
+                        # Should detect low pipeline
+                        assert len(observations) >= 1
+                        low_pipeline_obs = next(
+                            (o for o in observations if o.type == "low_pipeline_coverage"),
+                            None,
+                        )
+                        assert low_pipeline_obs is not None
+
+                    finally:
+                        await employee.stop()
+
+                    assert not employee.is_running

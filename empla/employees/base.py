@@ -224,9 +224,7 @@ class DigitalEmployee(ABC):
     def llm(self) -> LLMService:
         """LLM service."""
         if self._llm is None:
-            raise EmployeeNotStartedError(
-                f"Cannot access LLM on {self.name}: call start() first"
-            )
+            raise EmployeeNotStartedError(f"Cannot access LLM on {self.name}: call start() first")
         return self._llm
 
     @property
@@ -242,9 +240,7 @@ class DigitalEmployee(ABC):
     def goals(self) -> GoalSystem:
         """Goal system."""
         if self._goals is None:
-            raise EmployeeNotStartedError(
-                f"Cannot access goals on {self.name}: call start() first"
-            )
+            raise EmployeeNotStartedError(f"Cannot access goals on {self.name}: call start() first")
         return self._goals
 
     @property
@@ -419,7 +415,9 @@ class DigitalEmployee(ABC):
                         try:
                             await cap.shutdown()
                         except Exception as e:
-                            logger.error(f"Failed to shutdown capability {cap_type}: {e}", exc_info=True)
+                            logger.error(
+                                f"Failed to shutdown capability {cap_type}: {e}", exc_info=True
+                            )
                             shutdown_errors.append((f"capability:{cap_type}", e))
 
         # Custom stop logic
@@ -748,9 +746,7 @@ class DigitalEmployee(ABC):
             EmployeeNotStartedError: If employee not started
         """
         if not self._is_running:
-            raise EmployeeNotStartedError(
-                f"Cannot run cycle on {self.name}: call start() first"
-            )
+            raise EmployeeNotStartedError(f"Cannot run cycle on {self.name}: call start() first")
 
         if self._loop:
             await self._loop._run_cycle()

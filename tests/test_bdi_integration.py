@@ -494,7 +494,9 @@ async def test_belief_extraction_from_observation(session, employee, tenant, moc
 
 
 @pytest.mark.asyncio
-async def test_belief_extraction_updates_existing_beliefs(session, employee, tenant, mock_llm_service):
+async def test_belief_extraction_updates_existing_beliefs(
+    session, employee, tenant, mock_llm_service
+):
     """Test that belief extraction updates existing beliefs rather than duplicating."""
     beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm_service)
 

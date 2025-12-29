@@ -544,7 +544,9 @@ class EmailCapability(BaseCapability):
             metadata={"sent_at": datetime.now(UTC).isoformat()},
         )
 
-    async def _reply_to_email(self, email_id: str, body: str, cc: list[str] | None = None) -> ActionResult:
+    async def _reply_to_email(
+        self, email_id: str, body: str, cc: list[str] | None = None
+    ) -> ActionResult:
         """
         Reply to existing email.
 
