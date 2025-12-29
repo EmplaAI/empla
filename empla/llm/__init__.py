@@ -129,21 +129,24 @@ class LLMService:
             Configured provider instance
         """
         if provider == "anthropic":
+            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="anthropic",
-                api_key=self.config.anthropic_api_key or "",
+                api_key=self.config.anthropic_api_key,  # type: ignore[arg-type]
                 model_id=model_id,
             )
         if provider == "openai":
+            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="openai",
-                api_key=self.config.openai_api_key or "",
+                api_key=self.config.openai_api_key,  # type: ignore[arg-type]
                 model_id=model_id,
             )
         if provider == "azure_openai":
+            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="azure_openai",
-                api_key=self.config.azure_openai_api_key or "",
+                api_key=self.config.azure_openai_api_key,  # type: ignore[arg-type]
                 model_id=model_id,
                 azure_endpoint=self.config.azure_openai_endpoint,
                 deployment_name=self.config.azure_openai_deployment,
@@ -308,12 +311,18 @@ class LLMService:
         Generate embeddings.
 
         Uses OpenAI embeddings (text-embedding-3-large) as default.
+        Falls back to creating a temporary OpenAI provider if primary/fallback
+        don't support embeddings.
 
         Args:
             texts: List of texts to embed
 
         Returns:
             List of embedding vectors
+
+        Raises:
+            ValueError: If OpenAI API key or embedding model is not configured
+                when falling back to OpenAI for embeddings
 
         Example:
             >>> embeddings = await llm.embed([
@@ -339,10 +348,23 @@ class LLMService:
                 pass
 
         # Create temporary OpenAI provider for embeddings
+        # Validate API key before creating provider (fail-fast)
+        if not self.config.openai_api_key:
+            raise ValueError(
+                "openai_api_key is required for embeddings when primary/fallback "
+                "providers don't support embed(). Set OPENAI_API_KEY environment "
+                "variable or pass in config."
+            )
+        if not self.config.embedding_model:
+            raise ValueError(
+                "embedding_model is required for embeddings. "
+                "Set a valid OpenAI embedding model (e.g., 'text-embedding-3-large')."
+            )
+
         from empla.llm.openai import OpenAIProvider
 
         openai_provider = OpenAIProvider(
-            api_key=self.config.openai_api_key or "",
+            api_key=self.config.openai_api_key,
             model_id=self.config.embedding_model,
         )
         return await openai_provider.embed(texts)

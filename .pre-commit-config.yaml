@@ -22,7 +22,7 @@ repos:
   # Run manually: pre-commit run mypy --all-files --hook-stage manual
   # Or: uv run mypy empla --config-file=pyproject.toml
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.14.1
+    rev: v1.19.1
     hooks:
       - id: mypy
         # Only check empla package, not tests
