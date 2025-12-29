@@ -8,7 +8,9 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+from pydantic import BaseModel, Field
 
 from empla.core.loop.models import (
     IntentionResult,
@@ -18,7 +20,40 @@ from empla.core.loop.models import (
 )
 from empla.models.employee import Employee
 
+if TYPE_CHECKING:
+    from empla.llm import LLMService
+
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Pydantic Models for LLM Structured Outputs
+# ============================================================================
+
+
+class SituationAnalysis(BaseModel):
+    """LLM analysis of current situation."""
+
+    current_state_summary: str = Field(..., description="Summary of current situation")
+    gaps: list[str] = Field(
+        default_factory=list, description="Gaps between current and desired state"
+    )
+    opportunities: list[str] = Field(default_factory=list, description="Opportunities identified")
+    problems: list[str] = Field(default_factory=list, description="Problems requiring attention")
+    recommended_focus: str = Field(..., description="What to focus on next")
+
+
+class GoalRecommendation(BaseModel):
+    """LLM recommendation for goal changes."""
+
+    new_goals: list[dict[str, Any]] = Field(default_factory=list, description="New goals to create")
+    goals_to_abandon: list[str] = Field(
+        default_factory=list, description="Goal IDs to abandon with reasons"
+    )
+    priority_adjustments: list[dict[str, Any]] = Field(
+        default_factory=list, description="Goals needing priority changes"
+    )
+    reasoning: str = Field(..., description="Reasoning for recommendations")
 
 
 # ============================================================================
@@ -46,6 +81,21 @@ class BeliefSystemProtocol(Protocol):
         """Update beliefs based on observations"""
         ...
 
+    async def get_all_beliefs(self, min_confidence: float = 0.0) -> list[Any]:
+        """Get all beliefs above confidence threshold"""
+        ...
+
+    async def update_belief(
+        self,
+        subject: str,
+        predicate: str,
+        belief_object: dict[str, Any],
+        confidence: float,
+        source: str,
+    ) -> Any:
+        """Update or create a single belief"""
+        ...
+
 
 class GoalSystemProtocol(Protocol):
     """Protocol for GoalSystem component"""
@@ -56,6 +106,24 @@ class GoalSystemProtocol(Protocol):
 
     async def update_goal_progress(self, goal_id: Any, progress: dict[str, Any]) -> Any:
         """Update goal progress"""
+        ...
+
+    async def add_goal(
+        self,
+        goal_type: str,
+        description: str,
+        priority: int,
+        target: dict[str, Any],
+    ) -> Any:
+        """Add a new goal"""
+        ...
+
+    async def abandon_goal(self, goal_id: Any, reason: str) -> Any:
+        """Abandon a goal"""
+        ...
+
+    async def update_goal_priority(self, goal_id: Any, new_priority: int) -> Any:
+        """Update goal priority"""
         ...
 
 
@@ -82,12 +150,33 @@ class IntentionStackProtocol(Protocol):
         """Mark intention as failed"""
         ...
 
+    async def get_intentions_for_goal(self, goal_id: Any) -> list[Any]:
+        """Get all intentions for a goal"""
+        ...
+
+    async def generate_plan_for_goal(
+        self,
+        goal: Any,
+        beliefs: list[Any],
+        llm_service: Any,
+        capabilities: list[str] | None = None,
+    ) -> list[Any]:
+        """Generate a plan for a goal using LLM"""
+        ...
+
 
 class MemorySystemProtocol(Protocol):
     """Protocol for MemorySystem component"""
 
-    # Placeholder for memory system methods
-    # Will be expanded as memory system is implemented
+    @property
+    def episodic(self) -> Any:
+        """Access episodic memory subsystem"""
+        ...
+
+    @property
+    def procedural(self) -> Any:
+        """Access procedural memory subsystem"""
+        ...
 
 
 # ============================================================================
@@ -129,6 +218,7 @@ class ProactiveExecutionLoop:
         intentions: IntentionStackProtocol,
         memory: MemorySystemProtocol,
         capability_registry: Any | None = None,  # CapabilityRegistry from empla.capabilities
+        llm_service: "LLMService | None" = None,  # LLM service for reasoning
         config: LoopConfig | None = None,
     ) -> None:
         """
@@ -141,6 +231,7 @@ class ProactiveExecutionLoop:
             intentions: Intention stack managing selection, start, completion, and failure of intentions.
             memory: Memory system used for recording and retrieving episodic/semantic/procedural data.
             capability_registry: Optional capability registry used to perceive the environment and enumerate enabled capabilities.
+            llm_service: Optional LLM service for strategic reasoning and plan generation.
             config: Optional loop configuration object; when omitted defaults are applied (e.g., cycle and error backoff intervals).
 
         Notes:
@@ -152,6 +243,7 @@ class ProactiveExecutionLoop:
         self.intentions = intentions
         self.memory = memory
         self.capability_registry = capability_registry
+        self.llm_service = llm_service
 
         # Configuration
         self.config = config or LoopConfig()
@@ -170,6 +262,7 @@ class ProactiveExecutionLoop:
                 "employee_id": str(employee.id),
                 "cycle_interval": self.cycle_interval,
                 "has_capability_registry": capability_registry is not None,
+                "has_llm_service": llm_service is not None,
                 "config": self.config.model_dump(),
             },
         )
@@ -711,10 +804,6 @@ class ProactiveExecutionLoop:
         5. Strategy generation and evaluation
         6. Goal formation/abandonment
         7. Strategy documentation
-
-        Note:
-            This is currently a placeholder that logs the intent.
-            Full implementation will be added in Phase 2 with LLM integration.
         """
         logger.info(
             "Strategic planning cycle starting",
@@ -723,14 +812,67 @@ class ProactiveExecutionLoop:
 
         start_time = time.time()
 
-        # TODO: Implement full strategic planning in Phase 2
-        # This requires:
-        # - Situation analysis (beliefs, goals, metrics, context)
-        # - Gap analysis (where we are vs where we want to be)
-        # - Strategy generation (using LLM + procedural memory)
-        # - Strategy evaluation and selection
-        # - Goal formation/update/abandonment
-        # - Documentation in episodic memory
+        try:
+            # ============ STEP 1: Gather Situation ============
+            # Get current beliefs, goals, and capabilities
+            beliefs = await self.beliefs.get_all_beliefs(min_confidence=0.5)
+            active_goals = await self.goals.get_active_goals()
+            available_capabilities = self._get_available_capabilities()
+
+            logger.debug(
+                "Strategic planning: gathered situation",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "beliefs_count": len(beliefs),
+                    "active_goals_count": len(active_goals),
+                    "capabilities_count": len(available_capabilities),
+                },
+            )
+
+            # ============ STEP 2: LLM Situation Analysis ============
+            if self.llm_service:
+                situation_analysis = await self._analyze_situation_with_llm(
+                    beliefs=beliefs,
+                    goals=active_goals,
+                    capabilities=available_capabilities,
+                )
+
+                logger.info(
+                    "Strategic planning: situation analyzed",
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "gaps_identified": len(situation_analysis.gaps),
+                        "opportunities_identified": len(situation_analysis.opportunities),
+                        "problems_identified": len(situation_analysis.problems),
+                        "recommended_focus": situation_analysis.recommended_focus,
+                    },
+                )
+
+                # ============ STEP 3: Goal Management ============
+                await self._manage_goals_from_analysis(
+                    situation_analysis=situation_analysis,
+                    active_goals=active_goals,
+                )
+
+            # ============ STEP 4: Generate Plans for Goals Without Intentions ============
+            await self._generate_plans_for_unplanned_goals(
+                goals=active_goals,
+                beliefs=beliefs,
+                capabilities=available_capabilities,
+            )
+
+            # ============ STEP 5: Document in Episodic Memory ============
+            await self._record_strategic_planning_episode(
+                beliefs_count=len(beliefs),
+                goals_count=len(active_goals),
+            )
+
+        except Exception as e:
+            logger.error(
+                "Strategic planning cycle failed",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id), "error": str(e)},
+            )
 
         duration_ms = (time.time() - start_time) * 1000
 
@@ -742,8 +884,230 @@ class ProactiveExecutionLoop:
         # Update last strategic planning time
         self.last_strategic_planning = datetime.now(UTC)
 
-        # TODO: Add metrics
-        # metrics.histogram("strategic_planning.duration_ms", duration_ms)
+    def _get_available_capabilities(self) -> list[str]:
+        """Get list of available capability types."""
+        if not self.capability_registry:
+            return []
+
+        try:
+            # Get capability types from registry
+            enabled = getattr(self.capability_registry, "get_enabled_capabilities", None)
+            if enabled:
+                caps = enabled()
+                return [str(getattr(c, "capability_type", c)) for c in caps]
+            return []
+        except Exception:
+            return []
+
+    async def _analyze_situation_with_llm(
+        self,
+        beliefs: list[Any],
+        goals: list[Any],
+        capabilities: list[str],
+    ) -> SituationAnalysis:
+        """Use LLM to analyze current situation."""
+        if not self.llm_service:
+            return SituationAnalysis(
+                current_state_summary="No LLM service available",
+                gaps=[],
+                opportunities=[],
+                problems=[],
+                recommended_focus="Continue with current goals",
+            )
+
+        # Format beliefs for prompt
+        beliefs_text = self._format_beliefs_for_llm(beliefs)
+        goals_text = self._format_goals_for_llm(goals)
+
+        system_prompt = """You are an AI assistant analyzing the situation for a digital employee.
+Analyze their current beliefs (world model) and goals to identify:
+1. Gaps between current state and desired outcomes
+2. Opportunities that could be pursued
+3. Problems requiring immediate attention
+4. What they should focus on next
+
+Be specific and actionable in your analysis."""
+
+        user_prompt = f"""Current Beliefs (World Model):
+{beliefs_text}
+
+Active Goals:
+{goals_text}
+
+Available Capabilities: {", ".join(capabilities) if capabilities else "None specified"}
+
+Analyze this situation and provide recommendations."""
+
+        try:
+            _, analysis = await self.llm_service.generate_structured(
+                prompt=user_prompt,
+                system=system_prompt,
+                response_format=SituationAnalysis,
+                temperature=0.3,
+            )
+            return analysis  # type: ignore[return-value]
+        except Exception as e:
+            logger.warning(
+                f"LLM situation analysis failed: {e}",
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return SituationAnalysis(
+                current_state_summary="Analysis failed",
+                gaps=[],
+                opportunities=[],
+                problems=[],
+                recommended_focus="Continue with current priorities",
+            )
+
+    def _format_beliefs_for_llm(self, beliefs: list[Any]) -> str:
+        """Format beliefs for LLM prompt."""
+        if not beliefs:
+            return "No current beliefs"
+
+        lines = []
+        for belief in beliefs[:20]:  # Limit to top 20
+            subject = getattr(belief, "subject", "unknown")
+            predicate = getattr(belief, "predicate", "unknown")
+            obj = getattr(belief, "object", {})
+            confidence = getattr(belief, "confidence", 0.0)
+            lines.append(f"- {subject} → {predicate}: {obj} (confidence: {confidence:.2f})")
+
+        if len(beliefs) > 20:
+            lines.append(f"... and {len(beliefs) - 20} more beliefs")
+
+        return "\n".join(lines)
+
+    def _format_goals_for_llm(self, goals: list[Any]) -> str:
+        """Format goals for LLM prompt."""
+        if not goals:
+            return "No active goals"
+
+        lines = []
+        for goal in goals:
+            description = getattr(goal, "description", "unknown")
+            priority = getattr(goal, "priority", 5)
+            target = getattr(goal, "target", {})
+            progress = getattr(goal, "current_progress", {})
+            lines.append(
+                f"- [{priority}/10] {description}\n  Target: {target}\n  Progress: {progress}"
+            )
+
+        return "\n".join(lines)
+
+    async def _manage_goals_from_analysis(
+        self,
+        situation_analysis: SituationAnalysis,
+        active_goals: list[Any],
+    ) -> None:
+        """Create/abandon goals based on situation analysis."""
+        # Create new goals for identified opportunities
+        for opportunity in situation_analysis.opportunities[:3]:  # Limit to top 3
+            # Check if similar goal already exists
+            exists = any(
+                opportunity.lower() in getattr(g, "description", "").lower() for g in active_goals
+            )
+            if not exists:
+                try:
+                    await self.goals.add_goal(
+                        goal_type="opportunity",
+                        description=f"Pursue opportunity: {opportunity}",
+                        priority=6,  # Medium priority for opportunities
+                        target={"type": "opportunity", "description": opportunity},
+                    )
+                    logger.info(
+                        f"Created goal for opportunity: {opportunity[:50]}...",
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create goal for opportunity: {e}")
+
+        # Create goals for critical problems
+        for problem in situation_analysis.problems[:2]:  # Limit to top 2
+            exists = any(
+                problem.lower() in getattr(g, "description", "").lower() for g in active_goals
+            )
+            if not exists:
+                try:
+                    await self.goals.add_goal(
+                        goal_type="problem",
+                        description=f"Address problem: {problem}",
+                        priority=8,  # High priority for problems
+                        target={"type": "problem", "description": problem},
+                    )
+                    logger.info(
+                        f"Created goal for problem: {problem[:50]}...",
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create goal for problem: {e}")
+
+    async def _generate_plans_for_unplanned_goals(
+        self,
+        goals: list[Any],
+        beliefs: list[Any],
+        capabilities: list[str],
+    ) -> None:
+        """Generate plans for goals that don't have intentions."""
+        if not self.llm_service:
+            logger.debug("No LLM service, skipping plan generation")
+            return
+
+        for goal in goals[:5]:  # Limit to top 5 goals
+            goal_id = getattr(goal, "id", None)
+            if not goal_id:
+                continue
+
+            # Check if goal already has intentions
+            try:
+                existing_intentions = await self.intentions.get_intentions_for_goal(goal_id)
+                if existing_intentions:
+                    continue  # Already has a plan
+            except Exception:
+                continue
+
+            # Generate plan for this goal
+            try:
+                new_intentions = await self.intentions.generate_plan_for_goal(
+                    goal=goal,
+                    beliefs=beliefs,
+                    llm_service=self.llm_service,
+                    capabilities=capabilities,
+                )
+                if new_intentions:
+                    logger.info(
+                        f"Generated {len(new_intentions)} intentions for goal",
+                        extra={
+                            "employee_id": str(self.employee.id),
+                            "goal_id": str(goal_id),
+                            "intentions_count": len(new_intentions),
+                        },
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate plan for goal: {e}",
+                    extra={"employee_id": str(self.employee.id), "goal_id": str(goal_id)},
+                )
+
+    async def _record_strategic_planning_episode(
+        self,
+        beliefs_count: int,
+        goals_count: int,
+    ) -> None:
+        """Record strategic planning in episodic memory."""
+        try:
+            if hasattr(self.memory, "episodic"):
+                await self.memory.episodic.record_episode(
+                    episode_type="strategic_planning",
+                    description="Completed strategic planning cycle",
+                    content={
+                        "beliefs_analyzed": beliefs_count,
+                        "goals_analyzed": goals_count,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
+                    importance=0.6,
+                )
+        except Exception as e:
+            logger.debug(f"Failed to record strategic planning episode: {e}")
 
     # ========================================================================
     # Phase 3: Intention Execution
@@ -753,12 +1117,12 @@ class ProactiveExecutionLoop:
         """
         Execute highest priority intention from intention stack.
 
+        Executes intention plan steps via the capability registry.
+        Each step in the intention's plan is converted to an Action and
+        executed by the appropriate capability.
+
         Returns:
             IntentionResult if work was done, None if no work to do
-
-        Note:
-            This is currently a placeholder that delegates to IntentionStack.
-            Full implementation will be in IntentionStack class.
         """
         # Get next intention
         intention = await self.intentions.get_next_intention()
@@ -791,36 +1155,51 @@ class ProactiveExecutionLoop:
             },
         )
 
-        # Execute (actual execution logic is in IntentionStack/Capabilities)
         start_time = time.time()
 
         try:
-            # TODO: Actual execution will be delegated to capability handlers
-            # For now, simulate successful execution
+            # Execute the intention's plan via capabilities
+            execution_result = await self._execute_intention_plan(intention)
+
+            duration_ms = max(0.01, (time.time() - start_time) * 1000)
+
             result = IntentionResult(
                 intention_id=intention.id,
-                success=True,
-                outcome={"simulated": True},
-                duration_ms=max(0.01, (time.time() - start_time) * 1000),  # Ensure > 0
+                success=execution_result["success"],
+                outcome=execution_result,
+                duration_ms=duration_ms,
             )
 
-            await self.intentions.complete_intention(intention, result)
-
-            logger.info(
-                f"Intention completed: {intention.description}",
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "intention_id": str(intention.id),
-                    "success": result.success,
-                    "duration_ms": result.duration_ms,
-                },
-            )
+            if result.success:
+                await self.intentions.complete_intention(intention, result)
+                logger.info(
+                    f"Intention completed: {intention.description}",
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "intention_id": str(intention.id),
+                        "success": True,
+                        "duration_ms": duration_ms,
+                        "steps_executed": execution_result.get("steps_completed", 0),
+                    },
+                )
+            else:
+                error_msg = execution_result.get("error", "Unknown error")
+                await self.intentions.fail_intention(intention, error=error_msg)
+                logger.warning(
+                    f"Intention failed: {intention.description}",
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "intention_id": str(intention.id),
+                        "error": error_msg,
+                        "duration_ms": duration_ms,
+                    },
+                )
 
             return result
 
         except Exception as e:
             logger.error(
-                f"Intention failed: {intention.description}",
+                f"Intention execution error: {intention.description}",
                 exc_info=True,
                 extra={
                     "employee_id": str(self.employee.id),
@@ -831,7 +1210,196 @@ class ProactiveExecutionLoop:
 
             await self.intentions.fail_intention(intention, error=str(e))
 
+            return IntentionResult(
+                intention_id=intention.id,
+                success=False,
+                outcome={"error": str(e)},
+                duration_ms=max(0.01, (time.time() - start_time) * 1000),
+            )
+
+    async def _execute_intention_plan(self, intention: Any) -> dict[str, Any]:
+        """
+        Execute the steps in an intention's plan.
+
+        Args:
+            intention: The intention to execute
+
+        Returns:
+            Execution result with success status and outputs
+        """
+        plan = getattr(intention, "plan", {}) or {}
+        steps = plan.get("steps", [])
+
+        if not steps:
+            # No steps defined, mark as success (strategy/tactic might not have steps)
+            logger.debug(
+                "Intention has no steps, marking as complete",
+                extra={"intention_id": str(intention.id)},
+            )
+            return {"success": True, "steps_completed": 0, "message": "No steps to execute"}
+
+        results: list[dict[str, Any]] = []
+        steps_completed = 0
+
+        for idx, step in enumerate(steps):
+            step_result = await self._execute_plan_step(step, idx)
+            results.append(step_result)
+
+            if step_result.get("success"):
+                steps_completed += 1
+            else:
+                # Stop on first failure
+                return {
+                    "success": False,
+                    "steps_completed": steps_completed,
+                    "failed_step": idx,
+                    "error": step_result.get("error", "Step failed"),
+                    "step_results": results,
+                }
+
+        return {
+            "success": True,
+            "steps_completed": steps_completed,
+            "step_results": results,
+        }
+
+    async def _execute_plan_step(self, step: dict[str, Any], step_index: int) -> dict[str, Any]:
+        """
+        Execute a single plan step via capability.
+
+        Args:
+            step: Step definition with action, parameters, etc.
+            step_index: Index of the step in the plan
+
+        Returns:
+            Step execution result
+        """
+        action_name = step.get("action", "")
+        parameters = step.get("parameters", {})
+        required_capabilities = step.get("required_capabilities", [])
+
+        logger.debug(
+            f"Executing step {step_index}: {action_name}",
+            extra={
+                "employee_id": str(self.employee.id),
+                "action": action_name,
+                "required_capabilities": required_capabilities,
+            },
+        )
+
+        # If no capability registry, simulate success
+        if not self.capability_registry:
+            logger.debug("No capability registry, simulating step success")
+            return {
+                "success": True,
+                "simulated": True,
+                "action": action_name,
+                "step_index": step_index,
+            }
+
+        # Find capability that can handle this action
+        capability = await self._find_capability_for_action(action_name, required_capabilities)
+
+        if not capability:
+            logger.warning(
+                f"No capability found for action: {action_name}",
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return {
+                "success": True,  # Don't fail if no capability, just skip
+                "skipped": True,
+                "reason": f"No capability for action: {action_name}",
+                "step_index": step_index,
+            }
+
+        # Create and execute action
+        try:
+            # Import here to avoid circular imports
+            from empla.capabilities.base import Action
+
+            action = Action(
+                capability=str(getattr(capability, "capability_type", "unknown")),
+                operation=action_name,
+                parameters=parameters,
+                priority=5,
+                context={"step_index": step_index},
+            )
+
+            action_result = await capability.execute_action(action)
+
+            return {
+                "success": action_result.success,
+                "output": action_result.output,
+                "error": action_result.error,
+                "action": action_name,
+                "step_index": step_index,
+                "metadata": action_result.metadata,
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Error executing step {step_index}: {e}",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return {
+                "success": False,
+                "error": str(e),
+                "action": action_name,
+                "step_index": step_index,
+            }
+
+    async def _find_capability_for_action(
+        self, action_name: str, required_capabilities: list[str]
+    ) -> Any | None:
+        """
+        Find a capability that can handle the given action.
+
+        Args:
+            action_name: Name of the action to execute
+            required_capabilities: List of capability types that could handle this
+
+        Returns:
+            Capability instance or None
+        """
+        if not self.capability_registry:
             return None
+
+        # Try to get capability by type from required list
+        for cap_type in required_capabilities:
+            try:
+                get_cap = getattr(self.capability_registry, "get_capability", None)
+                if get_cap:
+                    cap = get_cap(cap_type)
+                    if cap:
+                        return cap
+            except Exception:
+                continue
+
+        # Fallback: infer capability from action name
+        action_lower = action_name.lower()
+        inferred_type = None
+
+        if "email" in action_lower or "send" in action_lower:
+            inferred_type = "email"
+        elif "calendar" in action_lower or "schedule" in action_lower or "meeting" in action_lower:
+            inferred_type = "calendar"
+        elif "message" in action_lower or "slack" in action_lower or "chat" in action_lower:
+            inferred_type = "messaging"
+        elif "research" in action_lower or "search" in action_lower or "browse" in action_lower:
+            inferred_type = "browser"
+        elif "crm" in action_lower or "salesforce" in action_lower or "hubspot" in action_lower:
+            inferred_type = "crm"
+
+        if inferred_type:
+            try:
+                get_cap = getattr(self.capability_registry, "get_capability", None)
+                if get_cap:
+                    return get_cap(inferred_type)
+            except Exception:
+                pass
+
+        return None
 
     # ========================================================================
     # Phase 4: Learning & Reflection
@@ -846,10 +1414,6 @@ class ProactiveExecutionLoop:
 
         Args:
             result: Result of intention execution
-
-        Note:
-            This is currently a placeholder that logs the intent.
-            Full implementation will be added in Phase 4 with memory integration.
         """
         logger.debug(
             "Reflection cycle starting",
@@ -860,13 +1424,131 @@ class ProactiveExecutionLoop:
             },
         )
 
-        # TODO: Implement full reflection cycle in Phase 4
-        # This requires:
-        # - Record outcome in episodic memory
-        # - Update procedural memory (strengthen/weaken patterns)
-        # - Update effectiveness beliefs
-        # - Update goal progress
-        # - Learn from patterns (if enough data)
+        try:
+            # ============ STEP 1: Record in Episodic Memory ============
+            await self._record_execution_episode(result)
+
+            # ============ STEP 2: Update Procedural Memory ============
+            await self._update_procedural_memory(result)
+
+            # ============ STEP 3: Update Effectiveness Beliefs ============
+            await self._update_effectiveness_beliefs(result)
+
+            logger.debug(
+                "Reflection cycle complete",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "intention_id": str(result.intention_id),
+                },
+            )
+
+        except Exception as e:
+            logger.warning(
+                f"Reflection cycle error: {e}",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "intention_id": str(result.intention_id),
+                },
+            )
+
+    async def _record_execution_episode(self, result: IntentionResult) -> None:
+        """Record execution outcome in episodic memory."""
+        try:
+            if hasattr(self.memory, "episodic"):
+                await self.memory.episodic.record_episode(
+                    episode_type="intention_execution",
+                    description=f"Executed intention {result.intention_id}",
+                    content={
+                        "intention_id": str(result.intention_id),
+                        "success": result.success,
+                        "outcome": result.outcome,
+                        "duration_ms": result.duration_ms,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
+                    importance=0.7
+                    if result.success
+                    else 0.8,  # Failures more important to remember
+                )
+        except Exception as e:
+            logger.debug(f"Failed to record execution episode: {e}")
+
+    async def _update_procedural_memory(self, result: IntentionResult) -> None:
+        """Update procedural memory based on execution outcome."""
+        try:
+            if not hasattr(self.memory, "procedural"):
+                return
+
+            outcome = result.outcome or {}
+            step_results = outcome.get("step_results", [])
+
+            # Record procedure for successful executions
+            if result.success and step_results:
+                # Extract the procedure pattern
+                procedure_steps = []
+                for step_result in step_results:
+                    if step_result.get("success"):
+                        procedure_steps.append(
+                            {
+                                "action": step_result.get("action", ""),
+                                "success": True,
+                            }
+                        )
+
+                if procedure_steps:
+                    await self.memory.procedural.record_procedure(
+                        procedure_type="intention_execution",
+                        description=f"Execution pattern for intention {result.intention_id}",
+                        pattern={
+                            "steps": procedure_steps,
+                            "total_steps": len(procedure_steps),
+                        },
+                        outcome={"success": True, "duration_ms": result.duration_ms},
+                        effectiveness=1.0,
+                    )
+
+            # For failures, record the failure pattern to avoid
+            elif not result.success:
+                failed_step = outcome.get("failed_step")
+                error = outcome.get("error", "Unknown error")
+
+                await self.memory.procedural.record_procedure(
+                    procedure_type="intention_failure",
+                    description=f"Failed execution at step {failed_step}",
+                    pattern={
+                        "failed_step": failed_step,
+                        "error": error,
+                    },
+                    outcome={"success": False, "error": error},
+                    effectiveness=0.0,
+                )
+
+        except Exception as e:
+            logger.debug(f"Failed to update procedural memory: {e}")
+
+    async def _update_effectiveness_beliefs(self, result: IntentionResult) -> None:
+        """Update beliefs about what actions are effective."""
+        try:
+            outcome = result.outcome or {}
+            step_results = outcome.get("step_results", [])
+
+            # Update beliefs about action effectiveness
+            for step_result in step_results:
+                action = step_result.get("action", "")
+                success = step_result.get("success", False)
+
+                if action:
+                    # Update belief about this action's effectiveness
+                    confidence = 0.8 if success else 0.3
+                    await self.beliefs.update_belief(
+                        subject=action,
+                        predicate="effectiveness",
+                        object={"value": 1.0 if success else 0.0, "last_result": success},
+                        confidence=confidence,
+                        source="execution_outcome",
+                    )
+
+        except Exception as e:
+            logger.debug(f"Failed to update effectiveness beliefs: {e}")
 
     def should_run_deep_reflection(self) -> bool:
         """
@@ -892,21 +1574,167 @@ class ProactiveExecutionLoop:
 
         Runs less frequently (e.g., daily) to identify meta-patterns across
         recent outcomes, identify skill gaps, and form learning goals.
-
-        Note:
-            This is currently a placeholder that logs the intent.
-            Full implementation will be added in Phase 4 with memory and LLM integration.
         """
         logger.info(
             "Deep reflection cycle starting",
             extra={"employee_id": str(self.employee.id)},
         )
 
-        # TODO: Implement full deep reflection in Phase 4
-        # This requires:
-        # - Analyze recent outcomes (last 24 hours)
-        # - Identify patterns using LLM
-        # - Update procedural memory with meta-patterns
-        # - Update beliefs based on patterns
-        # - Identify skill gaps
-        # - Form learning goals
+        start_time = time.time()
+
+        try:
+            # ============ STEP 1: Gather Recent Episodes ============
+            recent_episodes = await self._get_recent_episodes(days=1)
+
+            if not recent_episodes:
+                logger.debug("No recent episodes to reflect on")
+                self.last_deep_reflection = datetime.now(UTC)
+                return
+
+            # ============ STEP 2: Analyze Patterns ============
+            success_count = sum(
+                1 for ep in recent_episodes if ep.get("content", {}).get("success", False)
+            )
+            failure_count = len(recent_episodes) - success_count
+            success_rate = success_count / len(recent_episodes) if recent_episodes else 0
+
+            # ============ STEP 3: Update Beliefs About Performance ============
+            await self.beliefs.update_belief(
+                subject="self",
+                predicate="recent_success_rate",
+                object={
+                    "value": success_rate,
+                    "successes": success_count,
+                    "failures": failure_count,
+                    "total_episodes": len(recent_episodes),
+                },
+                confidence=0.9,
+                source="deep_reflection",
+            )
+
+            # ============ STEP 4: Identify Patterns with LLM ============
+            if self.llm_service and len(recent_episodes) >= 3:
+                await self._analyze_patterns_with_llm(recent_episodes, success_rate)
+
+            # ============ STEP 5: Reinforce/Decay Memory ============
+            await self._maintain_memory_health()
+
+            duration_ms = (time.time() - start_time) * 1000
+
+            logger.info(
+                "Deep reflection cycle complete",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "episodes_analyzed": len(recent_episodes),
+                    "success_rate": f"{success_rate:.2%}",
+                    "duration_ms": duration_ms,
+                },
+            )
+
+        except Exception as e:
+            logger.error(
+                "Deep reflection cycle failed",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id), "error": str(e)},
+            )
+
+        self.last_deep_reflection = datetime.now(UTC)
+
+    async def _get_recent_episodes(self, days: int = 1) -> list[dict[str, Any]]:
+        """Get recent episodes from episodic memory."""
+        try:
+            if hasattr(self.memory, "episodic"):
+                episodes = await self.memory.episodic.recall_recent(
+                    days=days,
+                    limit=100,
+                    episode_type="intention_execution",
+                )
+                # Convert to dicts for easier processing
+                return [
+                    {
+                        "id": str(ep.id),
+                        "type": ep.episode_type,
+                        "description": ep.description,
+                        "content": ep.content,
+                        "importance": ep.importance,
+                        "occurred_at": ep.occurred_at.isoformat() if ep.occurred_at else None,
+                    }
+                    for ep in episodes
+                ]
+        except Exception as e:
+            logger.debug(f"Failed to get recent episodes: {e}")
+        return []
+
+    async def _analyze_patterns_with_llm(
+        self, episodes: list[dict[str, Any]], success_rate: float
+    ) -> None:
+        """Use LLM to identify patterns in recent execution history."""
+        if not self.llm_service:
+            return
+
+        # Format episodes for prompt
+        episodes_text = "\n".join(
+            [
+                f"- {ep.get('description', 'Unknown')}: "
+                f"{'Success' if ep.get('content', {}).get('success') else 'Failed'}"
+                for ep in episodes[:20]
+            ]
+        )
+
+        system_prompt = """You are analyzing a digital employee's recent execution history.
+Identify patterns in what succeeded and failed. Focus on:
+1. Common factors in successes
+2. Common factors in failures
+3. Recommended improvements"""
+
+        user_prompt = f"""Recent execution history (success rate: {success_rate:.1%}):
+
+{episodes_text}
+
+Analyze the patterns and provide brief recommendations."""
+
+        try:
+            response = await self.llm_service.generate(
+                prompt=user_prompt,
+                system=system_prompt,
+                temperature=0.3,
+                max_tokens=500,
+            )
+
+            # Store analysis in episodic memory
+            if hasattr(self.memory, "episodic"):
+                await self.memory.episodic.record_episode(
+                    episode_type="deep_reflection",
+                    description="Pattern analysis from deep reflection",
+                    content={
+                        "analysis": response.content,
+                        "episodes_analyzed": len(episodes),
+                        "success_rate": success_rate,
+                    },
+                    importance=0.8,
+                )
+
+        except Exception as e:
+            logger.debug(f"LLM pattern analysis failed: {e}")
+
+    async def _maintain_memory_health(self) -> None:
+        """Perform memory maintenance: reinforce and decay."""
+        try:
+            if hasattr(self.memory, "episodic"):
+                # Reinforce frequently recalled memories
+                reinforced = await self.memory.episodic.reinforce_frequently_recalled(
+                    min_recall_count=3,
+                    importance_boost=1.05,
+                )
+                # Decay rarely recalled old memories
+                decayed = await self.memory.episodic.decay_rarely_recalled(
+                    min_days_old=30,
+                    importance_decay=0.95,
+                )
+
+                logger.debug(
+                    f"Memory maintenance: reinforced {reinforced}, decayed {decayed}",
+                    extra={"employee_id": str(self.employee.id)},
+                )
+        except Exception as e:
+            logger.debug(f"Memory maintenance failed: {e}")
