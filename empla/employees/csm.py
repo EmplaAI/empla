@@ -94,7 +94,7 @@ class CustomerSuccessManager(DigitalEmployee):
             await self.beliefs.update_belief(
                 subject="self",
                 predicate="role",
-                object={"type": "csm", "focus": "customer_success"},
+                belief_object={"type": "csm", "focus": "customer_success"},
                 confidence=1.0,
                 source="prior",  # Prior knowledge about role identity
             )

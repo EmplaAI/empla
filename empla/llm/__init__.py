@@ -67,17 +67,22 @@ class LLMService:
 
         Args:
             config: LLM configuration
+
+        Raises:
+            ValueError: If required API key is missing for configured provider
         """
         self.config = config
 
         # Initialize primary provider
         primary_model = MODELS[config.primary_model]
+        self._validate_api_key(primary_model.provider.value)
         self.primary = self._create_provider(primary_model.provider.value, primary_model.model_id)
 
         # Initialize fallback provider (if configured)
         self.fallback = None
         if config.fallback_model:
             fallback_model = MODELS[config.fallback_model]
+            self._validate_api_key(fallback_model.provider.value)
             self.fallback = self._create_provider(
                 fallback_model.provider.value, fallback_model.model_id
             )
@@ -85,6 +90,32 @@ class LLMService:
         # Cost tracking
         self.total_cost = 0.0
         self.requests_count = 0
+
+    def _validate_api_key(self, provider: str) -> None:
+        """
+        Validate that required API key is configured for the provider.
+
+        Args:
+            provider: Provider name
+
+        Raises:
+            ValueError: If required API key is missing
+        """
+        if provider == "anthropic" and not self.config.anthropic_api_key:
+            raise ValueError(
+                "anthropic_api_key is required for Anthropic provider. "
+                "Set ANTHROPIC_API_KEY environment variable or pass in config."
+            )
+        if provider == "openai" and not self.config.openai_api_key:
+            raise ValueError(
+                "openai_api_key is required for OpenAI provider. "
+                "Set OPENAI_API_KEY environment variable or pass in config."
+            )
+        if provider == "azure_openai" and not self.config.azure_openai_api_key:
+            raise ValueError(
+                "azure_openai_api_key is required for Azure OpenAI provider. "
+                "Set AZURE_OPENAI_API_KEY environment variable or pass in config."
+            )
 
     def _create_provider(self, provider: str, model_id: str) -> LLMProviderBase:
         """

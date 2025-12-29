@@ -108,7 +108,7 @@ class SalesAE(DigitalEmployee):
             await self.beliefs.update_belief(
                 subject="self",
                 predicate="role",
-                object={"type": "sales_ae", "focus": "pipeline_building"},
+                belief_object={"type": "sales_ae", "focus": "pipeline_building"},
                 confidence=1.0,
                 source="prior",  # Prior knowledge about role identity
             )

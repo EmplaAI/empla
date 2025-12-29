@@ -370,7 +370,7 @@ class BeliefSystem:
         Args:
             subject: What the belief is about (e.g., "Acme Corp")
             predicate: Property or relation (e.g., "pipeline_health")
-            object: Value (can be text, number, boolean, or complex object)
+            belief_object: Value (can be text, number, boolean, or complex object)
             confidence: Confidence level (0-1)
             source: How belief was formed (observation, inference, told_by_human, prior)
             belief_type: Type of belief (state, event, causal, evaluative)
@@ -824,7 +824,7 @@ Extract all relevant beliefs from this observation. Focus on actionable informat
             result = await self.update_belief(
                 subject=extracted.subject,
                 predicate=extracted.predicate,
-                object=extracted.object,
+                belief_object=extracted.object,
                 confidence=extracted.confidence,
                 source="observation",
                 belief_type=extracted.belief_type,

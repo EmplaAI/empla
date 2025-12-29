@@ -293,8 +293,8 @@ class EmailCapability(BaseCapability):
         # Check urgent keywords
         text = f"{email.subject} {email.body}".lower()
 
-        # Check configured priority keywords
-        for priority_str, keywords in self.config.priority_keywords.items():
+        # Check configured priority keywords (use empty dict if None for safety)
+        for priority_str, keywords in (self.config.priority_keywords or {}).items():
             # Convert string to EmailPriority enum
             priority = EmailPriority(priority_str)
             if any(kw in text for kw in keywords):
