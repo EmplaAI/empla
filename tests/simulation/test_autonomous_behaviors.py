@@ -275,7 +275,7 @@ async def test_sales_ae_low_pipeline_autonomous_response(
     This validates the complete BDI cycle autonomously.
     """
     # Setup: Real BDI components
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm)
     goals = GoalSystem(session, employee.id, tenant.id)
     intentions = IntentionStack(session, employee.id, tenant.id)
 
@@ -366,17 +366,19 @@ async def test_sales_ae_low_pipeline_autonomous_response(
     if is_real_llm(mock_llm):
         assert len(extracted_beliefs) > 0, "Real LLM should extract at least one belief"
         # Just check that beliefs are related to pipeline
-        belief_subjects = [b.subject for b in extracted_beliefs]
+        belief_subjects = [b.belief.subject for b in extracted_beliefs]
         assert any("pipeline" in s.lower() for s in belief_subjects), (
             f"Expected pipeline-related beliefs, got: {belief_subjects}"
         )
     else:
         # Mock LLM - exact assertions
         assert len(extracted_beliefs) == 2
-        pipeline_belief = next((b for b in extracted_beliefs if b.predicate == "coverage"), None)
+        pipeline_belief = next(
+            (b for b in extracted_beliefs if b.belief.predicate == "coverage"), None
+        )
         assert pipeline_belief is not None
-        assert pipeline_belief.object["value"] == 2.0
-        assert pipeline_belief.confidence == 0.95
+        assert pipeline_belief.belief.object["value"] == 2.0
+        assert pipeline_belief.belief.confidence == 0.95
 
     # Step 3: FORM GOAL - Recognize problem and create goal
     # In production, this would be done by strategic planning in ProactiveLoop
@@ -576,7 +578,7 @@ async def test_sales_ae_low_pipeline_autonomous_response(
     await beliefs.update_belief(
         subject="Pipeline",
         predicate="coverage",
-        object={"value": new_coverage, "target": 3.0, "improved_from": 2.0},
+        belief_object={"value": new_coverage, "target": 3.0, "improved_from": 2.0},
         confidence=0.95,
         source="observation",
     )
@@ -634,7 +636,7 @@ async def test_csm_at_risk_customer_intervention(
     This validates CSM autonomous proactive intervention.
     """
     # Setup: Real BDI components
-    beliefs = BeliefSystem(session, employee.id, tenant.id)
+    beliefs = BeliefSystem(session, employee.id, tenant.id, mock_llm)
     goals = GoalSystem(session, employee.id, tenant.id)
     intentions = IntentionStack(session, employee.id, tenant.id)
 
@@ -755,17 +757,19 @@ async def test_csm_at_risk_customer_intervention(
     if is_real_llm(mock_llm):
         assert len(extracted_beliefs) > 0, "Real LLM should extract at least one belief"
         # Just check that beliefs are related to customer
-        belief_subjects = [b.subject for b in extracted_beliefs]
+        belief_subjects = [b.belief.subject for b in extracted_beliefs]
         assert any("acme" in s.lower() or "customer" in s.lower() for s in belief_subjects), (
             f"Expected customer-related beliefs, got: {belief_subjects}"
         )
     else:
         # Mock LLM - exact assertions
         assert len(extracted_beliefs) == 3
-        health_belief = next((b for b in extracted_beliefs if b.predicate == "health_status"), None)
+        health_belief = next(
+            (b for b in extracted_beliefs if b.belief.predicate == "health_status"), None
+        )
         assert health_belief is not None
-        assert health_belief.object["status"] == "at_risk"
-        assert health_belief.object["churn_risk"] == 0.75
+        assert health_belief.belief.object["status"] == "at_risk"
+        assert health_belief.belief.object["churn_risk"] == 0.75
 
     # Step 3: FORM GOAL - Create churn prevention goal
     goal = await goals.add_goal(
@@ -970,7 +974,7 @@ async def test_csm_at_risk_customer_intervention(
     await beliefs.update_belief(
         subject="Acme Corp",
         predicate="health_status",
-        object={
+        belief_object={
             "status": "healthy",
             "churn_risk": 0.3,
             "improved_from": 0.75,
