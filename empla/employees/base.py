@@ -26,7 +26,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
 from empla.capabilities import CapabilityRegistry, CapabilityType
@@ -136,8 +136,8 @@ class DigitalEmployee(ABC):
         self._injected_capabilities = capability_registry
 
         # Database (initialized in start(), cleaned up in stop())
-        self._engine = None
-        self._sessionmaker = None
+        self._engine: AsyncEngine | None = None
+        self._sessionmaker: async_sessionmaker[AsyncSession] | None = None
         self._session: AsyncSession | None = None
 
         # Components (initialized in start())
@@ -153,7 +153,7 @@ class DigitalEmployee(ABC):
         # State
         self._is_running = False
         self._started_at: datetime | None = None
-        self._loop_task: asyncio.Task | None = None
+        self._loop_task: asyncio.Task[None] | None = None
 
     # =========================================================================
     # Abstract Properties - Subclasses must implement
@@ -622,6 +622,9 @@ class DigitalEmployee(ABC):
 
     async def _init_bdi(self, session: AsyncSession) -> None:
         """Initialize BDI components."""
+        # LLM should be initialized before BDI
+        assert self._llm is not None, "_init_llm() must be called before _init_bdi()"
+
         self._beliefs = BeliefSystem(
             session=session,
             employee_id=self.employee_id,
@@ -690,6 +693,8 @@ class DigitalEmployee(ABC):
 
     async def _create_default_goals(self) -> None:
         """Create default goals for the role."""
+        assert self._goals is not None, "_init_bdi() must be called before _create_default_goals()"
+
         goals = self.config.goals or self.default_goals
 
         for goal_config in goals:
@@ -704,6 +709,14 @@ class DigitalEmployee(ABC):
 
     async def _init_loop(self) -> None:
         """Initialize proactive execution loop."""
+        # All components must be initialized before loop
+        assert self._db_employee is not None, "Employee record not initialized"
+        assert self._beliefs is not None, "BeliefSystem not initialized"
+        assert self._goals is not None, "GoalSystem not initialized"
+        assert self._intentions is not None, "IntentionStack not initialized"
+        assert self._memory is not None, "MemorySystem not initialized"
+        assert self._capabilities is not None, "CapabilityRegistry not initialized"
+
         loop_config = LoopConfig(
             cycle_interval_seconds=self.config.loop.cycle_interval_seconds,
             strategic_planning_interval_hours=self.config.loop.strategic_planning_interval_hours,
@@ -712,9 +725,9 @@ class DigitalEmployee(ABC):
 
         self._loop = ProactiveExecutionLoop(
             employee=self._db_employee,
-            beliefs=self._beliefs,
+            beliefs=self._beliefs,  # type: ignore[arg-type]
             goals=self._goals,
-            intentions=self._intentions,
+            intentions=self._intentions,  # type: ignore[arg-type]
             memory=self._memory,
             capability_registry=self._capabilities,
             config=loop_config,

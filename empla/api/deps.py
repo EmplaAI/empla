@@ -144,13 +144,13 @@ async def get_current_user(
         )
 
     # Fetch tenant separately (User model doesn't define tenant relationship)
-    result = await db.execute(
+    tenant_result = await db.execute(
         select(Tenant).where(
             Tenant.id == tenant_id,
             Tenant.deleted_at.is_(None),
         )
     )
-    tenant = result.scalar_one_or_none()
+    tenant: Tenant | None = tenant_result.scalar_one_or_none()
 
     if tenant is None:
         raise HTTPException(

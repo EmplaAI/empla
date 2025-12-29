@@ -114,4 +114,5 @@ class LLMProviderFactory:
                 f"Unknown provider: {provider}. Supported providers: {', '.join(providers.keys())}"
             )
 
-        return providers[provider](api_key=api_key, model_id=model_id, **kwargs)
+        provider_class = providers[provider]
+        return provider_class(api_key=api_key, model_id=model_id, **kwargs)  # type: ignore[no-any-return]

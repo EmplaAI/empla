@@ -303,7 +303,7 @@ class LLMService:
 
         request = LLMRequest(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
-        async for chunk in self.primary.stream(request):
+        async for chunk in self.primary.stream(request):  # type: ignore[attr-defined]
             yield chunk
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
