@@ -265,7 +265,7 @@ class ToolExecutionEngine:
         Returns:
             True if type matches, False otherwise
         """
-        type_mapping = {
+        type_mapping: dict[str, type | tuple[type, ...]] = {
             "string": str,
             "number": (int, float),
             "boolean": bool,

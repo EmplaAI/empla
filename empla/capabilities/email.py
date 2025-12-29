@@ -142,9 +142,9 @@ class EmailCapability(BaseCapability):
             ValueError: If provider is not supported
         """
         if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
-            self._client = await self._init_microsoft_graph()
+            await self._init_microsoft_graph()
         elif self.config.provider == EmailProvider.GMAIL:
-            self._client = await self._init_gmail()
+            await self._init_gmail()
         else:
             raise ValueError(f"Unsupported provider: {self.config.provider}")
 

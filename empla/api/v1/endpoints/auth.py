@@ -71,13 +71,13 @@ async def login(
         HTTPException: If credentials are invalid
     """
     # Find tenant by slug
-    result = await db.execute(
+    tenant_result = await db.execute(
         select(Tenant).where(
             Tenant.slug == data.tenant_slug,
             Tenant.deleted_at.is_(None),
         )
     )
-    tenant = result.scalar_one_or_none()
+    tenant: Tenant | None = tenant_result.scalar_one_or_none()
 
     if tenant is None:
         raise HTTPException(
@@ -92,14 +92,14 @@ async def login(
         )
 
     # Find user by email within tenant
-    result = await db.execute(
+    user_result = await db.execute(
         select(User).where(
             User.tenant_id == tenant.id,
             User.email == data.email,
             User.deleted_at.is_(None),
         )
     )
-    user = result.scalar_one_or_none()
+    user: User | None = user_result.scalar_one_or_none()
 
     if user is None:
         raise HTTPException(

@@ -6,6 +6,7 @@ REST API endpoints for starting, stopping, and controlling digital employees.
 
 import contextlib
 import logging
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -13,7 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from empla.api.deps import CurrentUser, DBSession
-from empla.api.v1.schemas.employee import EmployeeStatusResponse
+from empla.api.v1.schemas.employee import (
+    EmployeeStatus,
+    EmployeeStatusResponse,
+    LifecycleStage,
+)
 from empla.models.employee import Employee
 from empla.services.employee_manager import UnsupportedRoleError, get_employee_manager
 
@@ -112,8 +117,8 @@ async def start_employee(
     return EmployeeStatusResponse(
         id=employee.id,
         name=employee.name,
-        status=employee.status,
-        lifecycle_stage=employee.lifecycle_stage,
+        status=cast(EmployeeStatus, employee.status),
+        lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
         is_running=runtime_status.get("is_running", True),
         is_paused=runtime_status.get("is_paused", False),
         has_error=runtime_status.get("has_error", False),
@@ -164,8 +169,8 @@ async def stop_employee(
     return EmployeeStatusResponse(
         id=employee.id,
         name=employee.name,
-        status=employee.status,
-        lifecycle_stage=employee.lifecycle_stage,
+        status=cast(EmployeeStatus, employee.status),
+        lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
         is_running=False,
         is_paused=False,
         has_error=False,
@@ -233,7 +238,7 @@ async def pause_employee(
         id=employee.id,
         name=employee.name,
         status="paused",
-        lifecycle_stage=employee.lifecycle_stage,
+        lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
         is_running=True,  # Employee instance exists in memory
         is_paused=True,  # But execution cycles are paused
         has_error=False,
@@ -299,7 +304,7 @@ async def resume_employee(
         id=employee.id,
         name=employee.name,
         status="active",
-        lifecycle_stage=employee.lifecycle_stage,
+        lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
         is_running=True,
         is_paused=False,
         has_error=False,
@@ -333,8 +338,8 @@ async def get_employee_status(
     return EmployeeStatusResponse(
         id=employee.id,
         name=employee.name,
-        status=employee.status,
-        lifecycle_stage=employee.lifecycle_stage,
+        status=cast(EmployeeStatus, employee.status),
+        lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
         is_running=runtime_status.get("is_running", False),
         is_paused=runtime_status.get("is_paused", False),
         has_error=runtime_status.get("has_error", False),

@@ -11,7 +11,7 @@ BDI Intention System implementation:
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -787,12 +787,14 @@ Generate a detailed plan to achieve this goal. Include multiple intentions with 
 
         # Use LLM to generate plan with error handling
         try:
-            _, plan_result = await llm_service.generate_structured(
+            _, plan_result_raw = await llm_service.generate_structured(
                 prompt=user_prompt,
                 system=system_prompt,
                 response_format=PlanGenerationResult,
                 temperature=0.4,  # Balance creativity and consistency
             )
+            # Cast to specific type for type checker
+            plan_result = cast(PlanGenerationResult, plan_result_raw)
         except Exception as e:
             logger.error(
                 f"LLM plan generation failed for goal {goal.id}: {e}",

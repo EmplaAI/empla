@@ -22,6 +22,7 @@ Example:
     >>> await employee.start()
 """
 
+import json
 import logging
 from typing import Any
 
@@ -198,19 +199,25 @@ class SalesAE(DigitalEmployee):
             - value: Deal value
         """
         try:
-            facts = await self.memory.semantic.query_by_predicate("opportunity_stage")
+            facts = await self.memory.semantic.query_facts(predicate="opportunity_stage")
         except Exception as e:
             logger.error(f"Failed to query opportunities: {e}", exc_info=True)
             return []
 
         opportunities = []
         for fact in facts:
-            if fact.object.get("stage") not in ["closed_won", "closed_lost"]:
+            # Parse JSON-encoded object back to dict
+            try:
+                fact_object = json.loads(fact.object) if fact.object.startswith("{") else {}
+            except json.JSONDecodeError:
+                fact_object = {}
+
+            if fact_object.get("stage") not in ["closed_won", "closed_lost"]:
                 opportunities.append(
                     {
                         "account": fact.subject,
-                        "stage": fact.object.get("stage"),
-                        "value": fact.object.get("value"),
+                        "stage": fact_object.get("stage"),
+                        "value": fact_object.get("value"),
                     }
                 )
 

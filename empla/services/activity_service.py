@@ -205,7 +205,7 @@ class ActivityService:
         result = await self.session.execute(query)
         rows = result.all()
 
-        return {row.event_type: row.count for row in rows}
+        return {str(row.event_type): int(row.count) for row in rows}  # type: ignore[call-overload]
 
 
 # Convenience functions for common activity recording
