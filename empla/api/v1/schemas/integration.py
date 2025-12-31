@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 IntegrationProviderType = Literal["google_workspace", "microsoft_graph"]
 IntegrationAuthTypeValue = Literal["user_oauth", "service_account"]
 IntegrationStatusValue = Literal["active", "disabled", "revoked"]
-CredentialStatusValue = Literal["active", "expired", "revoked", "refreshing"]
+CredentialStatusValue = Literal["active", "expired", "revoked", "refreshing", "revocation_failed"]
 
 
 class IntegrationCreate(BaseModel):

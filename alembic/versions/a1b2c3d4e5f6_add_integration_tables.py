@@ -326,7 +326,6 @@ def upgrade() -> None:
             "state",
             sa.String(length=100),
             nullable=False,
-            unique=True,
             comment="OAuth state parameter (CSRF token)",
         ),
         sa.Column(

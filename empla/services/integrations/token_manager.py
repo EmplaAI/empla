@@ -184,8 +184,11 @@ class TokenManager:
             logger.debug(f"Credential {credential.id} already using current key")
             return credential
 
+        # Capture old key before updating
+        old_key_id = credential.encryption_key_id
+
         # Decrypt with old key
-        data = self.decrypt(credential.encrypted_data, credential.encryption_key_id)
+        data = self.decrypt(credential.encrypted_data, old_key_id)
 
         # Encrypt with new key
         encrypted, new_key_id = self.encrypt(data)
@@ -198,10 +201,10 @@ class TokenManager:
         await session.refresh(credential)
 
         logger.info(
-            f"Rotated credential {credential.id} from {credential.encryption_key_id} to {new_key_id}",
+            f"Rotated credential {credential.id} from {old_key_id} to {new_key_id}",
             extra={
                 "credential_id": str(credential.id),
-                "old_key": credential.encryption_key_id,
+                "old_key": old_key_id,
                 "new_key": new_key_id,
             },
         )

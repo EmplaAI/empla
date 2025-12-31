@@ -683,6 +683,7 @@ class IntegrationService:
                 IntegrationCredential.deleted_at.is_(None),
                 Integration.id == IntegrationCredential.integration_id,
                 Integration.provider == provider.value,
+                Integration.status == "active",
                 Integration.deleted_at.is_(None),
             )
         )

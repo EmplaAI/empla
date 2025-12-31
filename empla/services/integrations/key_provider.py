@@ -15,6 +15,7 @@ Key Rotation:
 """
 
 import base64
+import binascii
 import logging
 import os
 import re
@@ -146,23 +147,34 @@ class EnvironmentKeyProvider(KeyProvider):
                         self._keys[key_id] = value.encode()
                     else:
                         logger.warning(f"Invalid key length for {key_id}: expected 32 bytes")
-                except Exception as e:
+                except (binascii.Error, ValueError, TypeError) as e:
                     logger.warning(f"Invalid key format for {key_id}: {e}")
 
         if not self._keys:
-            logger.warning(
-                "No encryption keys configured. Set ENCRYPTION_KEY_V1 environment variable. "
-                'Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
-            )
-            # Generate a temporary key for development (not for production!)
-            if os.getenv("EMPLA_ENV", "development") == "development":
-                logger.warning("Generating temporary encryption key for development")
+            empla_env = os.getenv("EMPLA_ENV")
+
+            # Only generate temporary key when EMPLA_ENV is explicitly "development"
+            if empla_env == "development":
+                logger.warning(
+                    "No encryption keys configured. Generating temporary key for development. "
+                    "Set ENCRYPTION_KEY_V1 for persistent storage. "
+                    'Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+                )
                 temp_key = Fernet.generate_key()
                 self._keys["key_v1"] = temp_key
                 self._current_key_id = "key_v1"
-            else:
+            elif empla_env is None:
+                # EMPLA_ENV not set - fail fast to prevent accidental temp key usage
                 raise NoKeysConfiguredError(
-                    "No encryption keys configured. "
+                    "No encryption keys configured and EMPLA_ENV is not set. "
+                    "Set EMPLA_ENV=development to allow temporary keys, or configure "
+                    "ENCRYPTION_KEY_V1 and ENCRYPTION_KEY_ID for production. "
+                    'Generate a key with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+                )
+            else:
+                # Non-development environment without keys - fail fast
+                raise NoKeysConfiguredError(
+                    f"No encryption keys configured for EMPLA_ENV={empla_env}. "
                     "Set ENCRYPTION_KEY_V1 and ENCRYPTION_KEY_ID environment variables."
                 )
 

@@ -102,18 +102,12 @@ class TestEnvironmentKeyProvider:
 
     def test_development_mode_auto_generates_key(self):
         """In dev mode without keys, should auto-generate a temporary key."""
+        # Use clear=True to fully isolate environment - no ENCRYPTION_KEY* vars present
         with patch.dict(
             "os.environ",
-            {"ENV": "development"},
-            clear=False,
+            {"EMPLA_ENV": "development"},
+            clear=True,
         ):
-            # Remove any existing encryption keys
-            import os
-
-            for key in list(os.environ.keys()):
-                if key.startswith("ENCRYPTION_KEY"):
-                    del os.environ[key]
-
             provider = EnvironmentKeyProvider()
             # Should have a key (auto-generated)
             key_id = provider.get_current_key_id()
