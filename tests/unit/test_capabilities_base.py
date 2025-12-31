@@ -61,16 +61,20 @@ class MockCapability(BaseCapability):
         Also sets the instance flag `perceive_called` to True.
 
         Returns:
-            list[Observation]: A list containing a single Observation with source "mock", type "test_observation", the current UTC timestamp, priority 5, and data {"test": "data"}.
+            list[Observation]: A list containing a single Observation with source "mock",
+            observation_type "test_observation", the current UTC timestamp, priority 5,
+            and content {"test": "data"}.
         """
         self.perceive_called = True
         return [
             Observation(
+                employee_id=self.employee_id,
+                tenant_id=self.tenant_id,
+                observation_type="test_observation",
                 source="mock",
-                type="test_observation",
+                content={"test": "data"},
                 timestamp=datetime.now(UTC),
                 priority=5,
-                data={"test": "data"},
             )
         ]
 
@@ -123,61 +127,79 @@ def test_capability_config():
 
 
 def test_observation_model():
-    """Test Observation model"""
+    """Test Observation model (unified model from core.loop.models)"""
+    employee_id = uuid4()
+    tenant_id = uuid4()
+
     obs = Observation(
+        employee_id=employee_id,
+        tenant_id=tenant_id,
+        observation_type="new_email",
         source="email",
-        type="new_email",
+        content={"email_id": "123", "from": "test@example.com"},
         timestamp=datetime.now(UTC),
         priority=8,
-        data={"email_id": "123", "from": "test@example.com"},
         requires_action=True,
     )
 
     assert obs.source == "email"
-    assert obs.type == "new_email"
+    assert obs.observation_type == "new_email"
     assert obs.priority == 8
     assert obs.requires_action is True
-    assert obs.data["email_id"] == "123"
+    assert obs.content["email_id"] == "123"
+    assert obs.employee_id == employee_id
+    assert obs.tenant_id == tenant_id
 
 
 def test_observation_priority_validation():
     """Test Observation priority is validated to 1-10"""
+    employee_id = uuid4()
+    tenant_id = uuid4()
+
     # Valid priorities
     obs1 = Observation(
+        employee_id=employee_id,
+        tenant_id=tenant_id,
+        observation_type="test",
         source="test",
-        type="test",
+        content={},
         timestamp=datetime.now(UTC),
         priority=1,
-        data={},
     )
     assert obs1.priority == 1
 
     obs10 = Observation(
+        employee_id=employee_id,
+        tenant_id=tenant_id,
+        observation_type="test",
         source="test",
-        type="test",
+        content={},
         timestamp=datetime.now(UTC),
         priority=10,
-        data={},
     )
     assert obs10.priority == 10
 
     # Invalid priorities should raise validation error
     with pytest.raises(Exception):  # Pydantic ValidationError
         Observation(
+            employee_id=employee_id,
+            tenant_id=tenant_id,
+            observation_type="test",
             source="test",
-            type="test",
+            content={},
             timestamp=datetime.now(UTC),
             priority=11,  # Too high
-            data={},
         )
 
     with pytest.raises(Exception):
         Observation(
+            employee_id=employee_id,
+            tenant_id=tenant_id,
+            observation_type="test",
             source="test",
-            type="test",
+            content={},
             timestamp=datetime.now(UTC),
             priority=0,  # Too low
-            data={},
         )
 
 
@@ -261,7 +283,7 @@ async def test_base_capability_perceive():
     assert capability.perceive_called is True
     assert len(observations) == 1
     assert observations[0].source == "mock"
-    assert observations[0].type == "test_observation"
+    assert observations[0].observation_type == "test_observation"
 
 
 @pytest.mark.asyncio

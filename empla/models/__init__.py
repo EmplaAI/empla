@@ -23,6 +23,16 @@ from empla.models.audit import AuditLog, Metric
 from empla.models.base import Base
 from empla.models.belief import Belief, BeliefHistory
 from empla.models.employee import Employee, EmployeeGoal, EmployeeIntention
+from empla.models.integration import (
+    CredentialStatus,
+    CredentialType,
+    Integration,
+    IntegrationAuthType,
+    IntegrationCredential,
+    IntegrationOAuthState,
+    IntegrationProvider,
+    IntegrationStatus,
+)
 from empla.models.memory import (
     EpisodicMemory,
     ProceduralMemory,
@@ -36,10 +46,18 @@ __all__ = [
     "Base",
     "Belief",
     "BeliefHistory",
+    "CredentialStatus",
+    "CredentialType",
     "Employee",
     "EmployeeGoal",
     "EmployeeIntention",
     "EpisodicMemory",
+    "Integration",
+    "IntegrationAuthType",
+    "IntegrationCredential",
+    "IntegrationOAuthState",
+    "IntegrationProvider",
+    "IntegrationStatus",
     "Metric",
     "ProceduralMemory",
     "SemanticMemory",

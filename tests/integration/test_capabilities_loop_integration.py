@@ -220,18 +220,22 @@ async def test_loop_perceives_from_capability_registry():
     # Configure capability to return observations
     capability.observations_to_return = [
         Observation(
+            employee_id=employee.id,
+            tenant_id=employee.tenant_id,
+            observation_type="new_email",
             source="email",
-            type="new_email",
+            content={"email_id": "123"},
             timestamp=datetime.now(UTC),
             priority=7,
-            data={"email_id": "123"},
         ),
         Observation(
+            employee_id=employee.id,
+            tenant_id=employee.tenant_id,
+            observation_type="new_email",
             source="email",
-            type="new_email",
+            content={"email_id": "456"},
             timestamp=datetime.now(UTC),
             priority=5,
-            data={"email_id": "456"},
         ),
     ]
 
@@ -304,11 +308,13 @@ async def test_loop_perception_detects_opportunities():
     # Configure capability to return opportunity observation
     capability.observations_to_return = [
         Observation(
+            employee_id=employee.id,
+            tenant_id=employee.tenant_id,
+            observation_type="new_opportunity",
             source="email",
-            type="new_opportunity",
+            content={"lead_id": "789"},
             timestamp=datetime.now(UTC),
             priority=8,
-            data={"lead_id": "789"},
         )
     ]
 
@@ -348,11 +354,13 @@ async def test_loop_perception_detects_problems():
     # Configure capability to return problem observation
     capability.observations_to_return = [
         Observation(
+            employee_id=employee.id,
+            tenant_id=employee.tenant_id,
+            observation_type="customer_problem",
             source="email",
-            type="customer_problem",
+            content={"issue": "System down"},
             timestamp=datetime.now(UTC),
             priority=9,
-            data={"issue": "System down"},
         )
     ]
 
@@ -391,11 +399,13 @@ async def test_loop_perception_detects_high_priority_as_risk():
     # Configure capability to return high-priority observation
     capability.observations_to_return = [
         Observation(
+            employee_id=employee.id,
+            tenant_id=employee.tenant_id,
+            observation_type="urgent_email",
             source="email",
-            type="urgent_email",
+            content={"urgent": True},
             timestamp=datetime.now(UTC),
             priority=10,  # Very high priority
-            data={"urgent": True},
         )
     ]
 
@@ -454,21 +464,25 @@ async def test_loop_perception_handles_multiple_capabilities():
     # Configure both to return observations
     email_cap.observations_to_return = [
         Observation(
+            employee_id=employee.id,
+            tenant_id=employee.tenant_id,
+            observation_type="new_email",
             source="email",
-            type="new_email",
+            content={"email_id": "123"},
             timestamp=datetime.now(UTC),
             priority=5,
-            data={"email_id": "123"},
         )
     ]
 
     calendar_cap.observations_to_return = [
         Observation(
+            employee_id=employee.id,
+            tenant_id=employee.tenant_id,
+            observation_type="meeting_soon",
             source="calendar",
-            type="meeting_soon",
+            content={"event_id": "456"},
             timestamp=datetime.now(UTC),
             priority=8,
-            data={"event_id": "456"},
         )
     ]
 

@@ -105,13 +105,13 @@ class SimulatedEmailCapability(BaseCapability):
             # Triage email (simple keyword-based)
             priority = self._triage_email(email)
 
-            # Create observation
+            # Create observation using unified Observation model
             observation = Observation(
+                employee_id=self.employee_id,
+                tenant_id=self.tenant_id,
+                observation_type="new_email",
                 source="email",
-                type="new_email",
-                timestamp=email.received_at,
-                priority=self._priority_to_int(priority),
-                data={
+                content={
                     "email_id": email.id,
                     "from": email.from_address,
                     "to": email.to_addresses,
@@ -121,6 +121,8 @@ class SimulatedEmailCapability(BaseCapability):
                     "thread_id": email.thread_id,
                     "requires_response": self._requires_response(email),
                 },
+                timestamp=email.received_at,
+                priority=self._priority_to_int(priority),
                 requires_action=(priority in [SimEmailPriority.URGENT, SimEmailPriority.HIGH]),
             )
 
@@ -412,11 +414,11 @@ class SimulatedCalendarCapability(BaseCapability):
                 priority = 5  # Normal
 
             observation = Observation(
+                employee_id=self.employee_id,
+                tenant_id=self.tenant_id,
+                observation_type="upcoming_meeting",
                 source="calendar",
-                type="upcoming_meeting",
-                timestamp=datetime.now(UTC),
-                priority=priority,
-                data={
+                content={
                     "event_id": event.id,
                     "subject": event.subject,
                     "start_time": event.start_time.isoformat(),
@@ -425,6 +427,8 @@ class SimulatedCalendarCapability(BaseCapability):
                     "location": event.location,
                     "hours_until": hours_until,
                 },
+                timestamp=datetime.now(UTC),
+                priority=priority,
                 requires_action=(hours_until < 1),  # Urgent if <1 hour
             )
 
@@ -570,15 +574,17 @@ class SimulatedCRMCapability(BaseCapability):
         if pipeline_coverage < 3.0:  # Below 3x target
             observations.append(
                 Observation(
+                    employee_id=self.employee_id,
+                    tenant_id=self.tenant_id,
+                    observation_type="low_pipeline_coverage",
                     source="crm",
-                    type="low_pipeline_coverage",
-                    timestamp=datetime.now(UTC),
-                    priority=8,  # High priority
-                    data={
+                    content={
                         "pipeline_coverage": pipeline_coverage,
                         "pipeline_value": self.environment.crm.get_pipeline_value(),
                         "target": self.environment.crm._pipeline_target,
                     },
+                    timestamp=datetime.now(UTC),
+                    priority=8,  # High priority
                     requires_action=True,
                 )
             )
@@ -588,11 +594,11 @@ class SimulatedCRMCapability(BaseCapability):
         for customer in at_risk:
             observations.append(
                 Observation(
+                    employee_id=self.employee_id,
+                    tenant_id=self.tenant_id,
+                    observation_type="customer_at_risk",
                     source="crm",
-                    type="customer_at_risk",
-                    timestamp=datetime.now(UTC),
-                    priority=9,  # Very high priority
-                    data={
+                    content={
                         "customer_id": customer.id,
                         "customer_name": customer.name,
                         "health": customer.health.value,
@@ -604,6 +610,8 @@ class SimulatedCRMCapability(BaseCapability):
                             else None
                         ),
                     },
+                    timestamp=datetime.now(UTC),
+                    priority=9,  # Very high priority
                     requires_action=True,
                 )
             )

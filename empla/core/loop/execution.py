@@ -574,21 +574,8 @@ class ProactiveExecutionLoop:
         if self.capability_registry is not None:
             try:
                 # Get observations from all enabled capabilities
-                cap_observations = await self.capability_registry.perceive_all(self.employee.id)
-
-                # Convert capability Observations to loop Observations
-                # Capability observations use different field names
-                for cap_obs in cap_observations:
-                    loop_obs = Observation(
-                        employee_id=self.employee.id,
-                        tenant_id=self.employee.tenant_id,
-                        observation_type=cap_obs.type,
-                        source=cap_obs.source,
-                        content=cap_obs.data,
-                        timestamp=cap_obs.timestamp,
-                        priority=cap_obs.priority,
-                    )
-                    observations.append(loop_obs)
+                # Capabilities now return unified Observation objects directly
+                observations = await self.capability_registry.perceive_all(self.employee.id)
 
                 # Track which capabilities were checked
                 sources_checked = [
@@ -599,7 +586,7 @@ class ProactiveExecutionLoop:
                 ]
 
                 logger.debug(
-                    f"Capability perception: {len(cap_observations)} observations",
+                    f"Capability perception: {len(observations)} observations",
                     extra={
                         "employee_id": str(self.employee.id),
                         "sources": sources_checked,

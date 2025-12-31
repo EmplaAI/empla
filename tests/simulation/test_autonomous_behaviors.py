@@ -23,7 +23,6 @@ This validates that the actual production code can autonomously:
 import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
-from uuid import uuid4
 
 import pytest
 from sqlalchemy import event
@@ -301,10 +300,12 @@ async def test_sales_ae_low_pipeline_autonomous_response(
 
     # Assert: Should detect low pipeline
     assert len(observations) > 0
-    low_pipeline_obs = next((o for o in observations if o.type == "low_pipeline_coverage"), None)
+    low_pipeline_obs = next(
+        (o for o in observations if o.observation_type == "low_pipeline_coverage"), None
+    )
     assert low_pipeline_obs is not None
     assert low_pipeline_obs.priority >= 8  # High priority
-    assert low_pipeline_obs.data["pipeline_coverage"] == 2.0
+    assert low_pipeline_obs.content["pipeline_coverage"] == 2.0
 
     # Step 2: UPDATE BELIEFS - Extract beliefs from observation
     # If using mock LLM, set up mock response
@@ -344,19 +345,9 @@ async def test_sales_ae_low_pipeline_autonomous_response(
             )
         )
 
-    # Convert simulated observation to core Observation model
-    from empla.core.loop.models import Observation
-
-    core_observation = Observation(
-        observation_id=uuid4(),
-        employee_id=employee.id,
-        tenant_id=tenant.id,
-        observation_type=low_pipeline_obs.type,
-        source=low_pipeline_obs.source,
-        content=low_pipeline_obs.data,
-        timestamp=low_pipeline_obs.timestamp,
-        priority=low_pipeline_obs.priority,
-    )
+    # Observations from capabilities are already in the unified format
+    # No conversion needed - can use directly
+    core_observation = low_pipeline_obs
 
     # Extract beliefs using real BeliefSystem
     extracted_beliefs = await beliefs.extract_beliefs_from_observation(core_observation, mock_llm)
@@ -673,11 +664,11 @@ async def test_csm_at_risk_customer_intervention(
 
     # Assert: Should detect at-risk customer
     assert len(observations) > 0
-    at_risk_obs = next((o for o in observations if o.type == "customer_at_risk"), None)
+    at_risk_obs = next((o for o in observations if o.observation_type == "customer_at_risk"), None)
     assert at_risk_obs is not None
     assert at_risk_obs.priority >= 9  # Very high priority
-    assert at_risk_obs.data["customer_name"] == "Acme Corp"
-    assert at_risk_obs.data["churn_risk_score"] == 0.75
+    assert at_risk_obs.content["customer_name"] == "Acme Corp"
+    assert at_risk_obs.content["churn_risk_score"] == 0.75
 
     # Step 2: UPDATE BELIEFS - Extract beliefs from observation
     # If using mock LLM, set up mock response
@@ -736,19 +727,9 @@ async def test_csm_at_risk_customer_intervention(
             )
         )
 
-    # Convert to core Observation
-    from empla.core.loop.models import Observation
-
-    core_observation = Observation(
-        observation_id=uuid4(),
-        employee_id=employee.id,
-        tenant_id=tenant.id,
-        observation_type=at_risk_obs.type,
-        source=at_risk_obs.source,
-        content=at_risk_obs.data,
-        timestamp=at_risk_obs.timestamp,
-        priority=at_risk_obs.priority,
-    )
+    # Observations from capabilities are already in the unified format
+    # No conversion needed - can use directly
+    core_observation = at_risk_obs
 
     # Extract beliefs
     extracted_beliefs = await beliefs.extract_beliefs_from_observation(core_observation, mock_llm)
@@ -960,7 +941,7 @@ async def test_csm_at_risk_customer_intervention(
     # Perceive response
     email_observations = await email_cap.perceive()
     response_obs = next(
-        (o for o in email_observations if "Re: Checking in" in o.data.get("subject", "")),
+        (o for o in email_observations if "Re: Checking in" in o.content.get("subject", "")),
         None,
     )
     assert response_obs is not None
@@ -1076,19 +1057,19 @@ async def test_perception_with_simulated_capabilities(session, employee, tenant,
 
     # Assert: All capabilities produced observations
     assert len(email_obs) == 1
-    assert email_obs[0].type == "new_email"
+    assert email_obs[0].observation_type == "new_email"
     assert email_obs[0].source == "email"
-    assert "Question about your product" in email_obs[0].data["subject"]
+    assert "Question about your product" in email_obs[0].content["subject"]
 
     assert len(calendar_obs) == 1
-    assert calendar_obs[0].type == "upcoming_meeting"
+    assert calendar_obs[0].observation_type == "upcoming_meeting"
     assert calendar_obs[0].source == "calendar"
-    assert calendar_obs[0].data["subject"] == "Team standup"
+    assert calendar_obs[0].content["subject"] == "Team standup"
 
     assert len(crm_obs) == 1
-    assert crm_obs[0].type == "low_pipeline_coverage"
+    assert crm_obs[0].observation_type == "low_pipeline_coverage"
     assert crm_obs[0].source == "crm"
-    assert crm_obs[0].data["pipeline_coverage"] == 2.0
+    assert crm_obs[0].content["pipeline_coverage"] == 2.0
 
     await session.commit()
 

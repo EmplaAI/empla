@@ -3,14 +3,18 @@ Email Capability
 
 Enables digital employees to interact via email - monitor inbox, triage messages,
 compose responses, and send emails.
+
+Supports two credential modes:
+1. Integration Service (recommended): Credentials stored securely via IntegrationService
+2. Direct Config: Credentials passed directly in config (for testing/simulation)
 """
 
 import hashlib
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from empla.capabilities.base import (
@@ -21,6 +25,11 @@ from empla.capabilities.base import (
     CapabilityType,
     Observation,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from empla.services.integrations import IntegrationService
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +76,12 @@ class EmailConfig(CapabilityConfig):
     provider: EmailProvider
     email_address: str
 
-    # Provider credentials (stored securely)
-    credentials: dict[str, Any]
+    # Credential source: use integration service (recommended) or direct config
+    use_integration_service: bool = True
+
+    # Provider credentials (only used if use_integration_service=False)
+    # When using integration service, credentials are fetched automatically
+    credentials: dict[str, Any] | None = None
 
     # Monitoring settings
     check_interval_seconds: int = 60
@@ -108,21 +121,42 @@ class EmailCapability(BaseCapability):
     - Intelligent triage
     - Email composition
     - Sending with tracking
+
+    Credential Modes:
+    1. Integration Service (default): Credentials fetched from IntegrationService
+       - Requires integration_service and session to be set
+       - Supports automatic token refresh
+    2. Direct Config: Credentials in config.credentials
+       - For testing/simulation
+       - Set use_integration_service=False
     """
 
-    def __init__(self, tenant_id: UUID, employee_id: UUID, config: EmailConfig) -> None:
+    def __init__(
+        self,
+        tenant_id: UUID,
+        employee_id: UUID,
+        config: EmailConfig,
+        integration_service: "IntegrationService | None" = None,
+        session: "AsyncSession | None" = None,
+    ) -> None:
         """
         Initialize EmailCapability.
 
         Parameters:
             tenant_id (UUID): Tenant identifier
             employee_id (UUID): Employee identifier
-            config (EmailConfig): Email configuration including provider and credentials
+            config (EmailConfig): Email configuration
+            integration_service (IntegrationService, optional): Service for credential management
+            session (AsyncSession, optional): Database session for integration service
         """
         super().__init__(tenant_id, employee_id, config)
         self.config: EmailConfig = config
         self._last_check: datetime | None = None
         self._client = None  # Email provider client
+        self._integration_service = integration_service
+        self._session = session
+        self._cached_credentials: dict[str, Any] | None = None
+        self._credential_expires_at: datetime | None = None
 
     @property
     def capability_type(self) -> CapabilityType:
@@ -138,59 +172,187 @@ class EmailCapability(BaseCapability):
         """
         Initialize email client based on configured provider.
 
+        Gets credentials from integration service if enabled, then initializes
+        the provider-specific client.
+
         Raises:
             ValueError: If provider is not supported
+            RuntimeError: If credentials cannot be obtained
         """
+        # Get credentials (from integration service or config)
+        credentials = await self._get_credentials()
+
+        if credentials is None:
+            raise RuntimeError(
+                "No credentials available. Either configure integration service "
+                "or provide credentials in config."
+            )
+
         if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
-            self._client = await self._init_microsoft_graph()
+            self._client = await self._init_microsoft_graph(credentials)
         elif self.config.provider == EmailProvider.GMAIL:
-            self._client = await self._init_gmail()
+            self._client = await self._init_gmail(credentials)
         else:
             raise ValueError(f"Unsupported provider: {self.config.provider}")
 
         self._initialized = True
+
+        # Get logging settings safely (may not be EmailConfig)
+        log_pii = getattr(self.config, "log_pii", False)
+        email_address = getattr(self.config, "email_address", "unknown")
+        use_integration = getattr(self.config, "use_integration_service", False)
+
         logger.info(
             "Email capability initialized",
             extra={
                 "employee_id": str(self.employee_id),
-                "email": (
-                    self.config.email_address
-                    if self.config.log_pii
-                    else self._redact_email_address(self.config.email_address)
-                ),
-                "provider": self.config.provider,
+                "email": (email_address if log_pii else self._redact_email_address(email_address)),
+                "provider": getattr(self.config, "provider", "unknown"),
+                "credential_source": ("integration_service" if use_integration else "config"),
             },
         )
 
-    async def _init_microsoft_graph(self) -> Any:
+    async def _get_credentials(self) -> dict[str, Any] | None:
+        """
+        Get credentials for email provider.
+
+        If use_integration_service is True, fetches from IntegrationService
+        with automatic token refresh. Otherwise uses config.credentials.
+
+        Credentials are cached for the session to reduce DB calls.
+
+        Returns:
+            dict: Credential data with access_token, refresh_token, etc.
+            None: If no credentials available
+        """
+        # Use cached credentials if still valid
+        if self._cached_credentials and self._credential_expires_at:
+            # Check if credentials expire in the next 5 minutes
+            buffer = datetime.now(UTC) + timedelta(minutes=5)
+            if self._credential_expires_at > buffer:
+                return self._cached_credentials
+
+        # Check if config is an EmailConfig (has the integration service flag)
+        use_integration = getattr(self.config, "use_integration_service", False)
+        config_credentials = getattr(self.config, "credentials", None)
+
+        # Direct config mode
+        if not use_integration:
+            return config_credentials
+
+        # Integration service mode
+        if not self._integration_service:
+            logger.warning(
+                "Integration service not configured but use_integration_service=True",
+                extra={"employee_id": str(self.employee_id)},
+            )
+            # Fall back to config credentials if available
+            return config_credentials
+
+        # Map email provider to integration provider
+        from empla.models.integration import IntegrationProvider
+
+        provider_map = {
+            EmailProvider.GMAIL: IntegrationProvider.GOOGLE_WORKSPACE,
+            EmailProvider.MICROSOFT_GRAPH: IntegrationProvider.MICROSOFT_GRAPH,
+        }
+        integration_provider = provider_map.get(self.config.provider)
+
+        if not integration_provider:
+            logger.error(
+                f"No integration provider for email provider {self.config.provider}",
+                extra={"employee_id": str(self.employee_id)},
+            )
+            return None
+
+        # Fetch from integration service
+        result = await self._integration_service.get_credential_for_employee(
+            tenant_id=self.tenant_id,
+            employee_id=self.employee_id,
+            provider=integration_provider,
+            auto_refresh=True,  # Auto-refresh expiring tokens
+        )
+
+        if not result:
+            logger.warning(
+                f"No credential found for employee {self.employee_id} with {integration_provider}",
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "provider": integration_provider.value,
+                },
+            )
+            return None
+
+        _, credential, data = result
+
+        # Cache credentials
+        self._cached_credentials = data
+        self._credential_expires_at = credential.expires_at
+
+        logger.debug(
+            "Retrieved credentials from integration service",
+            extra={
+                "employee_id": str(self.employee_id),
+                "credential_id": str(credential.id),
+                "expires_at": credential.expires_at.isoformat() if credential.expires_at else None,
+            },
+        )
+
+        return data
+
+    async def _init_microsoft_graph(self, credentials: dict[str, Any]) -> Any:
         """
         Initialize Microsoft Graph client.
 
         TODO: Implement Microsoft Graph authentication
         Use OAuth2 with delegated permissions
 
+        Parameters:
+            credentials: OAuth credentials with access_token
+
         Returns:
             Microsoft Graph client instance (None until implemented)
         """
         # TODO: Implement Microsoft Graph authentication
         # from msgraph.core import GraphClient
-        # return GraphClient(credentials=self.config.credentials)
-        logger.info("Microsoft Graph client initialization - placeholder")
+        # access_token = credentials.get("access_token")
+        # return GraphClient(credential=access_token)
+        logger.info(
+            "Microsoft Graph client initialization - placeholder",
+            extra={
+                "has_access_token": "access_token" in credentials,
+                "has_refresh_token": "refresh_token" in credentials,
+            },
+        )
         return None
 
-    async def _init_gmail(self) -> Any:
+    async def _init_gmail(self, credentials: dict[str, Any]) -> Any:
         """
         Initialize Gmail client.
 
         TODO: Implement Gmail API authentication
 
+        Parameters:
+            credentials: OAuth credentials with access_token
+
         Returns:
             Gmail client instance (None until implemented)
         """
         # TODO: Implement Gmail API authentication
+        # from google.oauth2.credentials import Credentials
         # from googleapiclient.discovery import build
-        # return build('gmail', 'v1', credentials=self.config.credentials)
-        logger.info("Gmail client initialization - placeholder")
+        # creds = Credentials(
+        #     token=credentials.get("access_token"),
+        #     refresh_token=credentials.get("refresh_token"),
+        # )
+        # return build('gmail', 'v1', credentials=creds)
+        logger.info(
+            "Gmail client initialization - placeholder",
+            extra={
+                "has_access_token": "access_token" in credentials,
+                "has_refresh_token": "refresh_token" in credentials,
+            },
+        )
         return None
 
     async def perceive(self) -> list[Observation]:
@@ -228,17 +390,19 @@ class EmailCapability(BaseCapability):
                 priority = await self._triage_email(email)
 
                 observation = Observation(
+                    employee_id=self.employee_id,
+                    tenant_id=self.tenant_id,
+                    observation_type="new_email",
                     source="email",
-                    type="new_email",
-                    timestamp=email.timestamp,
-                    priority=self._priority_to_int(priority),
-                    data={
+                    content={
                         "email_id": email.id,
                         "from": email.from_addr,
                         "subject": email.subject,
                         "priority": priority,
                         "requires_response": await self._requires_response(email),
                     },
+                    timestamp=email.timestamp,
+                    priority=self._priority_to_int(priority),
                     requires_action=(priority in [EmailPriority.URGENT, EmailPriority.HIGH]),
                 )
 
