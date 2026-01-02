@@ -13,6 +13,19 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+# Import unified Observation from core.loop.models and re-export for backward compatibility
+from empla.core.loop.models import Observation
+
+# Re-export Observation so imports from capabilities.base continue to work
+__all__ = [
+    "Action",
+    "ActionResult",
+    "BaseCapability",
+    "CapabilityConfig",
+    "CapabilityType",
+    "Observation",
+]
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,49 +68,6 @@ class CapabilityConfig(BaseModel):
 
     class Config:
         extra = "allow"  # Allow capability-specific config
-
-
-class Observation(BaseModel):
-    """
-    Single observation from a capability.
-
-    Observations are generated during perception and passed to the
-    BDI system for reasoning.
-    """
-
-    source: str
-    """Which capability generated this observation"""
-
-    type: str
-    """Type of observation (e.g., 'new_email', 'calendar_event')"""
-
-    timestamp: datetime
-    """When this observation was made"""
-
-    priority: int = Field(ge=1, le=10, default=5)
-    """Priority 1-10, higher = more important"""
-
-    data: dict[str, Any]
-    """Observation-specific data"""
-
-    requires_action: bool = False
-    """Should this trigger immediate action?"""
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "source": "email",
-                "type": "new_email",
-                "timestamp": "2025-11-12T10:30:00Z",
-                "priority": 8,
-                "data": {
-                    "email_id": "123",
-                    "from": "customer@example.com",
-                    "subject": "Urgent: Need help",
-                },
-                "requires_action": True,
-            }
-        }
 
 
 class Action(BaseModel):

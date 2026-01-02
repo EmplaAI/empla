@@ -419,10 +419,10 @@ class TestSalesAECreationWithSimulation:
         # Should detect low pipeline
         assert len(observations) > 0
         low_pipeline_obs = next(
-            (o for o in observations if o.type == "low_pipeline_coverage"), None
+            (o for o in observations if o.observation_type == "low_pipeline_coverage"), None
         )
         assert low_pipeline_obs is not None
-        assert low_pipeline_obs.data["pipeline_coverage"] == 2.0
+        assert low_pipeline_obs.content["pipeline_coverage"] == 2.0
 
 
 class TestSalesAELifecycleWithSimulation:
@@ -546,13 +546,13 @@ class TestSalesAEAutonomousCycle:
 
         # Find low pipeline observation
         low_pipeline_obs = next(
-            (o for o in observations if o.type == "low_pipeline_coverage"), None
+            (o for o in observations if o.observation_type == "low_pipeline_coverage"), None
         )
         assert low_pipeline_obs is not None
         assert low_pipeline_obs.priority >= 8
         assert low_pipeline_obs.requires_action is True
-        assert low_pipeline_obs.data["pipeline_coverage"] == 2.0
-        assert low_pipeline_obs.data["target"] == 500000.0
+        assert low_pipeline_obs.content["pipeline_coverage"] == 2.0
+        assert low_pipeline_obs.content["target"] == 500000.0
 
     @pytest.mark.asyncio
     async def test_perceive_inbound_email_scenario(self, simulated_env):
@@ -591,12 +591,12 @@ class TestSalesAEAutonomousCycle:
         assert len(observations) >= 1
 
         # Find email observation
-        email_obs = next((o for o in observations if o.type == "new_email"), None)
+        email_obs = next((o for o in observations if o.observation_type == "new_email"), None)
         assert email_obs is not None
-        assert email_obs.data["from"] == "prospect@acme.com"
-        assert email_obs.data["requires_response"] is True
+        assert email_obs.content["from"] == "prospect@acme.com"
+        assert email_obs.content["requires_response"] is True
         # Demo is mentioned in the body, not subject
-        assert "demo" in email_obs.data["body"].lower()
+        assert "demo" in email_obs.content["body"].lower()
 
     @pytest.mark.asyncio
     async def test_execute_email_action(self, simulated_env):
@@ -728,7 +728,11 @@ class TestSalesAEWithFullBDICycle:
                         # Should detect low pipeline
                         assert len(observations) >= 1
                         low_pipeline_obs = next(
-                            (o for o in observations if o.type == "low_pipeline_coverage"),
+                            (
+                                o
+                                for o in observations
+                                if o.observation_type == "low_pipeline_coverage"
+                            ),
                             None,
                         )
                         assert low_pipeline_obs is not None

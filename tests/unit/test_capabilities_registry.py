@@ -44,15 +44,19 @@ class MockEmailCapability(BaseCapability):
         Produce a list containing a single Observation representing a newly received email.
 
         Returns:
-            list[Observation]: A list with one Observation whose source is "email", type is "new_email", timestamp is the current UTC time, priority is 7, and data contains {"email_id": "123"}.
+            list[Observation]: A list with one Observation whose source is "email",
+            observation_type is "new_email", timestamp is the current UTC time,
+            priority is 7, and content contains {"email_id": "123"}.
         """
         return [
             Observation(
+                employee_id=self.employee_id,
+                tenant_id=self.tenant_id,
+                observation_type="new_email",
                 source="email",
-                type="new_email",
+                content={"email_id": "123"},
                 timestamp=datetime.now(UTC),
                 priority=7,
-                data={"email_id": "123"},
             )
         ]
 
@@ -100,15 +104,19 @@ class MockCalendarCapability(BaseCapability):
         Return observations representing imminent calendar events.
 
         Returns:
-            List[Observation]: A list containing a single Observation with source "calendar", type "meeting_soon", the current UTC timestamp, priority 8, and data {"event_id": "456"}.
+            List[Observation]: A list containing a single Observation with source "calendar",
+            observation_type "meeting_soon", the current UTC timestamp, priority 8,
+            and content {"event_id": "456"}.
         """
         return [
             Observation(
+                employee_id=self.employee_id,
+                tenant_id=self.tenant_id,
+                observation_type="meeting_soon",
                 source="calendar",
-                type="meeting_soon",
+                content={"event_id": "456"},
                 timestamp=datetime.now(UTC),
                 priority=8,
-                data={"event_id": "456"},
             )
         ]
 

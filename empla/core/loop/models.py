@@ -50,6 +50,11 @@ class Observation(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     priority: int = Field(default=5, ge=1, le=10, description="Priority (1=lowest, 10=highest)")
 
+    # Action flags
+    requires_action: bool = Field(
+        default=False, description="Whether this observation requires immediate action"
+    )
+
     # Processing
     processed: bool = Field(default=False, description="Whether observation has been processed")
     belief_changes: list[UUID] = Field(
