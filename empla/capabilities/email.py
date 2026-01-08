@@ -9,10 +9,13 @@ Supports two credential modes:
 2. Direct Config: Credentials passed directly in config (for testing/simulation)
 """
 
+import asyncio
+import base64
 import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from email.mime.text import MIMEText
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -328,32 +331,60 @@ class EmailCapability(BaseCapability):
 
     async def _init_gmail(self, credentials: dict[str, Any]) -> Any:
         """
-        Initialize Gmail client.
-
-        TODO: Implement Gmail API authentication
+        Initialize Gmail client using OAuth credentials.
 
         Parameters:
-            credentials: OAuth credentials with access_token
+            credentials: OAuth credentials with access_token, refresh_token
 
         Returns:
-            Gmail client instance (None until implemented)
+            Gmail API service instance
+
+        Raises:
+            RuntimeError: If Gmail client cannot be initialized
         """
-        # TODO: Implement Gmail API authentication
-        # from google.oauth2.credentials import Credentials
-        # from googleapiclient.discovery import build
-        # creds = Credentials(
-        #     token=credentials.get("access_token"),
-        #     refresh_token=credentials.get("refresh_token"),
-        # )
-        # return build('gmail', 'v1', credentials=creds)
-        logger.info(
-            "Gmail client initialization - placeholder",
-            extra={
-                "has_access_token": "access_token" in credentials,
-                "has_refresh_token": "refresh_token" in credentials,
-            },
-        )
-        return None
+        try:
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+
+            # Create credentials from OAuth tokens
+            creds = Credentials(
+                token=credentials.get("access_token"),
+                refresh_token=credentials.get("refresh_token"),
+                token_uri="https://oauth2.googleapis.com/token",
+                # client_id and client_secret not needed for API calls
+                # (they're only needed for token refresh, which IntegrationService handles)
+            )
+
+            # Build Gmail API service (synchronous, wrap in thread)
+            def _build_service() -> Any:
+                return build("gmail", "v1", credentials=creds, cache_discovery=False)
+
+            service = await asyncio.to_thread(_build_service)
+
+            logger.info(
+                "Gmail client initialized successfully",
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "has_access_token": "access_token" in credentials,
+                    "has_refresh_token": "refresh_token" in credentials,
+                },
+            )
+
+            return service
+
+        except ImportError as e:
+            logger.error(
+                "Gmail dependencies not installed. Run: pip install google-api-python-client google-auth",
+                extra={"error": str(e)},
+            )
+            raise RuntimeError("Gmail dependencies not installed") from e
+        except Exception as e:
+            logger.error(
+                "Failed to initialize Gmail client",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
+            raise RuntimeError(f"Gmail initialization failed: {e}") from e
 
     async def perceive(self) -> list[Observation]:
         """
@@ -424,21 +455,172 @@ class EmailCapability(BaseCapability):
 
     async def _fetch_new_emails(self) -> list[Email]:
         """
-        Fetch new emails from provider.
-
-        TODO: Implement provider-specific email fetching
-        Filter by: unread, newer than last_check
+        Fetch new unread emails from provider.
 
         Returns:
-            List[Email]: New emails since last check
+            List[Email]: New unread emails
         """
-        # TODO: Implement provider-specific email fetching
-        # For now, return empty list (placeholder)
-        logger.debug(
-            "Fetching new emails - placeholder implementation",
+        if self.config.provider == EmailProvider.GMAIL:
+            return await self._fetch_gmail_emails()
+        if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
+            # TODO: Implement Microsoft Graph email fetching
+            logger.debug(
+                "Microsoft Graph email fetching not yet implemented",
+                extra={"employee_id": str(self.employee_id)},
+            )
+            return []
+        logger.warning(
+            f"Unknown email provider: {self.config.provider}",
             extra={"employee_id": str(self.employee_id)},
         )
         return []
+
+    async def _fetch_gmail_emails(self) -> list[Email]:
+        """
+        Fetch unread emails from Gmail.
+
+        Returns:
+            List[Email]: Unread emails from Gmail
+        """
+        if not self._client:
+            logger.warning(
+                "Gmail client not initialized",
+                extra={"employee_id": str(self.employee_id)},
+            )
+            return []
+
+        try:
+            # Build query for unread emails in monitored folders
+            query_parts = ["is:unread"]
+            if self._last_check:
+                # Gmail uses epoch seconds for after: query
+                epoch = int(self._last_check.timestamp())
+                query_parts.append(f"after:{epoch}")
+
+            query = " ".join(query_parts)
+
+            # List messages (synchronous API, wrap in thread)
+            def _list_messages() -> dict[str, Any]:
+                return (
+                    self._client.users()
+                    .messages()
+                    .list(userId="me", q=query, maxResults=50)
+                    .execute()
+                )
+
+            result = await asyncio.to_thread(_list_messages)
+            messages = result.get("messages", [])
+
+            if not messages:
+                logger.debug(
+                    "No new unread emails",
+                    extra={"employee_id": str(self.employee_id)},
+                )
+                return []
+
+            # Fetch full message details
+            emails = []
+            for msg_info in messages:
+                try:
+                    email = await self._fetch_gmail_message(msg_info["id"])
+                    if email:
+                        emails.append(email)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to fetch message {msg_info['id']}: {e}",
+                        extra={"employee_id": str(self.employee_id)},
+                    )
+
+            logger.info(
+                f"Fetched {len(emails)} new emails from Gmail",
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "email_count": len(emails),
+                },
+            )
+
+            return emails
+
+        except Exception as e:
+            logger.error(
+                "Failed to fetch Gmail emails",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
+            return []
+
+    async def _fetch_gmail_message(self, message_id: str) -> Email | None:
+        """
+        Fetch a single Gmail message by ID.
+
+        Parameters:
+            message_id: Gmail message ID
+
+        Returns:
+            Email object or None if fetch fails
+        """
+
+        def _get_message() -> dict[str, Any]:
+            return (
+                self._client.users()
+                .messages()
+                .get(userId="me", id=message_id, format="full")
+                .execute()
+            )
+
+        msg = await asyncio.to_thread(_get_message)
+
+        # Parse headers
+        headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
+
+        # Parse body
+        body = ""
+        html_body = None
+        payload = msg.get("payload", {})
+
+        if "parts" in payload:
+            for part in payload["parts"]:
+                mime_type = part.get("mimeType", "")
+                data = part.get("body", {}).get("data", "")
+                if data:
+                    decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+                    if mime_type == "text/plain":
+                        body = decoded
+                    elif mime_type == "text/html":
+                        html_body = decoded
+        elif "body" in payload and payload["body"].get("data"):
+            body = base64.urlsafe_b64decode(payload["body"]["data"]).decode(
+                "utf-8", errors="replace"
+            )
+
+        # Parse timestamp
+        internal_date = msg.get("internalDate")
+        timestamp = (
+            datetime.fromtimestamp(int(internal_date) / 1000, tz=UTC)
+            if internal_date
+            else datetime.now(UTC)
+        )
+
+        # Parse addresses
+        from_addr = headers.get("from", "")
+        to_addrs = [addr.strip() for addr in headers.get("to", "").split(",") if addr.strip()]
+        cc_addrs = [addr.strip() for addr in headers.get("cc", "").split(",") if addr.strip()]
+
+        return Email(
+            id=message_id,
+            thread_id=msg.get("threadId"),
+            from_addr=from_addr,
+            to_addrs=to_addrs,
+            cc_addrs=cc_addrs,
+            subject=headers.get("subject", "(no subject)"),
+            body=body,
+            html_body=html_body,
+            timestamp=timestamp,
+            attachments=[],  # TODO: Parse attachments
+            in_reply_to=headers.get("in-reply-to"),
+            labels=msg.get("labelIds", []),
+            is_read="UNREAD" not in msg.get("labelIds", []),
+        )
 
     async def _triage_email(self, email: Email) -> EmailPriority:
         """
@@ -672,9 +854,7 @@ class EmailCapability(BaseCapability):
         attachments: list[dict[str, Any]] | None = None,
     ) -> ActionResult:
         """
-        Send new email.
-
-        TODO: Implement actual email sending via provider
+        Send new email via Gmail or Microsoft Graph.
 
         Parameters:
             to (List[str]): Recipient email addresses
@@ -690,33 +870,91 @@ class EmailCapability(BaseCapability):
         if self.config.signature:
             body = f"{body}\n\n{self.config.signature}"
 
-        # TODO: Use provider client to send
-        # Record in memory system
+        if self.config.provider == EmailProvider.GMAIL:
+            return await self._send_gmail(to, subject, body, cc)
+        if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
+            # TODO: Implement Microsoft Graph send
+            logger.warning("Microsoft Graph send not yet implemented")
+            return ActionResult(success=False, error="Microsoft Graph not implemented")
+        return ActionResult(success=False, error=f"Unknown provider: {self.config.provider}")
 
-        logger.info(
-            "Email sent (placeholder)",
-            extra={
-                "employee_id": str(self.employee_id),
-                "recipient_count": len(to),
-                "recipient_domains": (to if self.config.log_pii else self._extract_domains(to)),
-                "subject_hash": (subject if self.config.log_pii else self._redact_subject(subject)),
-                "cc_count": len(cc) if cc else 0,
-                "has_attachments": bool(attachments),
-            },
-        )
+    async def _send_gmail(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        cc: list[str] | None = None,
+    ) -> ActionResult:
+        """
+        Send email via Gmail API.
 
-        return ActionResult(
-            success=True,
-            metadata={"sent_at": datetime.now(UTC).isoformat()},
-        )
+        Parameters:
+            to: Recipient email addresses
+            subject: Email subject
+            body: Email body (plain text)
+            cc: CC recipients
+
+        Returns:
+            ActionResult with message_id on success
+        """
+        if not self._client:
+            return ActionResult(success=False, error="Gmail client not initialized")
+
+        try:
+            # Create MIME message
+            message = MIMEText(body)
+            message["to"] = ", ".join(to)
+            message["from"] = self.config.email_address
+            message["subject"] = subject
+            if cc:
+                message["cc"] = ", ".join(cc)
+
+            # Encode for Gmail API
+            raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+
+            def _send() -> dict[str, Any]:
+                return (
+                    self._client.users().messages().send(userId="me", body={"raw": raw}).execute()
+                )
+
+            result = await asyncio.to_thread(_send)
+            message_id = result.get("id", "")
+
+            logger.info(
+                "Email sent via Gmail",
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "message_id": message_id,
+                    "recipient_count": len(to),
+                    "recipient_domains": (to if self.config.log_pii else self._extract_domains(to)),
+                    "subject_hash": (
+                        subject if self.config.log_pii else self._redact_subject(subject)
+                    ),
+                    "cc_count": len(cc) if cc else 0,
+                },
+            )
+
+            return ActionResult(
+                success=True,
+                metadata={
+                    "message_id": message_id,
+                    "sent_at": datetime.now(UTC).isoformat(),
+                },
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to send email via Gmail",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
+            return ActionResult(success=False, error=f"Gmail send failed: {e}")
 
     async def _reply_to_email(
         self, email_id: str, body: str, cc: list[str] | None = None
     ) -> ActionResult:
         """
         Reply to existing email.
-
-        TODO: Implement email reply via provider
 
         Parameters:
             email_id (str): ID of email to reply to
@@ -726,22 +964,95 @@ class EmailCapability(BaseCapability):
         Returns:
             ActionResult: Success with metadata or error
         """
-        # TODO: Fetch original email, create reply
-        logger.info(
-            "Email reply (placeholder)",
-            extra={
-                "employee_id": str(self.employee_id),
-                "email_id_hash": (
-                    email_id if self.config.log_pii else self._redact_email_id(email_id)
-                ),
-                "cc_count": len(cc) if cc else 0,
-            },
-        )
+        if self.config.provider == EmailProvider.GMAIL:
+            return await self._reply_gmail(email_id, body, cc)
+        if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
+            logger.warning("Microsoft Graph reply not yet implemented")
+            return ActionResult(success=False, error="Microsoft Graph not implemented")
+        return ActionResult(success=False, error=f"Unknown provider: {self.config.provider}")
 
-        return ActionResult(
-            success=True,
-            metadata={"replied_at": datetime.now(UTC).isoformat()},
-        )
+    async def _reply_gmail(
+        self, email_id: str, body: str, cc: list[str] | None = None
+    ) -> ActionResult:
+        """
+        Reply to email via Gmail API.
+
+        Parameters:
+            email_id: ID of email to reply to
+            body: Reply body
+            cc: Additional CC recipients
+
+        Returns:
+            ActionResult with message_id on success
+        """
+        if not self._client:
+            return ActionResult(success=False, error="Gmail client not initialized")
+
+        try:
+            # Fetch original message to get thread ID and headers
+            original = await self._fetch_gmail_message(email_id)
+            if not original:
+                return ActionResult(success=False, error="Original email not found")
+
+            # Add signature if configured
+            if self.config.signature:
+                body = f"{body}\n\n{self.config.signature}"
+
+            # Create reply message
+            message = MIMEText(body)
+            message["to"] = original.from_addr
+            message["from"] = self.config.email_address
+            message["subject"] = (
+                f"Re: {original.subject}"
+                if not original.subject.startswith("Re:")
+                else original.subject
+            )
+            message["In-Reply-To"] = email_id
+            message["References"] = email_id
+            if cc:
+                message["cc"] = ", ".join(cc)
+
+            # Encode for Gmail API
+            raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+
+            def _send() -> dict[str, Any]:
+                return (
+                    self._client.users()
+                    .messages()
+                    .send(userId="me", body={"raw": raw, "threadId": original.thread_id})
+                    .execute()
+                )
+
+            result = await asyncio.to_thread(_send)
+            message_id = result.get("id", "")
+
+            logger.info(
+                "Email reply sent via Gmail",
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "message_id": message_id,
+                    "original_id": email_id
+                    if self.config.log_pii
+                    else self._redact_email_id(email_id),
+                    "cc_count": len(cc) if cc else 0,
+                },
+            )
+
+            return ActionResult(
+                success=True,
+                metadata={
+                    "message_id": message_id,
+                    "replied_at": datetime.now(UTC).isoformat(),
+                },
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to reply to email via Gmail",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
+            return ActionResult(success=False, error=f"Gmail reply failed: {e}")
 
     async def _forward_email(
         self,
@@ -752,8 +1063,6 @@ class EmailCapability(BaseCapability):
         """
         Forward email to others.
 
-        TODO: Implement email forwarding via provider
-
         Parameters:
             email_id (str): ID of email to forward
             to (List[str]): Recipient email addresses
@@ -762,30 +1071,106 @@ class EmailCapability(BaseCapability):
         Returns:
             ActionResult: Success with metadata or error
         """
-        # TODO: Fetch original email, forward with comment
-        logger.info(
-            "Email forward (placeholder)",
-            extra={
-                "employee_id": str(self.employee_id),
-                "email_id_hash": (
-                    email_id if self.config.log_pii else self._redact_email_id(email_id)
-                ),
-                "recipient_count": len(to),
-                "recipient_domains": (to if self.config.log_pii else self._extract_domains(to)),
-                "has_comment": comment is not None,
-            },
-        )
+        if self.config.provider == EmailProvider.GMAIL:
+            return await self._forward_gmail(email_id, to, comment)
+        if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
+            logger.warning("Microsoft Graph forward not yet implemented")
+            return ActionResult(success=False, error="Microsoft Graph not implemented")
+        return ActionResult(success=False, error=f"Unknown provider: {self.config.provider}")
 
-        return ActionResult(
-            success=True,
-            metadata={"forwarded_at": datetime.now(UTC).isoformat()},
-        )
+    async def _forward_gmail(
+        self,
+        email_id: str,
+        to: list[str],
+        comment: str | None = None,
+    ) -> ActionResult:
+        """
+        Forward email via Gmail API.
+
+        Parameters:
+            email_id: ID of email to forward
+            to: Recipient email addresses
+            comment: Comment to add when forwarding
+
+        Returns:
+            ActionResult with message_id on success
+        """
+        if not self._client:
+            return ActionResult(success=False, error="Gmail client not initialized")
+
+        try:
+            # Fetch original message
+            original = await self._fetch_gmail_message(email_id)
+            if not original:
+                return ActionResult(success=False, error="Original email not found")
+
+            # Build forward body
+            forward_header = (
+                f"\n\n---------- Forwarded message ----------\n"
+                f"From: {original.from_addr}\n"
+                f"Date: {original.timestamp.isoformat() if original.timestamp else 'Unknown'}\n"
+                f"Subject: {original.subject}\n"
+                f"To: {', '.join(original.to_addrs)}\n\n"
+            )
+            body = (comment or "") + forward_header + (original.body or "")
+
+            # Add signature if configured
+            if self.config.signature:
+                body = f"{body}\n\n{self.config.signature}"
+
+            # Create forward message
+            message = MIMEText(body)
+            message["to"] = ", ".join(to)
+            message["from"] = self.config.email_address
+            message["subject"] = (
+                f"Fwd: {original.subject}"
+                if not original.subject.startswith("Fwd:")
+                else original.subject
+            )
+
+            # Encode for Gmail API
+            raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+
+            def _send() -> dict[str, Any]:
+                return (
+                    self._client.users().messages().send(userId="me", body={"raw": raw}).execute()
+                )
+
+            result = await asyncio.to_thread(_send)
+            message_id = result.get("id", "")
+
+            logger.info(
+                "Email forwarded via Gmail",
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "message_id": message_id,
+                    "original_id": (
+                        email_id if self.config.log_pii else self._redact_email_id(email_id)
+                    ),
+                    "recipient_count": len(to),
+                    "recipient_domains": (to if self.config.log_pii else self._extract_domains(to)),
+                },
+            )
+
+            return ActionResult(
+                success=True,
+                metadata={
+                    "message_id": message_id,
+                    "forwarded_at": datetime.now(UTC).isoformat(),
+                },
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to forward email via Gmail",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
+            return ActionResult(success=False, error=f"Gmail forward failed: {e}")
 
     async def _mark_read(self, email_id: str) -> ActionResult:
         """
         Mark email as read.
-
-        TODO: Implement via provider
 
         Parameters:
             email_id (str): ID of email to mark as read
@@ -793,24 +1178,67 @@ class EmailCapability(BaseCapability):
         Returns:
             ActionResult: Success or error
         """
-        # TODO: Update email status via provider
-        logger.debug(
-            "Email marked as read (placeholder)",
-            extra={
-                "employee_id": str(self.employee_id),
-                "email_id_hash": (
-                    email_id if self.config.log_pii else self._redact_email_id(email_id)
-                ),
-            },
-        )
+        if self.config.provider == EmailProvider.GMAIL:
+            return await self._mark_read_gmail(email_id)
+        if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
+            logger.warning("Microsoft Graph mark_read not yet implemented")
+            return ActionResult(success=False, error="Microsoft Graph not implemented")
+        return ActionResult(success=False, error=f"Unknown provider: {self.config.provider}")
 
-        return ActionResult(success=True)
+    async def _mark_read_gmail(self, email_id: str) -> ActionResult:
+        """
+        Mark email as read via Gmail API.
+
+        Removes the UNREAD label from the message.
+
+        Parameters:
+            email_id: ID of email to mark as read
+
+        Returns:
+            ActionResult with success status
+        """
+        if not self._client:
+            return ActionResult(success=False, error="Gmail client not initialized")
+
+        try:
+
+            def _modify() -> dict[str, Any]:
+                return (
+                    self._client.users()
+                    .messages()
+                    .modify(
+                        userId="me",
+                        id=email_id,
+                        body={"removeLabelIds": ["UNREAD"]},
+                    )
+                    .execute()
+                )
+
+            await asyncio.to_thread(_modify)
+
+            logger.debug(
+                "Email marked as read via Gmail",
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "email_id": (
+                        email_id if self.config.log_pii else self._redact_email_id(email_id)
+                    ),
+                },
+            )
+
+            return ActionResult(success=True)
+
+        except Exception as e:
+            logger.error(
+                "Failed to mark email as read via Gmail",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
+            return ActionResult(success=False, error=f"Gmail mark_read failed: {e}")
 
     async def _archive(self, email_id: str) -> ActionResult:
         """
         Archive email.
-
-        TODO: Implement via provider
 
         Parameters:
             email_id (str): ID of email to archive
@@ -818,15 +1246,61 @@ class EmailCapability(BaseCapability):
         Returns:
             ActionResult: Success or error
         """
-        # TODO: Move to archive folder via provider
-        logger.debug(
-            "Email archived (placeholder)",
-            extra={
-                "employee_id": str(self.employee_id),
-                "email_id_hash": (
-                    email_id if self.config.log_pii else self._redact_email_id(email_id)
-                ),
-            },
-        )
+        if self.config.provider == EmailProvider.GMAIL:
+            return await self._archive_gmail(email_id)
+        if self.config.provider == EmailProvider.MICROSOFT_GRAPH:
+            logger.warning("Microsoft Graph archive not yet implemented")
+            return ActionResult(success=False, error="Microsoft Graph not implemented")
+        return ActionResult(success=False, error=f"Unknown provider: {self.config.provider}")
 
-        return ActionResult(success=True)
+    async def _archive_gmail(self, email_id: str) -> ActionResult:
+        """
+        Archive email via Gmail API.
+
+        In Gmail, archiving means removing the INBOX label.
+        The message remains accessible via "All Mail".
+
+        Parameters:
+            email_id: ID of email to archive
+
+        Returns:
+            ActionResult with success status
+        """
+        if not self._client:
+            return ActionResult(success=False, error="Gmail client not initialized")
+
+        try:
+
+            def _modify() -> dict[str, Any]:
+                return (
+                    self._client.users()
+                    .messages()
+                    .modify(
+                        userId="me",
+                        id=email_id,
+                        body={"removeLabelIds": ["INBOX"]},
+                    )
+                    .execute()
+                )
+
+            await asyncio.to_thread(_modify)
+
+            logger.debug(
+                "Email archived via Gmail",
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "email_id": (
+                        email_id if self.config.log_pii else self._redact_email_id(email_id)
+                    ),
+                },
+            )
+
+            return ActionResult(success=True)
+
+        except Exception as e:
+            logger.error(
+                "Failed to archive email via Gmail",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
+            return ActionResult(success=False, error=f"Gmail archive failed: {e}")

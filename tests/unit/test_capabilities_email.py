@@ -3,6 +3,7 @@ Unit tests for EmailCapability.
 """
 
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -415,32 +416,40 @@ def test_priority_to_int():
 
 @pytest.mark.asyncio
 async def test_email_action_send():
-    """Test sending email action"""
+    """Test sending email action with Gmail provider"""
     tenant_id = uuid4()
     employee_id = uuid4()
     config = EmailConfig(
-        provider=EmailProvider.MICROSOFT_GRAPH,
-        email_address="test@example.com",
+        provider=EmailProvider.GMAIL,
+        email_address="test@gmail.com",
         credentials={},
     )
 
     capability = EmailCapability(tenant_id, employee_id, config)
     await capability.initialize()
 
-    action = Action(
-        capability="email",
-        operation="send_email",
-        parameters={
-            "to": ["recipient@example.com"],
-            "subject": "Test email",
-            "body": "This is a test email.",
-        },
-    )
+    # Mock Gmail client and API call
+    capability._client = MagicMock()
+    with patch(
+        "empla.capabilities.email.asyncio.to_thread",
+        new_callable=AsyncMock,
+    ) as mock_to_thread:
+        mock_to_thread.return_value = {"id": "msg123"}
 
-    result = await capability.execute_action(action)
+        action = Action(
+            capability="email",
+            operation="send_email",
+            parameters={
+                "to": ["recipient@example.com"],
+                "subject": "Test email",
+                "body": "This is a test email.",
+            },
+        )
 
-    assert result.success is True
-    assert "sent_at" in result.metadata
+        result = await capability.execute_action(action)
+
+        assert result.success is True
+        assert "sent_at" in result.metadata
 
 
 @pytest.mark.asyncio
@@ -449,10 +458,228 @@ async def test_email_action_send_with_signature():
     tenant_id = uuid4()
     employee_id = uuid4()
     config = EmailConfig(
+        provider=EmailProvider.GMAIL,
+        email_address="test@gmail.com",
+        credentials={},
+        signature="Best regards,\nTest User",
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+    await capability.initialize()
+
+    # Mock Gmail client and API call
+    capability._client = MagicMock()
+    with patch(
+        "empla.capabilities.email.asyncio.to_thread",
+        new_callable=AsyncMock,
+    ) as mock_to_thread:
+        mock_to_thread.return_value = {"id": "msg123"}
+
+        action = Action(
+            capability="email",
+            operation="send_email",
+            parameters={
+                "to": ["recipient@example.com"],
+                "subject": "Test",
+                "body": "Email body",
+            },
+        )
+
+        result = await capability.execute_action(action)
+
+        assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_email_action_reply():
+    """Test replying to email action"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.GMAIL,
+        email_address="test@gmail.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+    await capability.initialize()
+
+    # Mock Gmail client
+    capability._client = MagicMock()
+
+    call_count = [0]
+
+    async def mock_to_thread(func):
+        call_count[0] += 1
+        if call_count[0] == 1:  # Fetch original
+            return {
+                "id": "123",
+                "threadId": "thread123",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "sender@example.com"},
+                        {"name": "To", "value": "test@gmail.com"},
+                        {"name": "Subject", "value": "Original"},
+                    ],
+                    "body": {"data": "VGVzdA=="},
+                },
+                "labelIds": [],
+            }
+        # Send reply
+        return {"id": "reply123", "threadId": "thread123"}
+
+    with patch(
+        "empla.capabilities.email.asyncio.to_thread",
+        side_effect=mock_to_thread,
+    ):
+        action = Action(
+            capability="email",
+            operation="reply_to_email",
+            parameters={
+                "email_id": "123",
+                "body": "Thank you for your email.",
+            },
+        )
+
+        result = await capability.execute_action(action)
+
+        assert result.success is True
+        assert "replied_at" in result.metadata
+
+
+@pytest.mark.asyncio
+async def test_email_action_forward():
+    """Test forwarding email action"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.GMAIL,
+        email_address="test@gmail.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+    await capability.initialize()
+
+    # Mock Gmail client
+    capability._client = MagicMock()
+
+    call_count = [0]
+
+    async def mock_to_thread(func):
+        call_count[0] += 1
+        if call_count[0] == 1:  # Fetch original
+            return {
+                "id": "123",
+                "threadId": "thread123",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "sender@example.com"},
+                        {"name": "To", "value": "test@gmail.com"},
+                        {"name": "Subject", "value": "Original"},
+                    ],
+                    "body": {"data": "VGVzdA=="},
+                },
+                "labelIds": [],
+            }
+        # Send forward
+        return {"id": "fwd123"}
+
+    with patch(
+        "empla.capabilities.email.asyncio.to_thread",
+        side_effect=mock_to_thread,
+    ):
+        action = Action(
+            capability="email",
+            operation="forward_email",
+            parameters={
+                "email_id": "123",
+                "to": ["colleague@example.com"],
+                "comment": "FYI",
+            },
+        )
+
+        result = await capability.execute_action(action)
+
+        assert result.success is True
+        assert "forwarded_at" in result.metadata
+
+
+@pytest.mark.asyncio
+async def test_email_action_mark_read():
+    """Test marking email as read"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.GMAIL,
+        email_address="test@gmail.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+    await capability.initialize()
+
+    # Mock Gmail client
+    capability._client = MagicMock()
+    with patch(
+        "empla.capabilities.email.asyncio.to_thread",
+        new_callable=AsyncMock,
+    ) as mock_to_thread:
+        mock_to_thread.return_value = {"id": "123", "labelIds": ["INBOX"]}
+
+        action = Action(
+            capability="email",
+            operation="mark_read",
+            parameters={"email_id": "123"},
+        )
+
+        result = await capability.execute_action(action)
+
+        assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_email_action_archive():
+    """Test archiving email"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
+        provider=EmailProvider.GMAIL,
+        email_address="test@gmail.com",
+        credentials={},
+    )
+
+    capability = EmailCapability(tenant_id, employee_id, config)
+    await capability.initialize()
+
+    # Mock Gmail client
+    capability._client = MagicMock()
+    with patch(
+        "empla.capabilities.email.asyncio.to_thread",
+        new_callable=AsyncMock,
+    ) as mock_to_thread:
+        mock_to_thread.return_value = {"id": "123", "labelIds": []}
+
+        action = Action(
+            capability="email",
+            operation="archive",
+            parameters={"email_id": "123"},
+        )
+
+        result = await capability.execute_action(action)
+
+        assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_email_action_microsoft_graph_not_implemented():
+    """Test that Microsoft Graph operations return not implemented error"""
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = EmailConfig(
         provider=EmailProvider.MICROSOFT_GRAPH,
         email_address="test@example.com",
         credentials={},
-        signature="Best regards,\nTest User",
     )
 
     capability = EmailCapability(tenant_id, employee_id, config)
@@ -464,122 +691,14 @@ async def test_email_action_send_with_signature():
         parameters={
             "to": ["recipient@example.com"],
             "subject": "Test",
-            "body": "Email body",
+            "body": "Test body",
         },
     )
 
     result = await capability.execute_action(action)
 
-    assert result.success is True
-
-
-@pytest.mark.asyncio
-async def test_email_action_reply():
-    """Test replying to email action"""
-    tenant_id = uuid4()
-    employee_id = uuid4()
-    config = EmailConfig(
-        provider=EmailProvider.MICROSOFT_GRAPH,
-        email_address="test@example.com",
-        credentials={},
-    )
-
-    capability = EmailCapability(tenant_id, employee_id, config)
-    await capability.initialize()
-
-    action = Action(
-        capability="email",
-        operation="reply_to_email",
-        parameters={
-            "email_id": "123",
-            "body": "Thank you for your email.",
-        },
-    )
-
-    result = await capability.execute_action(action)
-
-    assert result.success is True
-    assert "replied_at" in result.metadata
-
-
-@pytest.mark.asyncio
-async def test_email_action_forward():
-    """Test forwarding email action"""
-    tenant_id = uuid4()
-    employee_id = uuid4()
-    config = EmailConfig(
-        provider=EmailProvider.MICROSOFT_GRAPH,
-        email_address="test@example.com",
-        credentials={},
-    )
-
-    capability = EmailCapability(tenant_id, employee_id, config)
-    await capability.initialize()
-
-    action = Action(
-        capability="email",
-        operation="forward_email",
-        parameters={
-            "email_id": "123",
-            "to": ["colleague@example.com"],
-            "comment": "FYI",
-        },
-    )
-
-    result = await capability.execute_action(action)
-
-    assert result.success is True
-    assert "forwarded_at" in result.metadata
-
-
-@pytest.mark.asyncio
-async def test_email_action_mark_read():
-    """Test marking email as read"""
-    tenant_id = uuid4()
-    employee_id = uuid4()
-    config = EmailConfig(
-        provider=EmailProvider.MICROSOFT_GRAPH,
-        email_address="test@example.com",
-        credentials={},
-    )
-
-    capability = EmailCapability(tenant_id, employee_id, config)
-    await capability.initialize()
-
-    action = Action(
-        capability="email",
-        operation="mark_read",
-        parameters={"email_id": "123"},
-    )
-
-    result = await capability.execute_action(action)
-
-    assert result.success is True
-
-
-@pytest.mark.asyncio
-async def test_email_action_archive():
-    """Test archiving email"""
-    tenant_id = uuid4()
-    employee_id = uuid4()
-    config = EmailConfig(
-        provider=EmailProvider.MICROSOFT_GRAPH,
-        email_address="test@example.com",
-        credentials={},
-    )
-
-    capability = EmailCapability(tenant_id, employee_id, config)
-    await capability.initialize()
-
-    action = Action(
-        capability="email",
-        operation="archive",
-        parameters={"email_id": "123"},
-    )
-
-    result = await capability.execute_action(action)
-
-    assert result.success is True
+    assert result.success is False
+    assert "Microsoft Graph not implemented" in result.error
 
 
 @pytest.mark.asyncio
@@ -767,3 +886,393 @@ def test_email_capability_repr():
     assert "email" in repr_str  # capability type (plain string)
     assert str(employee_id) in repr_str
     assert "initialized=False" in repr_str
+
+
+# ==========================================
+# Gmail API Integration Tests
+# ==========================================
+
+
+class TestGmailIntegration:
+    """Tests for Gmail API integration methods."""
+
+    @pytest.fixture
+    def gmail_capability(self):
+        """Create Gmail capability with mocked client."""
+        tenant_id = uuid4()
+        employee_id = uuid4()
+        config = EmailConfig(
+            provider=EmailProvider.GMAIL,
+            email_address="test@gmail.com",
+            credentials={
+                "access_token": "test_access_token",
+                "refresh_token": "test_refresh_token",
+            },
+        )
+        return EmailCapability(tenant_id, employee_id, config)
+
+    @pytest.fixture
+    def mock_gmail_service(self):
+        """Create mock Gmail API service."""
+        mock_service = MagicMock()
+        mock_users = MagicMock()
+        mock_messages = MagicMock()
+
+        mock_service.users.return_value = mock_users
+        mock_users.messages.return_value = mock_messages
+
+        return mock_service, mock_messages
+
+    @pytest.mark.asyncio
+    async def test_init_gmail_success(self, gmail_capability):
+        """Test Gmail client initialization with valid credentials."""
+        mock_service = MagicMock()
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.return_value = mock_service
+
+            service = await gmail_capability._init_gmail(
+                {"access_token": "token123", "refresh_token": "refresh456"}
+            )
+
+            assert service is mock_service
+            mock_to_thread.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_init_gmail_missing_dependencies(self, gmail_capability):
+        """Test Gmail init fails gracefully without dependencies."""
+        with patch.dict("sys.modules", {"google.oauth2.credentials": None}):
+            with pytest.raises(RuntimeError, match="Gmail dependencies"):
+                await gmail_capability._init_gmail(
+                    {"access_token": "token", "refresh_token": "refresh"}
+                )
+
+    @pytest.mark.asyncio
+    async def test_send_gmail_success(self, gmail_capability, mock_gmail_service):
+        """Test sending email via Gmail API."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.return_value = {"id": "msg123", "threadId": "thread456"}
+
+            result = await gmail_capability._send_gmail(
+                to=["recipient@example.com"],
+                subject="Test Subject",
+                body="Test body content",
+                cc=["cc@example.com"],
+            )
+
+            assert result.success is True
+            assert result.metadata["message_id"] == "msg123"
+            assert "sent_at" in result.metadata
+
+    @pytest.mark.asyncio
+    async def test_send_gmail_no_client(self, gmail_capability):
+        """Test sending email fails when client not initialized."""
+        gmail_capability._client = None
+
+        result = await gmail_capability._send_gmail(
+            to=["recipient@example.com"],
+            subject="Test",
+            body="Test",
+        )
+
+        assert result.success is False
+        assert "not initialized" in result.error
+
+    @pytest.mark.asyncio
+    async def test_fetch_gmail_message_success(self, gmail_capability, mock_gmail_service):
+        """Test fetching a single Gmail message."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        mock_msg_data = {
+            "id": "msg123",
+            "threadId": "thread456",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "sender@example.com"},
+                    {"name": "To", "value": "test@gmail.com"},
+                    {"name": "Subject", "value": "Test Subject"},
+                    {"name": "Date", "value": "Mon, 1 Jan 2024 10:00:00 +0000"},
+                ],
+                "body": {"data": "VGVzdCBib2R5IGNvbnRlbnQ="},  # base64("Test body content")
+            },
+            "labelIds": ["INBOX", "UNREAD"],
+        }
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.return_value = mock_msg_data
+
+            email = await gmail_capability._fetch_gmail_message("msg123")
+
+            assert email is not None
+            assert email.id == "msg123"
+            assert email.thread_id == "thread456"
+            assert email.from_addr == "sender@example.com"
+            assert email.subject == "Test Subject"
+
+    @pytest.mark.asyncio
+    async def test_fetch_gmail_emails_success(self, gmail_capability, mock_gmail_service):
+        """Test fetching unread Gmail emails."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        mock_list_data = {
+            "messages": [
+                {"id": "msg1", "threadId": "thread1"},
+                {"id": "msg2", "threadId": "thread2"},
+            ]
+        }
+
+        # Mock the list and get calls
+        call_count = [0]
+
+        async def mock_to_thread(func):
+            call_count[0] += 1
+            if call_count[0] == 1:  # List call
+                return mock_list_data
+            # Get calls for individual messages
+            msg_id = "msg1" if call_count[0] == 2 else "msg2"
+            return {
+                "id": msg_id,
+                "threadId": f"thread{call_count[0] - 1}",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "sender@example.com"},
+                        {"name": "To", "value": "test@gmail.com"},
+                        {"name": "Subject", "value": f"Subject {call_count[0]}"},
+                    ],
+                    "body": {"data": "VGVzdA=="},
+                },
+                "labelIds": ["INBOX", "UNREAD"],
+            }
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            side_effect=mock_to_thread,
+        ):
+            emails = await gmail_capability._fetch_gmail_emails()
+
+            assert len(emails) == 2
+            assert emails[0].id == "msg1"
+            assert emails[1].id == "msg2"
+
+    @pytest.mark.asyncio
+    async def test_reply_gmail_success(self, gmail_capability, mock_gmail_service):
+        """Test replying to an email via Gmail API."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        # Mock fetching original message
+        original_msg = Email(
+            id="original123",
+            thread_id="thread123",
+            from_addr="sender@example.com",
+            to_addrs=["test@gmail.com"],
+            cc_addrs=[],
+            subject="Original Subject",
+            body="Original body",
+            html_body=None,
+            timestamp=datetime.now(UTC),
+            attachments=[],
+            in_reply_to=None,
+            labels=[],
+            is_read=False,
+        )
+
+        call_count = [0]
+
+        async def mock_to_thread(func):
+            call_count[0] += 1
+            if call_count[0] == 1:  # Fetch original message
+                return {
+                    "id": "original123",
+                    "threadId": "thread123",
+                    "payload": {
+                        "headers": [
+                            {"name": "From", "value": "sender@example.com"},
+                            {"name": "To", "value": "test@gmail.com"},
+                            {"name": "Subject", "value": "Original Subject"},
+                        ],
+                        "body": {"data": "T3JpZ2luYWwgYm9keQ=="},  # "Original body"
+                    },
+                    "labelIds": [],
+                }
+            # Send reply
+            return {"id": "reply123", "threadId": "thread123"}
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            side_effect=mock_to_thread,
+        ):
+            result = await gmail_capability._reply_gmail(
+                email_id="original123",
+                body="Thank you for your email!",
+                cc=["manager@example.com"],
+            )
+
+            assert result.success is True
+            assert result.metadata["message_id"] == "reply123"
+            assert "replied_at" in result.metadata
+
+    @pytest.mark.asyncio
+    async def test_forward_gmail_success(self, gmail_capability, mock_gmail_service):
+        """Test forwarding an email via Gmail API."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        call_count = [0]
+
+        async def mock_to_thread(func):
+            call_count[0] += 1
+            if call_count[0] == 1:  # Fetch original message
+                return {
+                    "id": "original123",
+                    "threadId": "thread123",
+                    "payload": {
+                        "headers": [
+                            {"name": "From", "value": "sender@example.com"},
+                            {"name": "To", "value": "test@gmail.com"},
+                            {"name": "Subject", "value": "Important Update"},
+                        ],
+                        "body": {"data": "T3JpZ2luYWwgY29udGVudA=="},  # "Original content"
+                    },
+                    "labelIds": [],
+                }
+            # Send forwarded message
+            return {"id": "fwd123"}
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            side_effect=mock_to_thread,
+        ):
+            result = await gmail_capability._forward_gmail(
+                email_id="original123",
+                to=["colleague@example.com", "manager@example.com"],
+                comment="FYI - please review this",
+            )
+
+            assert result.success is True
+            assert result.metadata["message_id"] == "fwd123"
+            assert "forwarded_at" in result.metadata
+
+    @pytest.mark.asyncio
+    async def test_mark_read_gmail_success(self, gmail_capability, mock_gmail_service):
+        """Test marking email as read via Gmail API."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.return_value = {"id": "msg123", "labelIds": ["INBOX"]}
+
+            result = await gmail_capability._mark_read_gmail("msg123")
+
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_mark_read_gmail_no_client(self, gmail_capability):
+        """Test mark read fails when client not initialized."""
+        gmail_capability._client = None
+
+        result = await gmail_capability._mark_read_gmail("msg123")
+
+        assert result.success is False
+        assert "not initialized" in result.error
+
+    @pytest.mark.asyncio
+    async def test_archive_gmail_success(self, gmail_capability, mock_gmail_service):
+        """Test archiving email via Gmail API."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.return_value = {"id": "msg123", "labelIds": []}
+
+            result = await gmail_capability._archive_gmail("msg123")
+
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_archive_gmail_no_client(self, gmail_capability):
+        """Test archive fails when client not initialized."""
+        gmail_capability._client = None
+
+        result = await gmail_capability._archive_gmail("msg123")
+
+        assert result.success is False
+        assert "not initialized" in result.error
+
+    @pytest.mark.asyncio
+    async def test_gmail_provider_routing_send(self, gmail_capability, mock_gmail_service):
+        """Test that Gmail provider correctly routes to Gmail methods."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.return_value = {"id": "msg123"}
+
+            action = Action(
+                capability="email",
+                operation="send_email",
+                parameters={
+                    "to": ["recipient@example.com"],
+                    "subject": "Test",
+                    "body": "Test body",
+                },
+            )
+
+            result = await gmail_capability.execute_action(action)
+
+            assert result.success is True
+            assert result.metadata["message_id"] == "msg123"
+
+    @pytest.mark.asyncio
+    async def test_gmail_api_error_handling(self, gmail_capability, mock_gmail_service):
+        """Test that Gmail API errors are handled gracefully."""
+        mock_service, _mock_messages = mock_gmail_service
+        gmail_capability._client = mock_service
+        gmail_capability._initialized = True
+
+        with patch(
+            "empla.capabilities.email.asyncio.to_thread",
+            new_callable=AsyncMock,
+        ) as mock_to_thread:
+            mock_to_thread.side_effect = Exception("Gmail API rate limit exceeded")
+
+            result = await gmail_capability._send_gmail(
+                to=["recipient@example.com"],
+                subject="Test",
+                body="Test",
+            )
+
+            assert result.success is False
+            assert "Gmail send failed" in result.error
+            assert "rate limit" in result.error
