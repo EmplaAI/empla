@@ -562,13 +562,13 @@ async def test_registry_execute_action_capability_not_enabled():
     registry.register(CAPABILITY_EMAIL, MockEmailCapability)
     employee_id = uuid4()
 
-    action = Action(capability="email", operation="send_email", parameters={})
+    action = Action(capability=CAPABILITY_EMAIL, operation="send_email", parameters={})
 
     result = await registry.execute_action(employee_id, action)
 
     assert result.success is False
     assert "not enabled" in result.error
-    assert "registered" in result.error.lower()
+    assert "registered" in result.error
 
 
 @pytest.mark.asyncio
@@ -722,7 +722,7 @@ def test_register_rejects_padded_whitespace():
     """Test that register() rejects capability type with surrounding whitespace"""
     registry = CapabilityRegistry()
 
-    with pytest.raises(ValueError, match="lowercase"):
+    with pytest.raises(ValueError, match="whitespace"):
         registry.register(" email ", MockEmailCapability)
 
 
@@ -763,7 +763,7 @@ async def test_registry_execute_action_catches_exception():
         config=config,
     )
 
-    action = Action(capability="email", operation="send_email", parameters={})
+    action = Action(capability=CAPABILITY_EMAIL, operation="send_email", parameters={})
 
     result = await registry.execute_action(employee_id, action)
 
