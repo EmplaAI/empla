@@ -7,8 +7,7 @@ Defines the core interface and models for all capabilities.
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
-from enum import Enum
-from typing import Any
+from typing import Any, TypeAlias
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -18,6 +17,14 @@ from empla.core.loop.models import Observation
 
 # Re-export Observation so imports from capabilities.base continue to work
 __all__ = [
+    "CAPABILITY_BROWSER",
+    "CAPABILITY_CALENDAR",
+    "CAPABILITY_COMPUTER_USE",
+    "CAPABILITY_CRM",
+    "CAPABILITY_DOCUMENT",
+    "CAPABILITY_EMAIL",
+    "CAPABILITY_MESSAGING",
+    "CAPABILITY_VOICE",
     "Action",
     "ActionResult",
     "BaseCapability",
@@ -28,23 +35,20 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# CapabilityType is a plain string. Use the well-known constants below for
+# discoverability, but any string is valid — new capabilities don't require
+# code changes here.
+CapabilityType: TypeAlias = str
 
-class CapabilityType(str, Enum):
-    """
-    Types of capabilities available to employees.
-
-    Each capability type corresponds to a specific way employees
-    can interact with the external world.
-    """
-
-    EMAIL = "email"
-    CALENDAR = "calendar"
-    MESSAGING = "messaging"
-    BROWSER = "browser"
-    DOCUMENT = "document"
-    CRM = "crm"
-    VOICE = "voice"
-    COMPUTER_USE = "computer_use"
+# Well-known capability type constants
+CAPABILITY_EMAIL: CapabilityType = "email"
+CAPABILITY_CALENDAR: CapabilityType = "calendar"
+CAPABILITY_MESSAGING: CapabilityType = "messaging"
+CAPABILITY_BROWSER: CapabilityType = "browser"
+CAPABILITY_DOCUMENT: CapabilityType = "document"
+CAPABILITY_CRM: CapabilityType = "crm"
+CAPABILITY_VOICE: CapabilityType = "voice"
+CAPABILITY_COMPUTER_USE: CapabilityType = "computer_use"
 
 
 class CapabilityConfig(BaseModel):
@@ -162,8 +166,8 @@ class BaseCapability(ABC):
         class MyCapability(BaseCapability):
 
             @property
-            def capability_type(self) -> CapabilityType:
-                return CapabilityType.EMAIL
+            def capability_type(self) -> str:
+                return CAPABILITY_EMAIL
 
             async def initialize(self) -> None:
                 # Set up connections, auth, etc.
@@ -201,12 +205,12 @@ class BaseCapability(ABC):
 
     @property
     @abstractmethod
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """
         Identify this capability's category.
 
         Returns:
-            The CapabilityType value that represents this capability's category.
+            A string identifying this capability's category (e.g. CAPABILITY_EMAIL).
         """
 
     @abstractmethod
@@ -325,7 +329,7 @@ class BaseCapability(ABC):
 
         # All retries exhausted
         duration_ms = (time() - start_time) * 1000
-        error_msg = str(last_error) if last_error else "Unknown error"
+        error_msg = f"{type(last_error).__name__}: {last_error}" if last_error else "Unknown error"
 
         logger.error(
             f"Action {action.operation} failed after {attempt + 1} attempts",

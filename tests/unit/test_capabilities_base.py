@@ -8,11 +8,11 @@ from uuid import uuid4
 import pytest
 
 from empla.capabilities.base import (
+    CAPABILITY_EMAIL,
     Action,
     ActionResult,
     BaseCapability,
     CapabilityConfig,
-    CapabilityType,
     Observation,
 )
 
@@ -36,14 +36,14 @@ class MockCapability(BaseCapability):
         self.shutdown_called = False
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """
         The capability type for this capability implementation.
 
         Returns:
-            CapabilityType: The enum member `CapabilityType.EMAIL`.
+            str: The CAPABILITY_EMAIL constant.
         """
-        return CapabilityType.EMAIL
+        return CAPABILITY_EMAIL
 
     async def initialize(self) -> None:
         """
@@ -108,12 +108,18 @@ class MockCapability(BaseCapability):
 # Test Models
 
 
-def test_capability_type_enum():
-    """Test CapabilityType enum values"""
-    assert CapabilityType.EMAIL == "email"
-    assert CapabilityType.CALENDAR == "calendar"
-    assert CapabilityType.MESSAGING == "messaging"
-    assert CapabilityType.BROWSER == "browser"
+def test_capability_type_constants():
+    """Test capability type string constants"""
+    from empla.capabilities.base import (
+        CAPABILITY_BROWSER,
+        CAPABILITY_CALENDAR,
+        CAPABILITY_MESSAGING,
+    )
+
+    assert CAPABILITY_EMAIL == "email"
+    assert CAPABILITY_CALENDAR == "calendar"
+    assert CAPABILITY_MESSAGING == "messaging"
+    assert CAPABILITY_BROWSER == "browser"
 
 
 def test_capability_config():
@@ -359,6 +365,6 @@ def test_base_capability_repr():
 
     repr_str = repr(capability)
     assert "MockCapability" in repr_str
-    assert "CapabilityType.EMAIL" in repr_str  # capability type (enum repr)
+    assert "email" in repr_str  # capability type (plain string)
     assert str(employee_id) in repr_str
     assert "initialized=False" in repr_str

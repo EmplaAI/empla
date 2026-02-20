@@ -578,12 +578,9 @@ class ProactiveExecutionLoop:
                 observations = await self.capability_registry.perceive_all(self.employee.id)
 
                 # Track which capabilities were checked
-                sources_checked = [
-                    cap_type.value
-                    for cap_type in self.capability_registry.get_enabled_capabilities(
-                        self.employee.id
-                    )
-                ]
+                sources_checked = self.capability_registry.get_enabled_capabilities(
+                    self.employee.id
+                )
 
                 logger.debug(
                     f"Capability perception: {len(observations)} observations",
@@ -877,11 +874,10 @@ class ProactiveExecutionLoop:
             return []
 
         try:
-            # Get capability types from registry
+            # get_enabled_capabilities returns list[str] directly
             enabled = getattr(self.capability_registry, "get_enabled_capabilities", None)
             if enabled:
-                caps = enabled(self.employee.id)
-                return [str(getattr(c, "capability_type", c)) for c in caps]
+                return enabled(self.employee.id)
             return []
         except Exception as e:
             logger.debug(f"Failed to get capabilities: {e}")

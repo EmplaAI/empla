@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
-from empla.capabilities import CapabilityRegistry, CapabilityType
+from empla.capabilities import CapabilityRegistry
 from empla.core.loop import LoopConfig, ProactiveExecutionLoop
 from empla.core.memory import (
     EpisodicMemorySystem,
@@ -406,19 +406,19 @@ class DigitalEmployee(ABC):
                 logger.warning(f"Loop task cancellation timed out for {self.name}")
                 shutdown_errors.append(("loop_task", TimeoutError("Cancellation timed out")))
 
-        # Shutdown capabilities (continue even if some fail)
-        if self._capabilities:
-            for cap_type in list(self._capabilities._instances.keys()):
-                for emp_id in list(self._capabilities._instances[cap_type].keys()):
-                    cap = self._capabilities._instances[cap_type].get(emp_id)
-                    if cap:
-                        try:
-                            await cap.shutdown()
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to shutdown capability {cap_type}: {e}", exc_info=True
-                            )
-                            shutdown_errors.append((f"capability:{cap_type}", e))
+        # Shutdown capabilities for this employee only (continue even if some fail)
+        if self._capabilities and self._employee_id:
+            cap_dict = self._capabilities._instances.get(self._employee_id, {})
+            for cap_type, cap in cap_dict.items():
+                try:
+                    await cap.shutdown()
+                except Exception as e:
+                    logger.error(
+                        f"Failed to shutdown capability {cap_type} "
+                        f"for employee {self._employee_id}: {e}",
+                        exc_info=True,
+                    )
+                    shutdown_errors.append((f"capability:{cap_type}", e))
 
         # Custom stop logic
         try:
@@ -671,7 +671,8 @@ class DigitalEmployee(ABC):
         Otherwise, create a new registry and validate capabilities.
 
         Raises:
-            EmployeeConfigError: If unknown capabilities are specified
+            EmployeeConfigError: If a capability is not registered when the
+                registry already has registered types (detectable misconfiguration).
         """
         # Use injected registry if provided (for testing with simulated capabilities)
         if self._injected_capabilities is not None:
@@ -684,19 +685,29 @@ class DigitalEmployee(ABC):
 
         # Get effective capabilities
         cap_list = self.config.capabilities or self.default_capabilities
-        valid_capabilities = [ct.value.lower() for ct in CapabilityType]
 
-        for cap_name in cap_list:
-            try:
-                # CapabilityType values are lowercase (e.g., "email", "calendar")
-                cap_type = CapabilityType(cap_name.lower())
-                # Capabilities are enabled when needed via the registry
-                logger.debug(f"Capability available: {cap_type.value}")
-            except ValueError as e:
-                # Unknown capability - raise error instead of just warning
-                raise EmployeeConfigError(
-                    f"Unknown capability '{cap_name}'. Valid capabilities: {valid_capabilities}"
-                ) from e
+        # Validate against registered capability types in the registry.
+        # In production, capabilities should be registered before employee start.
+        registered_types = self._capabilities.get_registered_types()
+        if not registered_types:
+            # Registry is empty — capabilities will be registered later
+            # (e.g., via enable_for_employee). Warn for visibility.
+            logger.warning(
+                f"Capability registry is empty at startup. "
+                f"Capabilities {cap_list} cannot be validated. "
+                f"Ensure capabilities are registered before use."
+            )
+        else:
+            for cap_name in cap_list:
+                normalized = cap_name.strip().lower()
+                if normalized not in registered_types:
+                    raise EmployeeConfigError(
+                        f"Capability '{cap_name}' is not registered. "
+                        f"Registered capabilities: {registered_types}. "
+                        f"Register it before starting the employee, or remove "
+                        f"'{cap_name}' from the capability list."
+                    )
+                logger.debug(f"Capability available: {normalized}")
 
         logger.debug(f"Initialized capabilities: {cap_list}")
 

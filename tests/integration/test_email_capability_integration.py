@@ -7,9 +7,9 @@ from uuid import uuid4
 import pytest
 
 from empla.capabilities import (
+    CAPABILITY_EMAIL,
     Action,
     CapabilityRegistry,
-    CapabilityType,
     EmailCapability,
     EmailConfig,
     EmailProvider,
@@ -22,17 +22,17 @@ async def test_email_capability_registration():
     registry = CapabilityRegistry()
 
     # Register email capability
-    registry.register(CapabilityType.EMAIL, EmailCapability)
+    registry.register(CAPABILITY_EMAIL, EmailCapability)
 
-    assert CapabilityType.EMAIL in registry._capabilities
-    assert registry._capabilities[CapabilityType.EMAIL] == EmailCapability
+    assert CAPABILITY_EMAIL in registry._capabilities
+    assert registry._capabilities[CAPABILITY_EMAIL] == EmailCapability
 
 
 @pytest.mark.asyncio
 async def test_email_capability_enable_for_employee():
     """Test enabling EmailCapability for an employee"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, EmailCapability)
+    registry.register(CAPABILITY_EMAIL, EmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -46,22 +46,22 @@ async def test_email_capability_enable_for_employee():
     capability = await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
     assert capability is not None
-    assert capability.capability_type == CapabilityType.EMAIL
+    assert capability.capability_type == CAPABILITY_EMAIL
     assert capability._initialized is True
     assert employee_id in registry._instances
-    assert CapabilityType.EMAIL in registry._instances[employee_id]
+    assert CAPABILITY_EMAIL in registry._instances[employee_id]
 
 
 @pytest.mark.asyncio
 async def test_email_capability_perceive_via_registry():
     """Test perceiving via registry with EmailCapability"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, EmailCapability)
+    registry.register(CAPABILITY_EMAIL, EmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -75,7 +75,7 @@ async def test_email_capability_perceive_via_registry():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
@@ -91,7 +91,7 @@ async def test_email_capability_perceive_via_registry():
 async def test_email_capability_execute_action_via_registry():
     """Test executing email action via registry"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, EmailCapability)
+    registry.register(CAPABILITY_EMAIL, EmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -106,7 +106,7 @@ async def test_email_capability_execute_action_via_registry():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
@@ -131,7 +131,7 @@ async def test_email_capability_execute_action_via_registry():
 async def test_email_capability_disable_for_employee():
     """Test disabling EmailCapability for an employee"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, EmailCapability)
+    registry.register(CAPABILITY_EMAIL, EmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -145,23 +145,23 @@ async def test_email_capability_disable_for_employee():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
-    assert CapabilityType.EMAIL in registry._instances[employee_id]
+    assert CAPABILITY_EMAIL in registry._instances[employee_id]
 
     # Disable capability
-    await registry.disable_for_employee(employee_id, CapabilityType.EMAIL)
+    await registry.disable_for_employee(employee_id, CAPABILITY_EMAIL)
 
-    assert CapabilityType.EMAIL not in registry._instances[employee_id]
+    assert CAPABILITY_EMAIL not in registry._instances[employee_id]
 
 
 @pytest.mark.asyncio
 async def test_email_capability_health_check():
     """Test health check for EmailCapability via registry"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, EmailCapability)
+    registry.register(CAPABILITY_EMAIL, EmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -175,7 +175,7 @@ async def test_email_capability_health_check():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
@@ -183,14 +183,14 @@ async def test_email_capability_health_check():
     health = registry.health_check(employee_id)
 
     assert len(health) == 1
-    assert health[CapabilityType.EMAIL] is True
+    assert health[CAPABILITY_EMAIL] is True
 
 
 @pytest.mark.asyncio
 async def test_multiple_providers():
     """Test EmailCapability with different providers"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, EmailCapability)
+    registry.register(CAPABILITY_EMAIL, EmailCapability)
 
     tenant_id = uuid4()
 
@@ -205,7 +205,7 @@ async def test_multiple_providers():
     await registry.enable_for_employee(
         employee_id=employee1_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config1,
     )
 
@@ -220,7 +220,7 @@ async def test_multiple_providers():
     await registry.enable_for_employee(
         employee_id=employee2_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config2,
     )
 
@@ -228,5 +228,5 @@ async def test_multiple_providers():
     health1 = registry.health_check(employee1_id)
     health2 = registry.health_check(employee2_id)
 
-    assert health1[CapabilityType.EMAIL] is True
-    assert health2[CapabilityType.EMAIL] is True
+    assert health1[CAPABILITY_EMAIL] is True
+    assert health2[CAPABILITY_EMAIL] is True
