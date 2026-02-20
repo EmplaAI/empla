@@ -874,11 +874,10 @@ class ProactiveExecutionLoop:
             return []
 
         try:
-            # Get capability types from registry
+            # get_enabled_capabilities returns list[str] directly
             enabled = getattr(self.capability_registry, "get_enabled_capabilities", None)
             if enabled:
-                caps = enabled(self.employee.id)
-                return [str(getattr(c, "capability_type", c)) for c in caps]
+                return enabled(self.employee.id)
             return []
         except Exception as e:
             logger.debug(f"Failed to get capabilities: {e}")

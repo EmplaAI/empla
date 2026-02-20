@@ -7,7 +7,7 @@ Defines the core interface and models for all capabilities.
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeAlias
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # CapabilityType is a plain string. Use the well-known constants below for
 # discoverability, but any string is valid — new capabilities don't require
 # code changes here.
-CapabilityType = str
+CapabilityType: TypeAlias = str
 
 # Well-known capability type constants
 CAPABILITY_EMAIL: CapabilityType = "email"

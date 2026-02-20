@@ -261,7 +261,7 @@ async def test_loop_perceives_from_capability_registry():
     assert result.observations[0].content["email_id"] == "123"
     assert result.observations[1].content["email_id"] == "456"
 
-    # Assert: Sources tracked (uses enum value, not enum name)
+    # Assert: Sources tracked (capability type string)
     assert "email" in result.sources_checked
 
 
