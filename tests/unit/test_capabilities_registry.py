@@ -725,3 +725,48 @@ def test_register_rejects_padded_whitespace():
 
     with pytest.raises(ValueError, match="lowercase"):
         registry.register(" email ", MockEmailCapability)
+
+
+# Tests for execute_action exception handling
+
+
+class ExplodingCapability(BaseCapability):
+    """Capability whose execute raises an exception"""
+
+    @property
+    def capability_type(self) -> str:
+        return CAPABILITY_EMAIL
+
+    async def initialize(self) -> None:
+        self._initialized = True
+
+    async def perceive(self) -> list[Observation]:
+        return []
+
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        raise RuntimeError("connection lost")
+
+
+@pytest.mark.asyncio
+async def test_registry_execute_action_catches_exception():
+    """Test that execute_action catches capability exceptions and returns failure"""
+    registry = CapabilityRegistry()
+    registry.register(CAPABILITY_EMAIL, ExplodingCapability)
+
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = CapabilityConfig()
+
+    await registry.enable_for_employee(
+        employee_id=employee_id,
+        tenant_id=tenant_id,
+        capability_type=CAPABILITY_EMAIL,
+        config=config,
+    )
+
+    action = Action(capability="email", operation="send_email", parameters={})
+
+    result = await registry.execute_action(employee_id, action)
+
+    assert result.success is False
+    assert "connection lost" in result.error

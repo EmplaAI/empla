@@ -408,17 +408,16 @@ class DigitalEmployee(ABC):
 
         # Shutdown capabilities (continue even if some fail)
         if self._capabilities:
-            for cap_type in list(self._capabilities._instances.keys()):
-                for emp_id in list(self._capabilities._instances[cap_type].keys()):
-                    cap = self._capabilities._instances[cap_type].get(emp_id)
-                    if cap:
-                        try:
-                            await cap.shutdown()
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to shutdown capability {cap_type}: {e}", exc_info=True
-                            )
-                            shutdown_errors.append((f"capability:{cap_type}", e))
+            for emp_id, cap_dict in list(self._capabilities._instances.items()):
+                for cap_type, cap in cap_dict.items():
+                    try:
+                        await cap.shutdown()
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to shutdown capability {cap_type} for employee {emp_id}: {e}",
+                            exc_info=True,
+                        )
+                        shutdown_errors.append((f"capability:{cap_type}", e))
 
         # Custom stop logic
         try:
@@ -670,8 +669,9 @@ class DigitalEmployee(ABC):
         If a capability registry was injected in __init__, use it directly.
         Otherwise, create a new registry and validate capabilities.
 
-        Logs a warning if any requested capabilities are not yet registered
-        in the registry.
+        Raises:
+            EmployeeConfigError: If a capability is not registered when the
+                registry already has registered types (detectable misconfiguration).
         """
         # Use injected registry if provided (for testing with simulated capabilities)
         if self._injected_capabilities is not None:
@@ -687,23 +687,26 @@ class DigitalEmployee(ABC):
 
         # Validate against registered capability types in the registry.
         # In production, capabilities should be registered before employee start.
-        # Any string is a valid capability type — validation only checks the registry.
         registered_types = self._capabilities.get_registered_types()
-        for cap_name in cap_list:
-            normalized = cap_name.strip().lower()
-            if registered_types and normalized not in registered_types:
-                logger.warning(
-                    f"Capability '{cap_name}' not registered in the registry. "
-                    f"Registered: {registered_types}"
-                )
-            elif not registered_types:
-                # Registry is empty — capabilities will be registered later
-                # (e.g., via enable_for_employee). Log for visibility.
-                logger.info(
-                    f"Capability '{cap_name}' listed but registry is empty. "
-                    f"Ensure capabilities are registered before use."
-                )
-            logger.debug(f"Capability available: {normalized}")
+        if not registered_types:
+            # Registry is empty — capabilities will be registered later
+            # (e.g., via enable_for_employee). Warn for visibility.
+            logger.warning(
+                f"Capability registry is empty at startup. "
+                f"Capabilities {cap_list} cannot be validated. "
+                f"Ensure capabilities are registered before use."
+            )
+        else:
+            for cap_name in cap_list:
+                normalized = cap_name.strip().lower()
+                if normalized not in registered_types:
+                    raise EmployeeConfigError(
+                        f"Capability '{cap_name}' is not registered. "
+                        f"Registered capabilities: {registered_types}. "
+                        f"Register it before starting the employee, or remove "
+                        f"'{cap_name}' from the capability list."
+                    )
+                logger.debug(f"Capability available: {normalized}")
 
         logger.debug(f"Initialized capabilities: {cap_list}")
 

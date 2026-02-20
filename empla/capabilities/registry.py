@@ -309,9 +309,10 @@ class CapabilityRegistry:
 
         # Validate: is this a registered capability type?
         if capability_type not in self._capabilities:
+            registered = list(self._capabilities.keys())
             logger.error(
                 f"Unknown capability type '{capability_type}' in action. "
-                f"Registered types: {list(self._capabilities.keys())}",
+                f"Registered types: {registered}",
                 extra={
                     "employee_id": str(employee_id),
                     "capability_type": capability_type,
@@ -320,8 +321,7 @@ class CapabilityRegistry:
             )
             return ActionResult(
                 success=False,
-                error=f"Unknown capability type '{capability_type}'. "
-                f"Registered: {list(self._capabilities.keys())}",
+                error=f"Unknown capability type '{capability_type}'",
             )
 
         # Get capability instance for this employee
@@ -367,7 +367,7 @@ class CapabilityRegistry:
                     "operation": action.operation,
                 },
             )
-            return ActionResult(success=False, error=str(e))
+            return ActionResult(success=False, error=f"{type(e).__name__}: {e}")
 
     def health_check(self, employee_id: UUID) -> dict[str, bool]:
         """

@@ -32,51 +32,44 @@ Capabilities are how employees interact with the outside world (email, calendar,
 All capabilities extend `BaseCapability`:
 
 ```python
-from abc import ABC, abstractmethod
-from typing import Any
-from uuid import UUID
+from empla.capabilities.base import (
+    BaseCapability,
+    Action,
+    ActionResult,
+    Observation,
+)
 
-from empla.capabilities.base import BaseCapability, CAPABILITY_EMAIL
+# Define a constant for your capability type
+CAPABILITY_MY_TYPE: str = "my_type"
 
 class MyCapability(BaseCapability):
     """Custom capability implementation."""
 
-    @abstractmethod
-    async def initialize(self, employee_id: UUID, config: dict[str, Any]) -> None:
-        """Initialize capability for an employee."""
-        # Set up API clients, load credentials, etc.
-        pass
+    @property
+    def capability_type(self) -> str:
+        return CAPABILITY_MY_TYPE
 
-    @abstractmethod
-    async def perceive(self, employee_id: UUID) -> list[dict[str, Any]]:
+    async def initialize(self) -> None:
+        """Initialize capability (set up API clients, etc.)."""
+        self._initialized = True
+
+    async def perceive(self) -> list[Observation]:
         """
         Gather observations from this capability.
 
         Called by the proactive loop to get new information.
         Returns observations that will be processed into beliefs.
         """
-        pass
+        return []
 
-    @abstractmethod
-    async def execute_action(
-        self,
-        employee_id: UUID,
-        action: str,
-        parameters: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
         Execute an action through this capability.
 
         Called when an intention needs to interact with this capability.
         """
-        pass
+        return ActionResult(success=True, output={})
 
-    @abstractmethod
-    async def health_check(self) -> bool:
-        """Check if capability is operational."""
-        pass
-
-    @abstractmethod
     async def shutdown(self) -> None:
         """Clean up resources."""
         pass
@@ -90,90 +83,61 @@ from empla.capabilities.base import BaseCapability, CAPABILITY_EMAIL
 class EmailCapability(BaseCapability):
     """Email integration capability."""
 
-    def __init__(self, provider: str = "microsoft"):
-        super().__init__()
-        self.provider = provider
-        self._clients: dict[UUID, EmailClient] = {}
+    @property
+    def capability_type(self) -> str:
+        return CAPABILITY_EMAIL
 
-    async def initialize(self, employee_id: UUID, config: dict[str, Any]) -> None:
-        """Initialize email client for employee."""
-        if self.provider == "microsoft":
-            self._clients[employee_id] = MicrosoftGraphClient(
-                client_id=config["client_id"],
-                client_secret=config["client_secret"],
-                tenant_id=config["tenant_id"]
+    async def initialize(self) -> None:
+        """Initialize email client using self.config."""
+        provider = self.config.settings.get("provider", "microsoft")
+        if provider == "microsoft":
+            self._client = MicrosoftGraphClient(
+                client_id=self.config.settings["client_id"],
+                client_secret=self.config.settings["client_secret"],
             )
-        # ... other providers
+        self._initialized = True
 
-    async def perceive(self, employee_id: UUID) -> list[dict[str, Any]]:
+    async def perceive(self) -> list[Observation]:
         """Get new/unread emails as observations."""
-        client = self._clients.get(employee_id)
-        if not client:
+        if not self._initialized:
             return []
 
-        emails = await client.get_unread_emails(limit=50)
+        emails = await self._client.get_unread_emails(limit=50)
 
         return [
-            {
-                "type": "email_received",
-                "source": "email",
-                "timestamp": email.received_at.isoformat(),
-                "data": {
+            Observation(
+                employee_id=self.employee_id,
+                tenant_id=self.tenant_id,
+                observation_type="email_received",
+                source="email",
+                content={
                     "from": email.from_address,
                     "subject": email.subject,
                     "body": email.body[:1000],  # Truncate for LLM
-                    "is_reply": email.is_reply,
-                    "thread_id": email.thread_id,
-                }
-            }
+                },
+                timestamp=email.received_at,
+                priority=7,
+            )
             for email in emails
         ]
 
-    async def execute_action(
-        self,
-        employee_id: UUID,
-        action: str,
-        parameters: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         """Execute email actions."""
-        client = self._clients.get(employee_id)
-        if not client:
-            return {"success": False, "error": "Not initialized"}
-
-        if action == "send_email":
-            result = await client.send_email(
-                to=parameters["to"],
-                subject=parameters["subject"],
-                body=parameters["body"],
-                reply_to=parameters.get("reply_to")
+        if action.operation == "send_email":
+            result = await self._client.send_email(
+                to=action.parameters["to"],
+                subject=action.parameters["subject"],
+                body=action.parameters["body"],
             )
-            return {"success": True, "message_id": result.message_id}
+            return ActionResult(success=True, output={"message_id": result.message_id})
 
-        elif action == "reply_to_email":
-            result = await client.reply(
-                message_id=parameters["message_id"],
-                body=parameters["body"]
-            )
-            return {"success": True, "message_id": result.message_id}
-
-        return {"success": False, "error": f"Unknown action: {action}"}
-
-    async def health_check(self) -> bool:
-        """Check if email service is accessible."""
-        # Check at least one client is healthy
-        for client in self._clients.values():
-            try:
-                await client.ping()
-                return True
-            except Exception:
-                continue
-        return len(self._clients) == 0  # True if no clients (nothing to check)
+        return ActionResult(success=False, error=f"Unknown operation: {action.operation}")
 
     async def shutdown(self) -> None:
-        """Close all email clients."""
-        for client in self._clients.values():
+        """Close email client."""
+        if hasattr(self, "_client"):
             await client.close()
-        self._clients.clear()
+            await self._client.close()
 ```
 
 ## Registering Capabilities

@@ -881,14 +881,8 @@ def get_simulated_registry(
     registry = CapabilityRegistry()
 
     # Register the capability classes so execute_action validation works
-    capability_classes = {
-        CAPABILITY_EMAIL: SimulatedEmailCapability,
-        CAPABILITY_CALENDAR: SimulatedCalendarCapability,
-        CAPABILITY_CRM: SimulatedCRMCapability,
-    }
-    for cap_type, cap_class in capability_classes.items():
-        if cap_type in capabilities:
-            registry.register(cap_type, cap_class)
+    for cap_type, instance in capabilities.items():
+        registry.register(cap_type, type(instance))
 
     registry._instances[employee_id] = capabilities
 
