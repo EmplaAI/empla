@@ -136,7 +136,6 @@ class EmailCapability(BaseCapability):
     async def shutdown(self) -> None:
         """Close email client."""
         if hasattr(self, "_client"):
-            await client.close()
             await self._client.close()
 ```
 

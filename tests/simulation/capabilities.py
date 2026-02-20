@@ -813,11 +813,11 @@ def get_simulated_capabilities(
         Dict mapping capability types to capability instances
     """
     if enabled_capabilities is None:
-        enabled_capabilities = ["email", "calendar", "crm"]
+        enabled_capabilities = [CAPABILITY_EMAIL, CAPABILITY_CALENDAR, CAPABILITY_CRM]
 
     capabilities = {}
 
-    if "email" in enabled_capabilities:
+    if CAPABILITY_EMAIL in enabled_capabilities:
         capabilities[CAPABILITY_EMAIL] = SimulatedEmailCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,
@@ -825,7 +825,7 @@ def get_simulated_capabilities(
             environment=environment,
         )
 
-    if "calendar" in enabled_capabilities:
+    if CAPABILITY_CALENDAR in enabled_capabilities:
         capabilities[CAPABILITY_CALENDAR] = SimulatedCalendarCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,
@@ -833,7 +833,7 @@ def get_simulated_capabilities(
             environment=environment,
         )
 
-    if "crm" in enabled_capabilities:
+    if CAPABILITY_CRM in enabled_capabilities:
         capabilities[CAPABILITY_CRM] = SimulatedCRMCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,

@@ -387,7 +387,6 @@ def test_registry_get_capability():
     registry = CapabilityRegistry()
     registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
-    tenant_id = uuid4()
     employee_id = uuid4()
 
     # Not enabled yet
@@ -769,4 +768,5 @@ async def test_registry_execute_action_catches_exception():
     result = await registry.execute_action(employee_id, action)
 
     assert result.success is False
+    assert "RuntimeError" in result.error
     assert "connection lost" in result.error

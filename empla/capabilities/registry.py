@@ -309,14 +309,17 @@ class CapabilityRegistry:
 
         # Validate: is this a registered capability type?
         if capability_type not in self._capabilities:
-            registered = list(self._capabilities.keys())
+            num_registered = len(self._capabilities)
+            sample = list(self._capabilities.keys())[:5]
             logger.error(
                 f"Unknown capability type '{capability_type}' in action. "
-                f"Registered types: {registered}",
+                f"{num_registered} registered type(s): {sample}"
+                + (" ..." if num_registered > 5 else ""),
                 extra={
                     "employee_id": str(employee_id),
                     "capability_type": capability_type,
                     "action": action.operation,
+                    "registered_count": num_registered,
                 },
             )
             return ActionResult(

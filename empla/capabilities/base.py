@@ -329,7 +329,7 @@ class BaseCapability(ABC):
 
         # All retries exhausted
         duration_ms = (time() - start_time) * 1000
-        error_msg = str(last_error) if last_error else "Unknown error"
+        error_msg = f"{type(last_error).__name__}: {last_error}" if last_error else "Unknown error"
 
         logger.error(
             f"Action {action.operation} failed after {attempt + 1} attempts",

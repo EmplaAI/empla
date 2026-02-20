@@ -406,18 +406,19 @@ class DigitalEmployee(ABC):
                 logger.warning(f"Loop task cancellation timed out for {self.name}")
                 shutdown_errors.append(("loop_task", TimeoutError("Cancellation timed out")))
 
-        # Shutdown capabilities (continue even if some fail)
-        if self._capabilities:
-            for emp_id, cap_dict in list(self._capabilities._instances.items()):
-                for cap_type, cap in cap_dict.items():
-                    try:
-                        await cap.shutdown()
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to shutdown capability {cap_type} for employee {emp_id}: {e}",
-                            exc_info=True,
-                        )
-                        shutdown_errors.append((f"capability:{cap_type}", e))
+        # Shutdown capabilities for this employee only (continue even if some fail)
+        if self._capabilities and self._employee_id:
+            cap_dict = self._capabilities._instances.get(self._employee_id, {})
+            for cap_type, cap in cap_dict.items():
+                try:
+                    await cap.shutdown()
+                except Exception as e:
+                    logger.error(
+                        f"Failed to shutdown capability {cap_type} "
+                        f"for employee {self._employee_id}: {e}",
+                        exc_info=True,
+                    )
+                    shutdown_errors.append((f"capability:{cap_type}", e))
 
         # Custom stop logic
         try:
