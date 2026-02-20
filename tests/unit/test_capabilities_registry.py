@@ -742,7 +742,7 @@ class ExplodingCapability(BaseCapability):
     async def perceive(self) -> list[Observation]:
         return []
 
-    async def _execute_action_impl(self, action: Action) -> ActionResult:
+    async def _execute_action_impl(self, _action: Action) -> ActionResult:
         raise RuntimeError("connection lost")
 
 
