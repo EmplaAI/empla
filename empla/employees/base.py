@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
-from empla.capabilities import CapabilityRegistry, CapabilityType
+from empla.capabilities import CapabilityRegistry
 from empla.core.loop import LoopConfig, ProactiveExecutionLoop
 from empla.core.memory import (
     EpisodicMemorySystem,
@@ -670,8 +670,8 @@ class DigitalEmployee(ABC):
         If a capability registry was injected in __init__, use it directly.
         Otherwise, create a new registry and validate capabilities.
 
-        Raises:
-            EmployeeConfigError: If unknown capabilities are specified
+        Logs a warning if any requested capabilities are not yet registered
+        in the registry.
         """
         # Use injected registry if provided (for testing with simulated capabilities)
         if self._injected_capabilities is not None:
@@ -684,19 +684,26 @@ class DigitalEmployee(ABC):
 
         # Get effective capabilities
         cap_list = self.config.capabilities or self.default_capabilities
-        valid_capabilities = [ct.value.lower() for ct in CapabilityType]
 
+        # Validate against registered capability types in the registry.
+        # In production, capabilities should be registered before employee start.
+        # Any string is a valid capability type — validation only checks the registry.
+        registered_types = self._capabilities.get_registered_types()
         for cap_name in cap_list:
-            try:
-                # CapabilityType values are lowercase (e.g., "email", "calendar")
-                cap_type = CapabilityType(cap_name.lower())
-                # Capabilities are enabled when needed via the registry
-                logger.debug(f"Capability available: {cap_type.value}")
-            except ValueError as e:
-                # Unknown capability - raise error instead of just warning
-                raise EmployeeConfigError(
-                    f"Unknown capability '{cap_name}'. Valid capabilities: {valid_capabilities}"
-                ) from e
+            normalized = cap_name.strip().lower()
+            if registered_types and normalized not in registered_types:
+                logger.warning(
+                    f"Capability '{cap_name}' not registered in the registry. "
+                    f"Registered: {registered_types}"
+                )
+            elif not registered_types:
+                # Registry is empty — capabilities will be registered later
+                # (e.g., via enable_for_employee). Log for visibility.
+                logger.info(
+                    f"Capability '{cap_name}' listed but registry is empty. "
+                    f"Ensure capabilities are registered before use."
+                )
+            logger.debug(f"Capability available: {normalized}")
 
         logger.debug(f"Initialized capabilities: {cap_list}")
 

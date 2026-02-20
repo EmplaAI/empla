@@ -24,11 +24,13 @@ if TYPE_CHECKING:
     from empla.capabilities import CapabilityRegistry
 
 from empla.capabilities.base import (
+    CAPABILITY_CALENDAR,
+    CAPABILITY_CRM,
+    CAPABILITY_EMAIL,
     Action,
     ActionResult,
     BaseCapability,
     CapabilityConfig,
-    CapabilityType,
     Observation,
 )
 from tests.simulation.environment import (
@@ -74,9 +76,9 @@ class SimulatedEmailCapability(BaseCapability):
         self._last_check: datetime | None = None
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """Return EMAIL capability type"""
-        return CapabilityType.EMAIL
+        return CAPABILITY_EMAIL
 
     async def initialize(self) -> None:
         """Initialize capability (simulated - always succeeds)"""
@@ -376,9 +378,9 @@ class SimulatedCalendarCapability(BaseCapability):
         self.environment = environment
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """Return CALENDAR capability type"""
-        return CapabilityType.CALENDAR
+        return CAPABILITY_CALENDAR
 
     async def initialize(self) -> None:
         """Initialize capability (simulated)"""
@@ -548,9 +550,9 @@ class SimulatedCRMCapability(BaseCapability):
         self.environment = environment
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """Return CRM capability type"""
-        return CapabilityType.CRM
+        return CAPABILITY_CRM
 
     async def initialize(self) -> None:
         """Initialize capability (simulated)"""
@@ -797,7 +799,7 @@ def get_simulated_capabilities(
     employee_id: UUID,
     environment: SimulatedEnvironment,
     enabled_capabilities: list[str] | None = None,
-) -> dict[CapabilityType, BaseCapability]:
+) -> dict[str, BaseCapability]:
     """
     Create simulated capabilities for an employee.
 
@@ -816,7 +818,7 @@ def get_simulated_capabilities(
     capabilities = {}
 
     if "email" in enabled_capabilities:
-        capabilities[CapabilityType.EMAIL] = SimulatedEmailCapability(
+        capabilities[CAPABILITY_EMAIL] = SimulatedEmailCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,
             config=CapabilityConfig(),
@@ -824,7 +826,7 @@ def get_simulated_capabilities(
         )
 
     if "calendar" in enabled_capabilities:
-        capabilities[CapabilityType.CALENDAR] = SimulatedCalendarCapability(
+        capabilities[CAPABILITY_CALENDAR] = SimulatedCalendarCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,
             config=CapabilityConfig(),
@@ -832,7 +834,7 @@ def get_simulated_capabilities(
         )
 
     if "crm" in enabled_capabilities:
-        capabilities[CapabilityType.CRM] = SimulatedCRMCapability(
+        capabilities[CAPABILITY_CRM] = SimulatedCRMCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,
             config=CapabilityConfig(),
@@ -875,8 +877,19 @@ def get_simulated_registry(
         enabled_capabilities=enabled_capabilities,
     )
 
-    # Create registry and inject instances directly
+    # Create registry, register capability classes, and inject instances
     registry = CapabilityRegistry()
+
+    # Register the capability classes so execute_action validation works
+    capability_classes = {
+        CAPABILITY_EMAIL: SimulatedEmailCapability,
+        CAPABILITY_CALENDAR: SimulatedCalendarCapability,
+        CAPABILITY_CRM: SimulatedCRMCapability,
+    }
+    for cap_type, cap_class in capability_classes.items():
+        if cap_type in capabilities:
+            registry.register(cap_type, cap_class)
+
     registry._instances[employee_id] = capabilities
 
     return registry

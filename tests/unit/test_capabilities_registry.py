@@ -8,11 +8,13 @@ from uuid import uuid4
 import pytest
 
 from empla.capabilities.base import (
+    CAPABILITY_BROWSER,
+    CAPABILITY_CALENDAR,
+    CAPABILITY_EMAIL,
     Action,
     ActionResult,
     BaseCapability,
     CapabilityConfig,
-    CapabilityType,
     Observation,
 )
 from empla.capabilities.registry import CapabilityRegistry
@@ -22,14 +24,14 @@ class MockEmailCapability(BaseCapability):
     """Mock email capability for testing"""
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """
         Identify this capability's type as Email.
 
         Returns:
-            CapabilityType.EMAIL — the Email capability type.
+            CAPABILITY_EMAIL — the Email capability type.
         """
-        return CapabilityType.EMAIL
+        return CAPABILITY_EMAIL
 
     async def initialize(self) -> None:
         """
@@ -82,14 +84,14 @@ class MockCalendarCapability(BaseCapability):
     """Mock calendar capability for testing"""
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """
         Identify the capability type provided by this capability.
 
         Returns:
-            CapabilityType: `CapabilityType.CALENDAR` representing a calendar capability.
+            str: CAPABILITY_CALENDAR representing a calendar capability.
         """
-        return CapabilityType.CALENDAR
+        return CAPABILITY_CALENDAR
 
     async def initialize(self) -> None:
         """
@@ -144,14 +146,14 @@ class FailingCapability(BaseCapability):
     """Capability that fails during initialization"""
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """
         Identify this capability as a browser capability.
 
         Returns:
-            CapabilityType: The capability type `CapabilityType.BROWSER`.
+            str: CAPABILITY_BROWSER.
         """
-        return CapabilityType.BROWSER
+        return CAPABILITY_BROWSER
 
     async def initialize(self) -> None:
         """
@@ -204,10 +206,10 @@ def test_registry_register_capability():
     """Test registering a capability"""
     registry = CapabilityRegistry()
 
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
-    assert CapabilityType.EMAIL in registry._capabilities
-    assert registry._capabilities[CapabilityType.EMAIL] == MockEmailCapability
+    assert CAPABILITY_EMAIL in registry._capabilities
+    assert registry._capabilities[CAPABILITY_EMAIL] == MockEmailCapability
 
 
 def test_registry_register_invalid_capability():
@@ -215,14 +217,14 @@ def test_registry_register_invalid_capability():
     registry = CapabilityRegistry()
 
     with pytest.raises(ValueError, match="must extend BaseCapability"):
-        registry.register(CapabilityType.EMAIL, str)  # Not a capability class
+        registry.register(CAPABILITY_EMAIL, str)  # Not a capability class
 
 
 @pytest.mark.asyncio
 async def test_registry_enable_capability():
     """Test enabling a capability for an employee"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -232,15 +234,15 @@ async def test_registry_enable_capability():
     capability = await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
     assert capability is not None
-    assert capability.capability_type == CapabilityType.EMAIL
+    assert capability.capability_type == CAPABILITY_EMAIL
     assert capability._initialized is True
     assert employee_id in registry._instances
-    assert CapabilityType.EMAIL in registry._instances[employee_id]
+    assert CAPABILITY_EMAIL in registry._instances[employee_id]
 
 
 @pytest.mark.asyncio
@@ -256,7 +258,7 @@ async def test_registry_enable_unregistered_capability():
         await registry.enable_for_employee(
             employee_id=employee_id,
             tenant_id=tenant_id,
-            capability_type=CapabilityType.EMAIL,
+            capability_type=CAPABILITY_EMAIL,
             config=config,
         )
 
@@ -265,7 +267,7 @@ async def test_registry_enable_unregistered_capability():
 async def test_registry_enable_capability_twice():
     """Test enabling same capability twice returns existing instance"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -275,7 +277,7 @@ async def test_registry_enable_capability_twice():
     cap1 = await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
@@ -283,7 +285,7 @@ async def test_registry_enable_capability_twice():
     cap2 = await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
@@ -295,7 +297,7 @@ async def test_registry_enable_capability_twice():
 async def test_registry_enable_failing_capability():
     """Test enabling capability that fails during initialization"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.BROWSER, FailingCapability)
+    registry.register(CAPABILITY_BROWSER, FailingCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -305,7 +307,7 @@ async def test_registry_enable_failing_capability():
         await registry.enable_for_employee(
             employee_id=employee_id,
             tenant_id=tenant_id,
-            capability_type=CapabilityType.BROWSER,
+            capability_type=CAPABILITY_BROWSER,
             config=config,
         )
 
@@ -314,7 +316,7 @@ async def test_registry_enable_failing_capability():
 async def test_registry_disable_capability():
     """Test disabling a capability"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -324,18 +326,16 @@ async def test_registry_disable_capability():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
-    assert CapabilityType.EMAIL in registry._instances[employee_id]
+    assert CAPABILITY_EMAIL in registry._instances[employee_id]
 
     # Disable
-    await registry.disable_for_employee(
-        employee_id=employee_id, capability_type=CapabilityType.EMAIL
-    )
+    await registry.disable_for_employee(employee_id=employee_id, capability_type=CAPABILITY_EMAIL)
 
-    assert CapabilityType.EMAIL not in registry._instances[employee_id]
+    assert CAPABILITY_EMAIL not in registry._instances[employee_id]
 
 
 @pytest.mark.asyncio
@@ -346,17 +346,15 @@ async def test_registry_disable_nonexistent_capability():
     employee_id = uuid4()
 
     # Should not raise error
-    await registry.disable_for_employee(
-        employee_id=employee_id, capability_type=CapabilityType.EMAIL
-    )
+    await registry.disable_for_employee(employee_id=employee_id, capability_type=CAPABILITY_EMAIL)
 
 
 @pytest.mark.asyncio
 async def test_registry_disable_all_for_employee():
     """Test disabling all capabilities for an employee"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
-    registry.register(CapabilityType.CALENDAR, MockCalendarCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_CALENDAR, MockCalendarCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -366,13 +364,13 @@ async def test_registry_disable_all_for_employee():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.CALENDAR,
+        capability_type=CAPABILITY_CALENDAR,
         config=config,
     )
 
@@ -387,13 +385,13 @@ async def test_registry_disable_all_for_employee():
 def test_registry_get_capability():
     """Test getting a capability instance"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
 
     # Not enabled yet
-    cap = registry.get_capability(employee_id, CapabilityType.EMAIL)
+    cap = registry.get_capability(employee_id, CAPABILITY_EMAIL)
     assert cap is None
 
 
@@ -406,7 +404,7 @@ async def test_registry_get_capability_enabled():
     retrieving that capability returns a non-None instance with the expected type.
     """
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -416,22 +414,22 @@ async def test_registry_get_capability_enabled():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
     # Get
-    cap = registry.get_capability(employee_id, CapabilityType.EMAIL)
+    cap = registry.get_capability(employee_id, CAPABILITY_EMAIL)
     assert cap is not None
-    assert cap.capability_type == CapabilityType.EMAIL
+    assert cap.capability_type == CAPABILITY_EMAIL
 
 
 @pytest.mark.asyncio
 async def test_registry_get_enabled_capabilities():
     """Test getting list of enabled capabilities"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
-    registry.register(CapabilityType.CALENDAR, MockCalendarCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_CALENDAR, MockCalendarCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -445,34 +443,34 @@ async def test_registry_get_enabled_capabilities():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
     enabled = registry.get_enabled_capabilities(employee_id)
     assert len(enabled) == 1
-    assert CapabilityType.EMAIL in enabled
+    assert CAPABILITY_EMAIL in enabled
 
     # Enable calendar
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.CALENDAR,
+        capability_type=CAPABILITY_CALENDAR,
         config=config,
     )
 
     enabled = registry.get_enabled_capabilities(employee_id)
     assert len(enabled) == 2
-    assert CapabilityType.EMAIL in enabled
-    assert CapabilityType.CALENDAR in enabled
+    assert CAPABILITY_EMAIL in enabled
+    assert CAPABILITY_CALENDAR in enabled
 
 
 @pytest.mark.asyncio
 async def test_registry_perceive_all():
     """Test perceiving from all capabilities"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
-    registry.register(CapabilityType.CALENDAR, MockCalendarCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_CALENDAR, MockCalendarCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -482,13 +480,13 @@ async def test_registry_perceive_all():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.CALENDAR,
+        capability_type=CAPABILITY_CALENDAR,
         config=config,
     )
 
@@ -516,7 +514,7 @@ async def test_registry_perceive_all_no_capabilities():
 async def test_registry_execute_action():
     """Test executing action via registry"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -526,7 +524,7 @@ async def test_registry_execute_action():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
 
@@ -544,9 +542,25 @@ async def test_registry_execute_action():
 
 
 @pytest.mark.asyncio
-async def test_registry_execute_action_capability_not_enabled():
-    """Test executing action when capability not enabled"""
+async def test_registry_execute_action_unknown_capability():
+    """Test executing action with unregistered capability type"""
     registry = CapabilityRegistry()
+    employee_id = uuid4()
+
+    action = Action(capability="nonexistent", operation="do_thing", parameters={})
+
+    result = await registry.execute_action(employee_id, action)
+
+    assert result.success is False
+    assert "Unknown capability type" in result.error
+    assert "nonexistent" in result.error
+
+
+@pytest.mark.asyncio
+async def test_registry_execute_action_capability_not_enabled():
+    """Test executing action when capability is registered but not enabled for employee"""
+    registry = CapabilityRegistry()
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
     employee_id = uuid4()
 
     action = Action(capability="email", operation="send_email", parameters={})
@@ -555,14 +569,15 @@ async def test_registry_execute_action_capability_not_enabled():
 
     assert result.success is False
     assert "not enabled" in result.error
+    assert "registered" in result.error.lower()
 
 
 @pytest.mark.asyncio
 async def test_registry_health_check():
     """Test health check for all capabilities"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
-    registry.register(CapabilityType.CALENDAR, MockCalendarCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_CALENDAR, MockCalendarCapability)
 
     tenant_id = uuid4()
     employee_id = uuid4()
@@ -572,13 +587,13 @@ async def test_registry_health_check():
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=config,
     )
     await registry.enable_for_employee(
         employee_id=employee_id,
         tenant_id=tenant_id,
-        capability_type=CapabilityType.CALENDAR,
+        capability_type=CAPABILITY_CALENDAR,
         config=config,
     )
 
@@ -586,16 +601,127 @@ async def test_registry_health_check():
     health = registry.health_check(employee_id)
 
     assert len(health) == 2
-    assert health[CapabilityType.EMAIL] is True
-    assert health[CapabilityType.CALENDAR] is True
+    assert health[CAPABILITY_EMAIL] is True
+    assert health[CAPABILITY_CALENDAR] is True
 
 
 def test_registry_repr():
     """Test registry string representation"""
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
 
     repr_str = repr(registry)
     assert "CapabilityRegistry" in repr_str
     assert "registered=1" in repr_str
     assert "employees_with_capabilities=0" in repr_str
+
+
+# Tests for get_registered_types
+
+
+def test_get_registered_types_empty():
+    """Test get_registered_types on empty registry"""
+    registry = CapabilityRegistry()
+
+    assert registry.get_registered_types() == []
+
+
+def test_get_registered_types_after_registration():
+    """Test get_registered_types returns registered types"""
+    registry = CapabilityRegistry()
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_CALENDAR, MockCalendarCapability)
+
+    types = registry.get_registered_types()
+
+    assert len(types) == 2
+    assert CAPABILITY_EMAIL in types
+    assert CAPABILITY_CALENDAR in types
+
+
+@pytest.mark.asyncio
+async def test_get_registered_types_excludes_enabled_only():
+    """get_registered_types reflects registered types, not enabled instances"""
+    registry = CapabilityRegistry()
+    registry.register(CAPABILITY_EMAIL, MockEmailCapability)
+    registry.register(CAPABILITY_CALENDAR, MockCalendarCapability)
+
+    # Enable only email
+    employee_id = uuid4()
+    await registry.enable_for_employee(
+        employee_id=employee_id,
+        tenant_id=uuid4(),
+        capability_type=CAPABILITY_EMAIL,
+        config=CapabilityConfig(),
+    )
+
+    # get_registered_types still returns both
+    types = registry.get_registered_types()
+    assert len(types) == 2
+    assert CAPABILITY_EMAIL in types
+    assert CAPABILITY_CALENDAR in types
+
+
+# Tests for custom string capability routing
+
+
+@pytest.mark.asyncio
+async def test_registry_custom_string_capability():
+    """Test that arbitrary strings work as capability types"""
+    registry = CapabilityRegistry()
+    registry.register("my_custom_tool", MockEmailCapability)
+
+    tenant_id = uuid4()
+    employee_id = uuid4()
+    config = CapabilityConfig()
+
+    await registry.enable_for_employee(
+        employee_id=employee_id,
+        tenant_id=tenant_id,
+        capability_type="my_custom_tool",
+        config=config,
+    )
+
+    action = Action(
+        capability="my_custom_tool",
+        operation="send_email",
+        parameters={"to": ["test@example.com"]},
+    )
+
+    result = await registry.execute_action(employee_id, action)
+    assert result.success is True
+
+
+# Tests for register() input validation
+
+
+def test_register_rejects_empty_string():
+    """Test that register() rejects empty capability type"""
+    registry = CapabilityRegistry()
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        registry.register("", MockEmailCapability)
+
+
+def test_register_rejects_whitespace_only():
+    """Test that register() rejects whitespace-only capability type"""
+    registry = CapabilityRegistry()
+
+    with pytest.raises(ValueError, match="non-empty string"):
+        registry.register("   ", MockEmailCapability)
+
+
+def test_register_rejects_uppercase():
+    """Test that register() rejects non-lowercase capability type"""
+    registry = CapabilityRegistry()
+
+    with pytest.raises(ValueError, match="lowercase"):
+        registry.register("Email", MockEmailCapability)
+
+
+def test_register_rejects_padded_whitespace():
+    """Test that register() rejects capability type with surrounding whitespace"""
+    registry = CapabilityRegistry()
+
+    with pytest.raises(ValueError, match="lowercase"):
+        registry.register(" email ", MockEmailCapability)

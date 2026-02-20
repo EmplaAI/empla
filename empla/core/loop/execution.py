@@ -578,12 +578,9 @@ class ProactiveExecutionLoop:
                 observations = await self.capability_registry.perceive_all(self.employee.id)
 
                 # Track which capabilities were checked
-                sources_checked = [
-                    cap_type.value
-                    for cap_type in self.capability_registry.get_enabled_capabilities(
-                        self.employee.id
-                    )
-                ]
+                sources_checked = list(
+                    self.capability_registry.get_enabled_capabilities(self.employee.id)
+                )
 
                 logger.debug(
                     f"Capability perception: {len(observations)} observations",

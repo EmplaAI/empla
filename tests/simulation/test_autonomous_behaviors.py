@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
 from empla.bdi.beliefs import BeliefExtractionResult, ExtractedBelief
 from empla.bdi.intentions import GeneratedIntention, PlanGenerationResult
-from empla.capabilities import CapabilityType
+from empla.capabilities import CAPABILITY_CALENDAR, CAPABILITY_CRM, CAPABILITY_EMAIL
 from empla.llm.models import LLMResponse, TokenUsage
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee
@@ -295,7 +295,7 @@ async def test_sales_ae_low_pipeline_autonomous_response(
         await cap.initialize()
 
     # Step 1: PERCEIVE - Get observations from simulated CRM
-    crm_cap = capabilities[CapabilityType.CRM]
+    crm_cap = capabilities[CAPABILITY_CRM]
     observations = await crm_cap.perceive()
 
     # Assert: Should detect low pipeline
@@ -513,7 +513,7 @@ async def test_sales_ae_low_pipeline_autonomous_response(
     await intentions.start_intention(outreach_intention.id)
 
     # Simulate email sending via simulated email capability
-    email_cap = capabilities[CapabilityType.EMAIL]
+    email_cap = capabilities[CAPABILITY_EMAIL]
 
     for i in range(10):
         from empla.capabilities.base import Action
@@ -659,7 +659,7 @@ async def test_csm_at_risk_customer_intervention(
         await cap.initialize()
 
     # Step 1: PERCEIVE - Detect at-risk customer
-    crm_cap = capabilities[CapabilityType.CRM]
+    crm_cap = capabilities[CAPABILITY_CRM]
     observations = await crm_cap.perceive()
 
     # Assert: Should detect at-risk customer
@@ -876,7 +876,7 @@ async def test_csm_at_risk_customer_intervention(
     # Send email
     await intentions.start_intention(email_intention.id)
 
-    email_cap = capabilities[CapabilityType.EMAIL]
+    email_cap = capabilities[CAPABILITY_EMAIL]
     from empla.capabilities.base import Action
 
     email_action = Action(
@@ -899,7 +899,7 @@ async def test_csm_at_risk_customer_intervention(
     # Schedule meeting
     await intentions.start_intention(meeting_intention.id)
 
-    calendar_cap = capabilities[CapabilityType.CALENDAR]
+    calendar_cap = capabilities[CAPABILITY_CALENDAR]
     meeting_action = Action(
         capability="calendar",
         operation="create_event",
@@ -1051,9 +1051,9 @@ async def test_perception_with_simulated_capabilities(session, employee, tenant,
     simulated_env.crm.set_pipeline_coverage(2.0)
 
     # Perceive from all capabilities
-    email_obs = await capabilities[CapabilityType.EMAIL].perceive()
-    calendar_obs = await capabilities[CapabilityType.CALENDAR].perceive()
-    crm_obs = await capabilities[CapabilityType.CRM].perceive()
+    email_obs = await capabilities[CAPABILITY_EMAIL].perceive()
+    calendar_obs = await capabilities[CAPABILITY_CALENDAR].perceive()
+    crm_obs = await capabilities[CAPABILITY_CRM].perceive()
 
     # Assert: All capabilities produced observations
     assert len(email_obs) == 1

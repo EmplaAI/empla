@@ -36,13 +36,10 @@ from abc import ABC, abstractmethod
 from typing import Any
 from uuid import UUID
 
-from empla.capabilities.base import BaseCapability, CapabilityType
+from empla.capabilities.base import BaseCapability, CAPABILITY_EMAIL
 
 class MyCapability(BaseCapability):
     """Custom capability implementation."""
-
-    def __init__(self):
-        super().__init__(CapabilityType.MY_TYPE)
 
     @abstractmethod
     async def initialize(self, employee_id: UUID, config: dict[str, Any]) -> None:
@@ -88,13 +85,13 @@ class MyCapability(BaseCapability):
 ## Example: Email Capability
 
 ```python
-from empla.capabilities.base import BaseCapability, CapabilityType
+from empla.capabilities.base import BaseCapability, CAPABILITY_EMAIL
 
 class EmailCapability(BaseCapability):
     """Email integration capability."""
 
     def __init__(self, provider: str = "microsoft"):
-        super().__init__(CapabilityType.EMAIL)
+        super().__init__()
         self.provider = provider
         self._clients: dict[UUID, EmailClient] = {}
 
@@ -181,48 +178,47 @@ class EmailCapability(BaseCapability):
 
 ## Registering Capabilities
 
-### Adding to CapabilityType Enum
+### Defining Capability Type Constants
+
+Capability types are plain strings. Well-known constants are defined in
+`empla/capabilities/base.py` for discoverability, but any string is valid:
 
 ```python
-# empla/capabilities/__init__.py
-from enum import Enum
+# empla/capabilities/base.py — well-known constants
+CAPABILITY_EMAIL: str = "email"
+CAPABILITY_CALENDAR: str = "calendar"
+CAPABILITY_CRM: str = "crm"
 
-class CapabilityType(Enum):
-    EMAIL = "email"
-    CALENDAR = "calendar"
-    CRM = "crm"
-    SLACK = "slack"
-    # Add new capability types here
-    MY_CAPABILITY = "my_capability"
+# To add a new capability, just define a constant (no enum changes needed):
+CAPABILITY_SLACK: str = "slack"
+CAPABILITY_MY_CAPABILITY: str = "my_capability"
 ```
 
 ### Registering with Registry
 
 ```python
-from empla.capabilities import CapabilityRegistry, CapabilityType
+from empla.capabilities import CapabilityRegistry, CAPABILITY_EMAIL
 from empla.capabilities.email import EmailCapability
 
 # Create registry
 registry = CapabilityRegistry()
 
 # Register capability class
-registry.register(CapabilityType.EMAIL, EmailCapability)
+registry.register(CAPABILITY_EMAIL, EmailCapability)
 
 # Enable for specific employee
-await registry.enable(
-    capability_type=CapabilityType.EMAIL,
+await registry.enable_for_employee(
+    capability_type=CAPABILITY_EMAIL,
     employee_id=employee.id,
-    config={"provider": "microsoft", ...}
+    tenant_id=employee.tenant_id,
+    config=EmailConfig(...)
 )
 
-# Use capability
-observations = await registry.perceive(CapabilityType.EMAIL, employee.id)
-result = await registry.execute(
-    CapabilityType.EMAIL,
-    employee.id,
-    "send_email",
-    {"to": "...", "subject": "...", "body": "..."}
-)
+# Perceive environment
+observations = await registry.perceive_all(employee.id)
+
+# Execute action
+result = await registry.execute_action(employee.id, action)
 ```
 
 ## Observation Format
@@ -270,10 +266,11 @@ async def test_email_perceive():
 
 ```python
 from tests.simulation.capabilities import SimulatedEmailCapability
+from empla.capabilities import CapabilityRegistry, CAPABILITY_EMAIL
 
 # Use in tests
 registry = CapabilityRegistry()
-registry.register(CapabilityType.EMAIL, SimulatedEmailCapability)
+registry.register(CAPABILITY_EMAIL, SimulatedEmailCapability)
 ```
 
 ## Key Files
@@ -283,7 +280,7 @@ registry.register(CapabilityType.EMAIL, SimulatedEmailCapability)
 | `empla/capabilities/base.py` | BaseCapability interface |
 | `empla/capabilities/registry.py` | CapabilityRegistry |
 | `empla/capabilities/email.py` | Email capability |
-| `empla/capabilities/__init__.py` | CapabilityType enum |
+| `empla/capabilities/__init__.py` | Capability constants + re-exports |
 | `tests/simulation/capabilities.py` | Simulated capabilities for testing |
 
 ## Best Practices
@@ -293,4 +290,4 @@ registry.register(CapabilityType.EMAIL, SimulatedEmailCapability)
 3. **Return structured observations** - Follow the observation format for consistency
 4. **Implement health_check** - Enable monitoring of capability health
 5. **Clean shutdown** - Close connections, release resources in shutdown()
-6. **Add to CapabilityType enum** - Don't use string literals for capability types
+6. **Use well-known constants** - Import `CAPABILITY_EMAIL` etc. instead of raw string literals for discoverability

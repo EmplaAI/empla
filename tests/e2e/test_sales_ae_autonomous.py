@@ -44,7 +44,7 @@ from sqlalchemy import event
 
 from empla.bdi.beliefs import BeliefExtractionResult, ExtractedBelief
 from empla.bdi.intentions import GeneratedIntention, PlanGenerationResult
-from empla.capabilities import CapabilityType
+from empla.capabilities import CAPABILITY_CALENDAR, CAPABILITY_CRM, CAPABILITY_EMAIL
 from empla.employees import EmployeeConfig, SalesAE
 from empla.llm.models import LLMResponse, TokenUsage
 from empla.models.database import get_engine, get_sessionmaker
@@ -389,9 +389,9 @@ class TestSalesAECreationWithSimulation:
 
         # Verify capabilities are in the registry
         assert employee_id in registry._instances
-        assert CapabilityType.EMAIL in registry._instances[employee_id]
-        assert CapabilityType.CRM in registry._instances[employee_id]
-        assert CapabilityType.CALENDAR in registry._instances[employee_id]
+        assert CAPABILITY_EMAIL in registry._instances[employee_id]
+        assert CAPABILITY_CRM in registry._instances[employee_id]
+        assert CAPABILITY_CALENDAR in registry._instances[employee_id]
 
     @pytest.mark.asyncio
     async def test_simulated_capabilities_can_perceive(self, simulated_env):
@@ -622,7 +622,7 @@ class TestSalesAEAutonomousCycle:
 
         # Execute send email action
         action = Action(
-            capability="email",  # lowercase to match CapabilityType.EMAIL value
+            capability="email",  # lowercase to match CAPABILITY_EMAIL value
             operation="send_email",
             parameters={
                 "to": ["prospect@acme.com"],

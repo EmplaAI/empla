@@ -18,11 +18,11 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from empla.capabilities.base import (
+    CAPABILITY_EMAIL,
     Action,
     ActionResult,
     BaseCapability,
     CapabilityConfig,
-    CapabilityType,
     Observation,
 )
 
@@ -159,14 +159,14 @@ class EmailCapability(BaseCapability):
         self._credential_expires_at: datetime | None = None
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """
         Return the capability type for this capability.
 
         Returns:
-            CapabilityType.EMAIL
+            CAPABILITY_EMAIL
         """
-        return CapabilityType.EMAIL
+        return CAPABILITY_EMAIL
 
     async def initialize(self) -> None:
         """

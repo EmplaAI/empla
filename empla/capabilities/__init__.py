@@ -13,7 +13,7 @@ Capabilities include:
 - And more...
 
 Usage:
-    from empla.capabilities import CapabilityRegistry, CapabilityType
+    from empla.capabilities import CapabilityRegistry, CAPABILITY_EMAIL
     from empla.capabilities.email import EmailCapability, EmailConfig
 
     # Create registry
@@ -23,7 +23,7 @@ Usage:
     await registry.enable_for_employee(
         employee_id=employee.employee_id,
         tenant_id=employee.tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=EmailConfig(...)
     )
 
@@ -35,6 +35,14 @@ Usage:
 """
 
 from empla.capabilities.base import (
+    CAPABILITY_BROWSER,
+    CAPABILITY_CALENDAR,
+    CAPABILITY_COMPUTER_USE,
+    CAPABILITY_CRM,
+    CAPABILITY_DOCUMENT,
+    CAPABILITY_EMAIL,
+    CAPABILITY_MESSAGING,
+    CAPABILITY_VOICE,
     Action,
     ActionResult,
     BaseCapability,
@@ -52,15 +60,21 @@ from empla.capabilities.email import (
 from empla.capabilities.registry import CapabilityRegistry
 
 __all__ = [
+    "CAPABILITY_BROWSER",
+    "CAPABILITY_CALENDAR",
+    "CAPABILITY_COMPUTER_USE",
+    "CAPABILITY_CRM",
+    "CAPABILITY_DOCUMENT",
+    "CAPABILITY_EMAIL",
+    "CAPABILITY_MESSAGING",
+    "CAPABILITY_VOICE",
     "Action",
     "ActionResult",
-    # Base abstractions
     "BaseCapability",
     "CapabilityConfig",
     "CapabilityRegistry",
     "CapabilityType",
     "Email",
-    # Email capability
     "EmailCapability",
     "EmailConfig",
     "EmailPriority",

@@ -8,9 +8,9 @@ from uuid import uuid4
 import pytest
 
 from empla.capabilities.base import (
+    CAPABILITY_EMAIL,
     Action,
     CapabilityConfig,
-    CapabilityType,
 )
 from empla.capabilities.email import (
     Email,
@@ -92,7 +92,7 @@ async def test_email_capability_initialization():
     assert capability.tenant_id == tenant_id
     assert capability.employee_id == employee_id
     assert capability.config == config
-    assert capability.capability_type == CapabilityType.EMAIL
+    assert capability.capability_type == CAPABILITY_EMAIL
     assert capability._initialized is False
     assert capability._last_check is None
     assert capability._client is None
@@ -764,6 +764,6 @@ def test_email_capability_repr():
 
     repr_str = repr(capability)
     assert "EmailCapability" in repr_str
-    assert "CapabilityType.EMAIL" in repr_str
+    assert "email" in repr_str  # capability type (plain string)
     assert str(employee_id) in repr_str
     assert "initialized=False" in repr_str

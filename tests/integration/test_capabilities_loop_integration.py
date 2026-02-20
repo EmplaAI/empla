@@ -9,12 +9,13 @@ from uuid import uuid4
 import pytest
 
 from empla.capabilities import (
+    CAPABILITY_CALENDAR,
+    CAPABILITY_EMAIL,
     Action,
     ActionResult,
     BaseCapability,
     CapabilityConfig,
     CapabilityRegistry,
-    CapabilityType,
     Observation,
 )
 from empla.core.loop.execution import ProactiveExecutionLoop
@@ -42,14 +43,14 @@ class MockTestCapability(BaseCapability):
         self.observations_to_return = []
 
     @property
-    def capability_type(self) -> CapabilityType:
+    def capability_type(self) -> str:
         """
         Capability type associated with this capability.
 
         Returns:
-            CapabilityType: The enum value identifying this capability (`CapabilityType.EMAIL`).
+            str: CAPABILITY_EMAIL.
         """
-        return CapabilityType.EMAIL
+        return CAPABILITY_EMAIL
 
     async def initialize(self) -> None:
         """
@@ -207,13 +208,13 @@ async def test_loop_perceives_from_capability_registry():
 
     # Create capability registry
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockTestCapability)
+    registry.register(CAPABILITY_EMAIL, MockTestCapability)
 
     # Enable capability
     capability = await registry.enable_for_employee(
         employee_id=employee.id,
         tenant_id=employee.tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=CapabilityConfig(),
     )
 
@@ -296,12 +297,12 @@ async def test_loop_perception_detects_opportunities():
 
     employee = create_test_employee()
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockTestCapability)
+    registry.register(CAPABILITY_EMAIL, MockTestCapability)
 
     capability = await registry.enable_for_employee(
         employee_id=employee.id,
         tenant_id=employee.tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=CapabilityConfig(),
     )
 
@@ -342,12 +343,12 @@ async def test_loop_perception_detects_problems():
 
     employee = create_test_employee()
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockTestCapability)
+    registry.register(CAPABILITY_EMAIL, MockTestCapability)
 
     capability = await registry.enable_for_employee(
         employee_id=employee.id,
         tenant_id=employee.tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=CapabilityConfig(),
     )
 
@@ -387,12 +388,12 @@ async def test_loop_perception_detects_high_priority_as_risk():
 
     employee = create_test_employee()
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockTestCapability)
+    registry.register(CAPABILITY_EMAIL, MockTestCapability)
 
     capability = await registry.enable_for_employee(
         employee_id=employee.id,
         tenant_id=employee.tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=CapabilityConfig(),
     )
 
@@ -432,32 +433,32 @@ async def test_loop_perception_handles_multiple_capabilities():
     # Create a second mock capability type
     class MockCalendarCapability(MockTestCapability):
         @property
-        def capability_type(self) -> CapabilityType:
+        def capability_type(self) -> str:
             """
             Identifies this capability as the calendar capability.
 
             Returns:
-                CapabilityType: The enum value `CapabilityType.CALENDAR`.
+                str: CAPABILITY_CALENDAR.
             """
-            return CapabilityType.CALENDAR
+            return CAPABILITY_CALENDAR
 
     employee = create_test_employee()
     registry = CapabilityRegistry()
-    registry.register(CapabilityType.EMAIL, MockTestCapability)
-    registry.register(CapabilityType.CALENDAR, MockCalendarCapability)
+    registry.register(CAPABILITY_EMAIL, MockTestCapability)
+    registry.register(CAPABILITY_CALENDAR, MockCalendarCapability)
 
     # Enable both capabilities
     email_cap = await registry.enable_for_employee(
         employee_id=employee.id,
         tenant_id=employee.tenant_id,
-        capability_type=CapabilityType.EMAIL,
+        capability_type=CAPABILITY_EMAIL,
         config=CapabilityConfig(),
     )
 
     calendar_cap = await registry.enable_for_employee(
         employee_id=employee.id,
         tenant_id=employee.tenant_id,
-        capability_type=CapabilityType.CALENDAR,
+        capability_type=CAPABILITY_CALENDAR,
         config=CapabilityConfig(),
     )
 
