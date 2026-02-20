@@ -25,6 +25,7 @@ __all__ = [
     "CAPABILITY_EMAIL",
     "CAPABILITY_MESSAGING",
     "CAPABILITY_VOICE",
+    "CAPABILITY_WORKSPACE",
     "Action",
     "ActionResult",
     "BaseCapability",
@@ -49,6 +50,7 @@ CAPABILITY_DOCUMENT: CapabilityType = "document"
 CAPABILITY_CRM: CapabilityType = "crm"
 CAPABILITY_VOICE: CapabilityType = "voice"
 CAPABILITY_COMPUTER_USE: CapabilityType = "computer_use"
+CAPABILITY_WORKSPACE: CapabilityType = "workspace"
 
 
 class CapabilityConfig(BaseModel):

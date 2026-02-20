@@ -42,6 +42,7 @@ from tests.simulation.capabilities import (
     SimulatedCalendarCapability,
     SimulatedCRMCapability,
     SimulatedEmailCapability,
+    SimulatedWorkspaceCapability,
     get_simulated_capabilities,
     get_simulated_registry,
     initialize_simulated_capabilities,
@@ -56,6 +57,7 @@ from tests.simulation.environment import (
     SimulatedDeal,
     SimulatedEmail,
     SimulatedEnvironment,
+    SimulatedWorkspaceSystem,
 )
 
 __all__ = [
@@ -71,6 +73,8 @@ __all__ = [
     "SimulatedEmail",
     "SimulatedEmailCapability",
     "SimulatedEnvironment",
+    "SimulatedWorkspaceCapability",
+    "SimulatedWorkspaceSystem",
     "get_simulated_capabilities",
     "get_simulated_registry",
     "initialize_simulated_capabilities",

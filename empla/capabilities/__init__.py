@@ -43,6 +43,7 @@ from empla.capabilities.base import (
     CAPABILITY_EMAIL,
     CAPABILITY_MESSAGING,
     CAPABILITY_VOICE,
+    CAPABILITY_WORKSPACE,
     Action,
     ActionResult,
     BaseCapability,
@@ -58,6 +59,7 @@ from empla.capabilities.email import (
     EmailProvider,
 )
 from empla.capabilities.registry import CapabilityRegistry
+from empla.capabilities.workspace import WorkspaceCapability, WorkspaceConfig
 
 __all__ = [
     "CAPABILITY_BROWSER",
@@ -68,6 +70,7 @@ __all__ = [
     "CAPABILITY_EMAIL",
     "CAPABILITY_MESSAGING",
     "CAPABILITY_VOICE",
+    "CAPABILITY_WORKSPACE",
     "Action",
     "ActionResult",
     "BaseCapability",
@@ -80,4 +83,6 @@ __all__ = [
     "EmailPriority",
     "EmailProvider",
     "Observation",
+    "WorkspaceCapability",
+    "WorkspaceConfig",
 ]
