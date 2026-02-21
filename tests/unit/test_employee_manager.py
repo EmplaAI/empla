@@ -6,8 +6,9 @@ Tests lifecycle operations by mocking subprocess.Popen and DB sessions.
 
 import signal
 import subprocess
+from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -23,7 +24,7 @@ from empla.services.employee_manager import (
 
 
 @pytest.fixture(autouse=True)
-def reset_singleton():
+def reset_singleton() -> Generator[None, None, None]:
     """Reset EmployeeManager singleton between tests."""
     EmployeeManager.reset_singleton()
     yield
@@ -31,36 +32,35 @@ def reset_singleton():
 
 
 @pytest.fixture
-def manager():
+def manager() -> EmployeeManager:
     """Create a fresh EmployeeManager."""
     return EmployeeManager()
 
 
 @pytest.fixture
-def employee_id():
+def employee_id() -> UUID:
     return uuid4()
 
 
 @pytest.fixture
-def tenant_id():
+def tenant_id() -> UUID:
     return uuid4()
 
 
 @pytest.fixture
-def mock_session():
+def mock_session() -> AsyncMock:
     """Create a mock async DB session."""
     return AsyncMock()
 
 
-@pytest.fixture
-def mock_db_employee(employee_id, tenant_id):
+def _make_db_employee(eid: UUID, tid: UUID) -> Mock:
     """Create a mock DB employee record."""
     emp = Mock()
-    emp.id = employee_id
-    emp.tenant_id = tenant_id
+    emp.id = eid
+    emp.tenant_id = tid
     emp.name = "Test Employee"
     emp.role = "sales_ae"
-    emp.email = "test@example.com"
+    emp.email = f"test-{eid}@example.com"
     emp.status = "onboarding"
     emp.capabilities = ["email"]
     emp.deleted_at = None
@@ -68,15 +68,21 @@ def mock_db_employee(employee_id, tenant_id):
     return emp
 
 
-def _setup_session_with_employee(mock_session, db_employee):
+@pytest.fixture
+def mock_db_employee(employee_id: UUID, tenant_id: UUID) -> Mock:
+    """Create a mock DB employee record."""
+    return _make_db_employee(employee_id, tenant_id)
+
+
+def _setup_session_with_employee(session: AsyncMock, db_employee: Mock) -> None:
     """Configure mock session to return the given employee."""
     result = MagicMock()
     result.scalar_one_or_none.return_value = db_employee
-    mock_session.execute = AsyncMock(return_value=result)
-    mock_session.commit = AsyncMock()
+    session.execute = AsyncMock(return_value=result)
+    session.commit = AsyncMock()
 
 
-def _mock_popen():
+def _mock_popen() -> MagicMock:
     """Create a mock Popen that looks alive."""
     proc = MagicMock()
     proc.pid = 12345
@@ -108,7 +114,7 @@ def test_get_employee_manager_returns_singleton():
     assert m1 is m2
 
 
-def test_manager_starts_with_empty_processes(manager):
+def test_manager_starts_with_empty_processes(manager: EmployeeManager):
     """Test manager starts with no running processes."""
     assert manager.list_running() == []
 
@@ -121,7 +127,12 @@ def test_manager_starts_with_empty_processes(manager):
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_start_employee_spawns_subprocess(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test start_employee spawns a subprocess."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -144,7 +155,12 @@ async def test_start_employee_spawns_subprocess(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_start_employee_updates_db_status(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test start_employee updates DB status to active."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -160,7 +176,12 @@ async def test_start_employee_updates_db_status(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_start_employee_raises_if_already_running(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test start_employee raises RuntimeError if already running."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -173,7 +194,9 @@ async def test_start_employee_raises_if_already_running(
 
 
 @pytest.mark.asyncio
-async def test_start_employee_raises_if_not_found(manager, tenant_id, mock_session):
+async def test_start_employee_raises_if_not_found(
+    manager: EmployeeManager, tenant_id: UUID, mock_session: AsyncMock
+):
     """Test start_employee raises ValueError if employee not found."""
     result = MagicMock()
     result.scalar_one_or_none.return_value = None
@@ -185,7 +208,11 @@ async def test_start_employee_raises_if_not_found(manager, tenant_id, mock_sessi
 
 @pytest.mark.asyncio
 async def test_start_employee_raises_for_unsupported_role(
-    manager, employee_id, tenant_id, mock_session, mock_db_employee
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test start_employee raises UnsupportedRoleError for unknown roles."""
     mock_db_employee.role = "robot_overlord"
@@ -203,7 +230,12 @@ async def test_start_employee_raises_for_unsupported_role(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_stop_employee_sends_sigterm(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test stop_employee sends SIGTERM to subprocess."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -223,7 +255,7 @@ async def test_stop_employee_sends_sigterm(
 
 
 @pytest.mark.asyncio
-async def test_stop_employee_raises_if_not_running(manager):
+async def test_stop_employee_raises_if_not_running(manager: EmployeeManager):
     """Test stop_employee raises ValueError if employee not running."""
     with pytest.raises(ValueError, match="is not running"):
         await manager.stop_employee(uuid4())
@@ -232,7 +264,12 @@ async def test_stop_employee_raises_if_not_running(manager):
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_stop_employee_updates_db(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test stop_employee updates DB status to stopped."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -260,7 +297,12 @@ async def test_stop_employee_updates_db(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_pause_employee_updates_db(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test pause_employee writes status='paused' to DB."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -274,14 +316,23 @@ async def test_pause_employee_updates_db(
 
     await manager.pause_employee(employee_id, mock_session)
 
-    mock_session.execute.assert_called()
-    mock_session.commit.assert_called()
+    mock_session.execute.assert_called_once()
+    mock_session.commit.assert_called_once()
+    # Verify the update statement sets status='paused'
+    stmt = mock_session.execute.call_args[0][0]
+    compiled = stmt.compile()
+    assert compiled.params["status"] == "paused"
 
 
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_resume_employee_updates_db(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test resume_employee writes status='active' to DB."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -295,19 +346,23 @@ async def test_resume_employee_updates_db(
 
     await manager.resume_employee(employee_id, mock_session)
 
-    mock_session.execute.assert_called()
-    mock_session.commit.assert_called()
+    mock_session.execute.assert_called_once()
+    mock_session.commit.assert_called_once()
+    # Verify the update statement sets status='active'
+    stmt = mock_session.execute.call_args[0][0]
+    compiled = stmt.compile()
+    assert compiled.params["status"] == "active"
 
 
 @pytest.mark.asyncio
-async def test_pause_raises_if_not_running(manager, mock_session):
+async def test_pause_raises_if_not_running(manager: EmployeeManager, mock_session: AsyncMock):
     """Test pause_employee raises ValueError if not running."""
     with pytest.raises(ValueError, match="is not running"):
         await manager.pause_employee(uuid4(), mock_session)
 
 
 @pytest.mark.asyncio
-async def test_resume_raises_if_not_running(manager, mock_session):
+async def test_resume_raises_if_not_running(manager: EmployeeManager, mock_session: AsyncMock):
     """Test resume_employee raises ValueError if not running."""
     with pytest.raises(ValueError, match="is not running"):
         await manager.resume_employee(uuid4(), mock_session)
@@ -318,7 +373,7 @@ async def test_resume_raises_if_not_running(manager, mock_session):
 # ============================================================================
 
 
-def test_get_status_not_running(manager):
+def test_get_status_not_running(manager: EmployeeManager):
     """Test get_status returns not running for unknown employee."""
     status = manager.get_status(uuid4())
     assert status["is_running"] is False
@@ -327,7 +382,12 @@ def test_get_status_not_running(manager):
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_get_status_running(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test get_status returns running for active subprocess."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -344,7 +404,12 @@ async def test_get_status_running(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_get_status_detects_crashed_process(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test get_status detects and reports crashed process."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -370,29 +435,28 @@ async def test_get_status_detects_crashed_process(
 
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
-async def test_list_running(mock_popen_cls, manager, tenant_id, mock_session, mock_db_employee):
+async def test_list_running(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+):
     """Test list_running returns running employee IDs."""
     eid1 = uuid4()
     eid2 = uuid4()
 
-    mock_db_employee.id = eid1
-    _setup_session_with_employee(mock_session, mock_db_employee)
-    mock_popen_cls.return_value = _mock_popen()
-
-    await manager.start_employee(eid1, tenant_id, mock_session)
-
-    mock_db_employee.id = eid2
-    _setup_session_with_employee(mock_session, mock_db_employee)
-    mock_popen_cls.return_value = _mock_popen()
-
-    await manager.start_employee(eid2, tenant_id, mock_session)
+    for eid in [eid1, eid2]:
+        db_emp = _make_db_employee(eid, tenant_id)
+        _setup_session_with_employee(mock_session, db_emp)
+        mock_popen_cls.return_value = _mock_popen()
+        await manager.start_employee(eid, tenant_id, mock_session)
 
     running = manager.list_running()
     assert eid1 in running
     assert eid2 in running
 
 
-def test_is_running_false_for_unknown(manager):
+def test_is_running_false_for_unknown(manager: EmployeeManager):
     """Test is_running returns False for unknown employee."""
     assert manager.is_running(uuid4()) is False
 
@@ -404,31 +468,34 @@ def test_is_running_false_for_unknown(manager):
 
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
-async def test_stop_all(mock_popen_cls, manager, tenant_id, mock_session):
+async def test_stop_all(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+):
     """Test stop_all stops all running employees."""
     eid1 = uuid4()
     eid2 = uuid4()
 
     for eid in [eid1, eid2]:
-        db_emp = Mock()
-        db_emp.id = eid
-        db_emp.tenant_id = tenant_id
-        db_emp.name = "Test Employee"
-        db_emp.role = "sales_ae"
-        db_emp.email = f"test-{eid}@example.com"
-        db_emp.status = "onboarding"
-        db_emp.capabilities = ["email"]
-        db_emp.deleted_at = None
-        db_emp.activated_at = None
+        db_emp = _make_db_employee(eid, tenant_id)
         _setup_session_with_employee(mock_session, db_emp)
         mock_popen_cls.return_value = _mock_popen()
         await manager.start_employee(eid, tenant_id, mock_session)
 
-    result = await manager.stop_all()
+    # Reset to track stop DB calls
+    mock_session.execute.reset_mock()
+    mock_session.commit.reset_mock()
+
+    result = await manager.stop_all(mock_session)
 
     assert set(result["stopped"]) == {eid1, eid2}
     assert result["failed"] == []
     assert manager.list_running() == []
+    # Verify DB updates were executed
+    assert mock_session.execute.call_count >= 2
+    assert mock_session.commit.call_count >= 2
 
 
 # ============================================================================
@@ -439,15 +506,18 @@ async def test_stop_all(mock_popen_cls, manager, tenant_id, mock_session):
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_health_port_sequential(
-    mock_popen_cls, manager, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
 ):
     """Test health ports are allocated sequentially."""
     eid1 = uuid4()
     eid2 = uuid4()
 
     for eid in [eid1, eid2]:
-        mock_db_employee.id = eid
-        _setup_session_with_employee(mock_session, mock_db_employee)
+        db_emp = _make_db_employee(eid, tenant_id)
+        _setup_session_with_employee(mock_session, db_emp)
         mock_popen_cls.return_value = _mock_popen()
         await manager.start_employee(eid, tenant_id, mock_session)
 
@@ -467,7 +537,12 @@ async def test_health_port_sequential(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_stop_employee_sends_sigkill_on_timeout(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test stop_employee sends SIGKILL when SIGTERM times out."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -498,7 +573,12 @@ async def test_stop_employee_sends_sigkill_on_timeout(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_pause_raises_if_process_exited(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test pause raises ValueError when subprocess has crashed."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -517,7 +597,12 @@ async def test_pause_raises_if_process_exited(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_resume_raises_if_process_exited(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test resume raises ValueError when subprocess has crashed."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -541,7 +626,12 @@ async def test_resume_raises_if_process_exited(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_tenant_id_stored_on_start(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test tenant_id is tracked when employee starts."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -555,7 +645,12 @@ async def test_tenant_id_stored_on_start(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_tenant_id_cleaned_up_on_stop(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test tenant_id is removed when employee stops."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -575,7 +670,12 @@ async def test_tenant_id_cleaned_up_on_stop(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_stop_handles_process_lookup_error(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test stop_employee handles ProcessLookupError gracefully."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -600,7 +700,12 @@ async def test_stop_handles_process_lookup_error(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_start_cleans_stale_process(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test start_employee cleans up stale process entry and restarts."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -630,7 +735,12 @@ async def test_start_cleans_stale_process(
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
 async def test_list_running_prunes_dead_processes(
-    mock_popen_cls, manager, employee_id, tenant_id, mock_session, mock_db_employee
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
 ):
     """Test list_running removes dead processes from tracking."""
     _setup_session_with_employee(mock_session, mock_db_employee)
@@ -655,22 +765,18 @@ async def test_list_running_prunes_dead_processes(
 
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
-async def test_stop_all_continues_on_failure(mock_popen_cls, manager, tenant_id, mock_session):
+async def test_stop_all_continues_on_failure(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+):
     """Test stop_all continues stopping others if one fails."""
     eid1 = uuid4()
     eid2 = uuid4()
 
     for eid in [eid1, eid2]:
-        db_emp = Mock()
-        db_emp.id = eid
-        db_emp.tenant_id = tenant_id
-        db_emp.name = "Test Employee"
-        db_emp.role = "sales_ae"
-        db_emp.email = f"test-{eid}@example.com"
-        db_emp.status = "onboarding"
-        db_emp.capabilities = ["email"]
-        db_emp.deleted_at = None
-        db_emp.activated_at = None
+        db_emp = _make_db_employee(eid, tenant_id)
         _setup_session_with_employee(mock_session, db_emp)
         mock_popen_cls.return_value = _mock_popen()
         await manager.start_employee(eid, tenant_id, mock_session)

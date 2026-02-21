@@ -5,19 +5,22 @@ Provides CLI commands for managing digital employees.
 
 Usage:
     python -m empla.cli employee start <employee-id> --tenant-id UUID
-    python -m empla.cli employee stop <employee-id>
-    python -m empla.cli employee status <employee-id>
+    python -m empla.cli employee stop <employee-id> --tenant-id UUID
+    python -m empla.cli employee status <employee-id> --tenant-id UUID
     python -m empla.cli employee list
 """
 
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from typing import Any
 from uuid import UUID
 
 from empla.services.employee_manager import get_employee_manager
+
+logger = logging.getLogger(__name__)
 
 
 def _get_session_factory() -> tuple[Any, Any]:
@@ -80,7 +83,10 @@ async def _status_employee(args: argparse.Namespace) -> None:
 
         async with session_factory() as session:
             result = await session.execute(
-                select(EmployeeModel).where(EmployeeModel.id == args.employee_id)
+                select(EmployeeModel).where(
+                    EmployeeModel.id == args.employee_id,
+                    EmployeeModel.tenant_id == args.tenant_id,
+                )
             )
             db_employee = result.scalar_one_or_none()
 
@@ -97,7 +103,7 @@ async def _status_employee(args: argparse.Namespace) -> None:
             "is_paused": db_employee.status == "paused",
         }
 
-        # Probe health endpoint — try common ports
+        # Probe health endpoint if manager knows the port
         import httpx
 
         manager = get_employee_manager()
@@ -108,8 +114,8 @@ async def _status_employee(args: argparse.Namespace) -> None:
                     resp = await client.get(f"http://127.0.0.1:{port}/health", timeout=3.0)
                     if resp.status_code == 200:
                         status["health"] = resp.json()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Health probe failed for port %s: %s", port, exc, exc_info=True)
 
         print(json.dumps(status, indent=2, default=str))
     finally:
@@ -117,17 +123,28 @@ async def _status_employee(args: argparse.Namespace) -> None:
 
 
 async def _list_employees(_args: argparse.Namespace) -> None:
-    """List running employees."""
-    manager = get_employee_manager()
-    running = manager.list_running()
+    """List active employees from the database."""
+    session_factory, engine = _get_session_factory()
 
-    if not running:
-        print("No employees currently running.")
-        return
+    try:
+        from sqlalchemy import select
 
-    for eid in running:
-        status = manager.get_status(eid)
-        print(f"  {eid}  pid={status.get('pid', '?')}  port={status.get('health_port', '?')}")
+        from empla.models.employee import Employee as EmployeeModel
+
+        async with session_factory() as session:
+            result = await session.execute(
+                select(EmployeeModel).where(EmployeeModel.status == "active")
+            )
+            employees = result.scalars().all()
+
+        if not employees:
+            print("No active employees.")
+            return
+
+        for emp in employees:
+            print(f"  {emp.id}  name={emp.name}  role={emp.role}  status={emp.status}")
+    finally:
+        await engine.dispose()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -151,15 +168,17 @@ def build_parser() -> argparse.ArgumentParser:
     # stop
     stop_p = emp_sub.add_parser("stop", help="Stop a running employee")
     stop_p.add_argument("employee_id", type=UUID, help="Employee UUID")
+    stop_p.add_argument("--tenant-id", type=UUID, required=True, help="Tenant UUID")
     stop_p.set_defaults(func=_stop_employee)
 
     # status
     status_p = emp_sub.add_parser("status", help="Get employee status")
     status_p.add_argument("employee_id", type=UUID, help="Employee UUID")
+    status_p.add_argument("--tenant-id", type=UUID, required=True, help="Tenant UUID")
     status_p.set_defaults(func=_status_employee)
 
     # list
-    list_p = emp_sub.add_parser("list", help="List running employees")
+    list_p = emp_sub.add_parser("list", help="List active employees")
     list_p.set_defaults(func=_list_employees)
 
     return parser

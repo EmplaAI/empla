@@ -109,7 +109,7 @@ async def start_employee(
         status=cast(EmployeeStatus, employee.status),
         lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
         is_running=runtime_status.get("is_running", True),
-        is_paused=runtime_status.get("is_paused", False),
+        is_paused=employee.status == "paused",
         has_error=runtime_status.get("has_error", False),
         last_error=runtime_status.get("last_error"),
     )
@@ -264,7 +264,13 @@ async def get_employee_status(
     )
 
 
-@router.get("/{employee_id}/health")
+@router.get(
+    "/{employee_id}/health",
+    responses={
+        200: {"description": "Employee health data"},
+        503: {"description": "Employee health endpoint not reachable"},
+    },
+)
 async def get_employee_health(
     db: DBSession,
     auth: CurrentUser,

@@ -168,19 +168,14 @@ async def run_employee(
         signal_task = asyncio.create_task(stop_event.wait())
 
         # Wait for either the employee to finish or a shutdown signal
-        _done, pending = await asyncio.wait(
+        done, _pending = await asyncio.wait(
             [employee_task, signal_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
 
-        # Cancel whichever task is still pending
-        for task in pending:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-        # If signal received, stop the employee
-        if stop_event.is_set() and not employee_task.done():
+        if signal_task in done:
+            # Signal received — gracefully stop the employee
+            signal_task.result()  # consume result
             await employee.stop()
             try:
                 await asyncio.wait_for(employee_task, timeout=30.0)
@@ -189,6 +184,11 @@ async def run_employee(
                 employee_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await employee_task
+        else:
+            # Employee finished on its own — cancel the signal waiter
+            signal_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await signal_task
 
     except Exception:
         logger.error("Employee runner crashed", exc_info=True)

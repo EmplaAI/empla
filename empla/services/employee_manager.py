@@ -54,7 +54,7 @@ class EmployeeManager:
     """
 
     _instance: "EmployeeManager | None" = None
-    _lock: asyncio.Lock = asyncio.Lock()
+    _lock: asyncio.Lock | None = None
 
     def __new__(cls) -> "EmployeeManager":
         """Ensure singleton instance."""
@@ -79,6 +79,12 @@ class EmployeeManager:
         self._initialized = True
         logger.info("EmployeeManager initialized (subprocess backend)")
 
+    async def _get_lock(self) -> asyncio.Lock:
+        """Get or create the asyncio lock (deferred to avoid event-loop warnings)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
     # =========================================================================
     # Lifecycle
     # =========================================================================
@@ -95,7 +101,7 @@ class EmployeeManager:
         Validates the employee exists and has a supported role, spawns
         ``python -m empla.runner``, and updates DB status to ``active``.
         """
-        async with self._lock:
+        async with await self._get_lock():
             # Check if already running
             if employee_id in self._processes:
                 proc = self._processes[employee_id]
@@ -184,7 +190,7 @@ class EmployeeManager:
         Sends SIGTERM for graceful shutdown, waits up to ``_STOP_TIMEOUT_SECONDS``,
         then sends SIGKILL if the process hasn't exited.
         """
-        async with self._lock:
+        async with await self._get_lock():
             if employee_id not in self._processes:
                 raise ValueError(f"Employee {employee_id} is not running")
 
@@ -270,7 +276,7 @@ class EmployeeManager:
         The subprocess reads its status from DB each cycle and will
         sleep-and-recheck when it sees 'paused'.
         """
-        async with self._lock:
+        async with await self._get_lock():
             if employee_id not in self._processes:
                 raise ValueError(f"Employee {employee_id} is not running")
             if self._processes[employee_id].poll() is not None:
@@ -304,7 +310,7 @@ class EmployeeManager:
         """
         Resume a paused employee by setting DB status to 'active'.
         """
-        async with self._lock:
+        async with await self._get_lock():
             if employee_id not in self._processes:
                 raise ValueError(f"Employee {employee_id} is not running")
             if self._processes[employee_id].poll() is not None:
@@ -334,14 +340,38 @@ class EmployeeManager:
     # Status
     # =========================================================================
 
+    def _prune_dead_process(self, employee_id: UUID) -> None:
+        """Check if a tracked process has exited and clean up if so.
+
+        Records non-zero exit codes in ``_error_states`` and removes
+        the process from ``_processes``, ``_health_ports``, and
+        ``_tenant_ids``.
+        """
+        if employee_id not in self._processes:
+            return
+        proc = self._processes[employee_id]
+        if proc.poll() is None:
+            return  # still alive
+        returncode = proc.returncode
+        if returncode and returncode != 0:
+            self._error_states[employee_id] = f"Process exited with code {returncode}"
+        self._processes.pop(employee_id, None)
+        self._health_ports.pop(employee_id, None)
+        self._tenant_ids.pop(employee_id, None)
+
     def get_status(self, employee_id: UUID) -> dict[str, Any]:
         """
         Get runtime status for an employee.
 
         Checks whether the subprocess is alive. Returns process metadata
-        (pid, health_port) for live processes; captures stderr for crashed
-        processes. Use ``get_health()`` to poll the subprocess health endpoint.
+        (pid, health_port) for live processes. Dead processes are pruned
+        from internal tracking and their exit codes recorded in
+        ``_error_states``. Use ``get_health()`` to poll the subprocess
+        health endpoint.
         """
+        # Prune dead process if tracked (records error state, cleans maps)
+        self._prune_dead_process(employee_id)
+
         error_state = self._error_states.get(employee_id)
 
         if employee_id not in self._processes:
@@ -354,26 +384,6 @@ class EmployeeManager:
             }
 
         proc = self._processes[employee_id]
-        alive = proc.poll() is None
-
-        if not alive:
-            # Process exited — record error state if non-zero exit
-            returncode = proc.returncode
-            if returncode and returncode != 0:
-                self._error_states[employee_id] = f"Process exited with code {returncode}"
-            # Clean up stale entry
-            self._processes.pop(employee_id, None)
-            self._health_ports.pop(employee_id, None)
-            self._tenant_ids.pop(employee_id, None)
-            error_state = self._error_states.get(employee_id)
-            return {
-                "id": str(employee_id),
-                "is_running": False,
-                "is_paused": False,
-                "has_error": error_state is not None,
-                "last_error": error_state,
-            }
-
         return {
             "id": str(employee_id),
             "is_running": True,
@@ -427,10 +437,10 @@ class EmployeeManager:
 
     def list_running(self) -> list[UUID]:
         """Get list of running employee IDs."""
-        # Prune dead processes via get_status (records error state for non-zero exits)
+        # Prune dead processes (records error state, cleans internal maps)
         dead = [eid for eid, proc in self._processes.items() if proc.poll() is not None]
         for eid in dead:
-            self.get_status(eid)
+            self._prune_dead_process(eid)
         return list(self._processes.keys())
 
     def is_running(self, employee_id: UUID) -> bool:

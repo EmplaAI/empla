@@ -32,21 +32,25 @@ def test_parser_start_command():
 def test_parser_stop_command():
     """Test parsing stop command."""
     eid = str(uuid4())
+    tid = str(uuid4())
     parser = build_parser()
-    args = parser.parse_args(["employee", "stop", eid])
+    args = parser.parse_args(["employee", "stop", eid, "--tenant-id", tid])
     assert args.command == "employee"
     assert args.action == "stop"
     assert str(args.employee_id) == eid
+    assert str(args.tenant_id) == tid
 
 
 def test_parser_status_command():
     """Test parsing status command."""
     eid = str(uuid4())
+    tid = str(uuid4())
     parser = build_parser()
-    args = parser.parse_args(["employee", "status", eid])
+    args = parser.parse_args(["employee", "status", eid, "--tenant-id", tid])
     assert args.command == "employee"
     assert args.action == "status"
     assert str(args.employee_id) == eid
+    assert str(args.tenant_id) == tid
 
 
 def test_parser_list_command():
@@ -69,6 +73,20 @@ def test_parser_start_requires_tenant_id():
     parser = build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["employee", "start", str(uuid4())])
+
+
+def test_parser_stop_requires_tenant_id():
+    """Test stop command requires --tenant-id."""
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["employee", "stop", str(uuid4())])
+
+
+def test_parser_status_requires_tenant_id():
+    """Test status command requires --tenant-id."""
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["employee", "status", str(uuid4())])
 
 
 def test_cli_module_importable():
