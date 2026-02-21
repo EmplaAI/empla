@@ -165,12 +165,19 @@ async def run_employee(
             await employee.start(run_loop=True, status_checker=status_checker)
 
         employee_task = asyncio.create_task(_run())
+        signal_task = asyncio.create_task(stop_event.wait())
 
         # Wait for either the employee to finish or a shutdown signal
-        _done, _ = await asyncio.wait(
-            [employee_task, asyncio.create_task(stop_event.wait())],
+        _done, pending = await asyncio.wait(
+            [employee_task, signal_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
+
+        # Cancel whichever task is still pending
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
         # If signal received, stop the employee
         if stop_event.is_set() and not employee_task.done():

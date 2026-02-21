@@ -14,13 +14,18 @@ import argparse
 import asyncio
 import json
 import sys
+from typing import Any
 from uuid import UUID
 
 from empla.services.employee_manager import get_employee_manager
 
 
-def _get_session_factory() -> tuple:  # type: ignore[type-arg]
-    """Create a DB session factory for CLI operations."""
+def _get_session_factory() -> tuple[Any, Any]:
+    """Create a DB session factory for CLI operations.
+
+    Returns:
+        Tuple of (async_sessionmaker, AsyncEngine).
+    """
     from empla.models.database import get_engine, get_sessionmaker
 
     engine = get_engine()
@@ -61,17 +66,54 @@ async def _stop_employee(args: argparse.Namespace) -> None:
 
 
 async def _status_employee(args: argparse.Namespace) -> None:
-    """Get employee runtime status."""
-    manager = get_employee_manager()
-    status = manager.get_status(args.employee_id)
+    """Get employee runtime status.
 
-    # Also try health endpoint if running
-    if status.get("is_running"):
-        health = await manager.get_health(args.employee_id)
-        if health:
-            status["health"] = health
+    Queries the DB for persisted status and probes the health endpoint
+    to determine if the employee subprocess is actually reachable.
+    """
+    session_factory, engine = _get_session_factory()
 
-    print(json.dumps(status, indent=2, default=str))
+    try:
+        from sqlalchemy import select
+
+        from empla.models.employee import Employee as EmployeeModel
+
+        async with session_factory() as session:
+            result = await session.execute(
+                select(EmployeeModel).where(EmployeeModel.id == args.employee_id)
+            )
+            db_employee = result.scalar_one_or_none()
+
+        if db_employee is None:
+            print(json.dumps({"error": f"Employee {args.employee_id} not found"}, indent=2))
+            return
+
+        status: dict[str, Any] = {
+            "id": str(db_employee.id),
+            "name": db_employee.name,
+            "role": db_employee.role,
+            "db_status": db_employee.status,
+            "is_running": db_employee.status == "active",
+            "is_paused": db_employee.status == "paused",
+        }
+
+        # Probe health endpoint — try common ports
+        import httpx
+
+        manager = get_employee_manager()
+        port = manager.get_health_port(args.employee_id)
+        if port is not None:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(f"http://127.0.0.1:{port}/health", timeout=3.0)
+                    if resp.status_code == 200:
+                        status["health"] = resp.json()
+            except Exception:
+                pass
+
+        print(json.dumps(status, indent=2, default=str))
+    finally:
+        await engine.dispose()
 
 
 async def _list_employees(_args: argparse.Namespace) -> None:

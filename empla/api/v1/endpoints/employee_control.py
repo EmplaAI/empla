@@ -188,10 +188,10 @@ async def pause_employee(
     return EmployeeStatusResponse(
         id=employee.id,
         name=employee.name,
-        status="paused",
+        status=cast(EmployeeStatus, employee.status),
         lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
         is_running=True,
-        is_paused=True,
+        is_paused=employee.status == "paused",
         has_error=False,
     )
 
@@ -229,10 +229,10 @@ async def resume_employee(
     return EmployeeStatusResponse(
         id=employee.id,
         name=employee.name,
-        status="active",
+        status=cast(EmployeeStatus, employee.status),
         lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
         is_running=True,
-        is_paused=False,
+        is_paused=employee.status == "paused",
         has_error=False,
     )
 

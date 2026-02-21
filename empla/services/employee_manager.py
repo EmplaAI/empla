@@ -149,10 +149,10 @@ class EmployeeManager:
                 extra={"employee_id": str(employee_id), "health_port": health_port},
             )
 
-            proc = subprocess.Popen(  # noqa: ASYNC220
+            proc = subprocess.Popen(  # noqa: ASYNC220 — intentionally blocking; Popen returns immediately
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
             )
 
             self._processes[employee_id] = proc
@@ -239,7 +239,11 @@ class EmployeeManager:
             self._error_states.pop(employee_id, None)
 
             # Update database if session provided
-            if session and tid:
+            if session is not None:
+                if tid is None:
+                    raise ValueError(
+                        f"Employee {employee_id} has no tenant_id — cannot update DB safely"
+                    )
                 await session.execute(
                     update(EmployeeModel)
                     .where(
@@ -273,12 +277,18 @@ class EmployeeManager:
                 raise ValueError(f"Employee {employee_id} process has exited")
 
             tid = self._tenant_ids.get(employee_id)
-            where_clause = [EmployeeModel.id == employee_id]
-            if tid:
-                where_clause.append(EmployeeModel.tenant_id == tid)
+            if tid is None:
+                raise ValueError(
+                    f"Employee {employee_id} has no tenant_id — cannot update DB safely"
+                )
 
             await session.execute(
-                update(EmployeeModel).where(*where_clause).values(status="paused")
+                update(EmployeeModel)
+                .where(
+                    EmployeeModel.id == employee_id,
+                    EmployeeModel.tenant_id == tid,
+                )
+                .values(status="paused")
             )
             await session.commit()
 
@@ -301,12 +311,18 @@ class EmployeeManager:
                 raise ValueError(f"Employee {employee_id} process has exited")
 
             tid = self._tenant_ids.get(employee_id)
-            where_clause = [EmployeeModel.id == employee_id]
-            if tid:
-                where_clause.append(EmployeeModel.tenant_id == tid)
+            if tid is None:
+                raise ValueError(
+                    f"Employee {employee_id} has no tenant_id — cannot update DB safely"
+                )
 
             await session.execute(
-                update(EmployeeModel).where(*where_clause).values(status="active")
+                update(EmployeeModel)
+                .where(
+                    EmployeeModel.id == employee_id,
+                    EmployeeModel.tenant_id == tid,
+                )
+                .values(status="active")
             )
             await session.commit()
 
@@ -341,19 +357,10 @@ class EmployeeManager:
         alive = proc.poll() is None
 
         if not alive:
-            # Process exited — capture stderr if available
+            # Process exited — record error state if non-zero exit
             returncode = proc.returncode
             if returncode and returncode != 0:
-                stderr_output = ""
-                if proc.stderr:
-                    try:
-                        raw = proc.stderr.read(500)
-                        stderr_output = raw.decode("utf-8", errors="replace")
-                    except Exception:
-                        stderr_output = "(stderr read failed)"
-                self._error_states[employee_id] = (
-                    f"Process exited with code {returncode}: {stderr_output}"
-                )
+                self._error_states[employee_id] = f"Process exited with code {returncode}"
             # Clean up stale entry
             self._processes.pop(employee_id, None)
             self._health_ports.pop(employee_id, None)
@@ -420,7 +427,7 @@ class EmployeeManager:
 
     def list_running(self) -> list[UUID]:
         """Get list of running employee IDs."""
-        # Prune dead processes via get_status (captures crash data)
+        # Prune dead processes via get_status (records error state for non-zero exits)
         dead = [eid for eid, proc in self._processes.items() if proc.poll() is not None]
         for eid in dead:
             self.get_status(eid)

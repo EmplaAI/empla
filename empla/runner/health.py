@@ -70,26 +70,24 @@ class HealthServer:
                         "cycle_count": self.cycle_count,
                     }
                 )
-                response = (
-                    "HTTP/1.1 200 OK\r\n"
-                    "Content-Type: application/json\r\n"
-                    f"Content-Length: {len(body)}\r\n"
-                    "Connection: close\r\n"
-                    "\r\n"
-                    f"{body}"
-                )
             else:
                 body = '{"error": "not found"}'
-                response = (
-                    "HTTP/1.1 404 Not Found\r\n"
-                    "Content-Type: application/json\r\n"
-                    f"Content-Length: {len(body)}\r\n"
-                    "Connection: close\r\n"
-                    "\r\n"
-                    f"{body}"
-                )
 
-            writer.write(response.encode("utf-8"))
+            body_bytes = body.encode("utf-8")
+            status_line = (
+                "HTTP/1.1 200 OK"
+                if request_str.startswith("GET /health")
+                else "HTTP/1.1 404 Not Found"
+            )
+            header = (
+                f"{status_line}\r\n"
+                "Content-Type: application/json\r\n"
+                f"Content-Length: {len(body_bytes)}\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+            )
+
+            writer.write(header.encode("utf-8") + body_bytes)
             await writer.drain()
         except TimeoutError:
             logger.debug(

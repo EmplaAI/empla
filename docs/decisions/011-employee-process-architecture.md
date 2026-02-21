@@ -40,7 +40,7 @@ empla employees are most similar to OpenClaw agents: always-on, interactive via 
 
 **Architecture:**
 
-```
+```text
 empla control plane (API server, lightweight, always-on)
 ├── Employee lifecycle management (create, start, stop, restart)
 ├── Message routing (Slack/Teams webhook → employee process)
@@ -131,7 +131,7 @@ OpenClaw uses the same architecture: Gateway (control plane) + one agent process
 
 The empla server runs all employee BDI loops. Workstation containers are remote execution environments that capabilities call into.
 
-```
+```text
 empla server (runs everything)
 ├── N employee loops (asyncio.gather)
 ├── WorkspaceCapability → API call to workstation container
@@ -181,7 +181,7 @@ No persistent process. Employee logic runs on-demand (triggered by messages, cro
 
 A pool of worker processes, each running multiple employee loops. A scheduler assigns employees to workers and rebalances on failure.
 
-```
+```text
 worker-1: [employee-A, employee-B, employee-C]
 worker-2: [employee-D, employee-E, employee-F]
 worker-3: [employee-G, employee-H, employee-I]
@@ -239,7 +239,7 @@ await asyncio.gather(*[e.start() for e in employees])
 ```
 
 **Production mode:**
-```
+```yaml
 # Each employee is a Kubernetes pod
 apiVersion: apps/v1
 kind: Deployment

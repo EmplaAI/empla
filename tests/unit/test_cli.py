@@ -46,6 +46,7 @@ def test_parser_status_command():
     args = parser.parse_args(["employee", "status", eid])
     assert args.command == "employee"
     assert args.action == "status"
+    assert str(args.employee_id) == eid
 
 
 def test_parser_list_command():
@@ -76,3 +77,4 @@ def test_cli_module_importable():
     import empla.cli.__main__
 
     assert empla.cli is not None
+    assert empla.cli.__main__ is not None

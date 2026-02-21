@@ -356,13 +356,11 @@ async def test_get_status_detects_crashed_process(
     # Simulate process crash
     proc.poll.return_value = 1
     proc.returncode = 1
-    proc.stderr = MagicMock()
-    proc.stderr.read.return_value = b"Error: something went wrong"
 
     status = manager.get_status(employee_id)
     assert status["is_running"] is False
     assert status["has_error"] is True
-    assert "something went wrong" in status["last_error"]
+    assert "exited with code 1" in status["last_error"]
 
 
 # ============================================================================
@@ -406,21 +404,30 @@ def test_is_running_false_for_unknown(manager):
 
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
-async def test_stop_all(mock_popen_cls, manager, tenant_id, mock_session, mock_db_employee):
+async def test_stop_all(mock_popen_cls, manager, tenant_id, mock_session):
     """Test stop_all stops all running employees."""
     eid1 = uuid4()
     eid2 = uuid4()
 
     for eid in [eid1, eid2]:
-        mock_db_employee.id = eid
-        _setup_session_with_employee(mock_session, mock_db_employee)
+        db_emp = Mock()
+        db_emp.id = eid
+        db_emp.tenant_id = tenant_id
+        db_emp.name = "Test Employee"
+        db_emp.role = "sales_ae"
+        db_emp.email = f"test-{eid}@example.com"
+        db_emp.status = "onboarding"
+        db_emp.capabilities = ["email"]
+        db_emp.deleted_at = None
+        db_emp.activated_at = None
+        _setup_session_with_employee(mock_session, db_emp)
         mock_popen_cls.return_value = _mock_popen()
         await manager.start_employee(eid, tenant_id, mock_session)
 
     result = await manager.stop_all()
 
-    assert len(result["stopped"]) == 2
-    assert len(result["failed"]) == 0
+    assert set(result["stopped"]) == {eid1, eid2}
+    assert result["failed"] == []
     assert manager.list_running() == []
 
 
@@ -648,16 +655,23 @@ async def test_list_running_prunes_dead_processes(
 
 @pytest.mark.asyncio
 @patch("empla.services.employee_manager.subprocess.Popen")
-async def test_stop_all_continues_on_failure(
-    mock_popen_cls, manager, tenant_id, mock_session, mock_db_employee
-):
+async def test_stop_all_continues_on_failure(mock_popen_cls, manager, tenant_id, mock_session):
     """Test stop_all continues stopping others if one fails."""
     eid1 = uuid4()
     eid2 = uuid4()
 
     for eid in [eid1, eid2]:
-        mock_db_employee.id = eid
-        _setup_session_with_employee(mock_session, mock_db_employee)
+        db_emp = Mock()
+        db_emp.id = eid
+        db_emp.tenant_id = tenant_id
+        db_emp.name = "Test Employee"
+        db_emp.role = "sales_ae"
+        db_emp.email = f"test-{eid}@example.com"
+        db_emp.status = "onboarding"
+        db_emp.capabilities = ["email"]
+        db_emp.deleted_at = None
+        db_emp.activated_at = None
+        _setup_session_with_employee(mock_session, db_emp)
         mock_popen_cls.return_value = _mock_popen()
         await manager.start_employee(eid, tenant_id, mock_session)
 
@@ -671,3 +685,5 @@ async def test_stop_all_continues_on_failure(
 
     # One should have succeeded, one failed
     assert len(result["stopped"]) + len(result["failed"]) == 2
+    assert eid1 in result["failed"]
+    assert eid2 in result["stopped"]

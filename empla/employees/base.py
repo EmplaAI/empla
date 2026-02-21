@@ -278,7 +278,7 @@ class DigitalEmployee(ABC):
     async def start(
         self,
         run_loop: bool = True,
-        status_checker: Callable[..., Awaitable[None]] | None = None,
+        status_checker: Callable[[EmployeeModel], Awaitable[None]] | None = None,
     ) -> None:
         """
         Start the digital employee.
@@ -737,7 +737,7 @@ class DigitalEmployee(ABC):
 
     async def _init_loop(
         self,
-        status_checker: Callable[..., Awaitable[None]] | None = None,
+        status_checker: Callable[[EmployeeModel], Awaitable[None]] | None = None,
     ) -> None:
         """Initialize proactive execution loop."""
         # All components must be initialized before loop

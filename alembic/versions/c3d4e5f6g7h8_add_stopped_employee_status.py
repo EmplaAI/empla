@@ -15,6 +15,7 @@ lifecycle event (like shutting down a service); terminated is permanent.
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -37,9 +38,11 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Remove stopped status from employee status constraint.
 
-    WARNING: This downgrade will fail if any employees have status='stopped'.
-    Update those employees to a different status first.
+    Migrates any 'stopped' employees to 'paused' before removing the constraint.
     """
+    op.execute(
+        sa.text("UPDATE employees SET status = 'paused' WHERE status = 'stopped'")
+    )
     op.drop_constraint("ck_employees_status", "employees", type_="check")
     op.create_check_constraint(
         "ck_employees_status",

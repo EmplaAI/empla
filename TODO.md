@@ -8,7 +8,7 @@
 
 ## Current State (2026-02-20)
 
-**Test Results:** 507 passed, ~66% coverage
+**Test Results:** 559 passed, 67.50% coverage
 **Employees:** SalesAE, CSM (deployable)
 **Capabilities:** Email (simulation), Workspace (full implementation)
 **LLM Service:** Multi-provider (Anthropic, OpenAI, Vertex)
@@ -66,9 +66,10 @@
 
 9. [ ] **Graceful Shutdown and State Persistence** (Track B8)
    - Save BDI state on shutdown, resume on restart
+   - Process infrastructure (SIGTERM/SIGKILL, health checks) done (PR #37)
 
-10. [ ] **Employee CLI Tool** (Track F1)
-    - `empla employee start/stop/status/list`
+10. [x] **Employee CLI Tool** (Track F1)
+    - `empla employee start/stop/status/list` (PR #37)
 
 11. [ ] **Real Observation Sources** (Track F2)
     - Connect real perception to ProactiveExecutionLoop
