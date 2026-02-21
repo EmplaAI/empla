@@ -7,6 +7,7 @@ The main continuous autonomous operation loop.
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -220,6 +221,7 @@ class ProactiveExecutionLoop:
         capability_registry: Any | None = None,  # CapabilityRegistry from empla.capabilities
         llm_service: "LLMService | None" = None,  # LLM service for reasoning
         config: LoopConfig | None = None,
+        status_checker: Callable[[Employee], Awaitable[None]] | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
@@ -233,6 +235,10 @@ class ProactiveExecutionLoop:
             capability_registry: Optional capability registry used to perceive the environment and enumerate enabled capabilities.
             llm_service: Optional LLM service for strategic reasoning and plan generation.
             config: Optional loop configuration object; when omitted defaults are applied (e.g., cycle and error backoff intervals).
+            status_checker: Optional async callback that refreshes employee.status
+                from the database. When provided, called at the start of each cycle
+                so the loop can react to external status changes (e.g. pause-via-DB).
+                When None, the loop reads employee.status directly (suitable for tests).
 
         Notes:
             Initializes internal timing/state (cycle interval, error backoff, counters, and last-run timestamps) and logs startup metadata including whether a capability registry is present.
@@ -244,6 +250,7 @@ class ProactiveExecutionLoop:
         self.memory = memory
         self.capability_registry = capability_registry
         self.llm_service = llm_service
+        self._status_checker = status_checker
 
         # Configuration
         self.config = config or LoopConfig()
@@ -309,8 +316,33 @@ class ProactiveExecutionLoop:
 
         This runs until employee is deactivated or loop is stopped.
         Implements the full BDI reasoning cycle in each iteration.
+
+        Status handling:
+        - "active": run a normal BDI cycle
+        - "paused": sleep 5s and recheck (pause-via-DB pattern)
+        - anything else ("stopped", "terminated"): exit the loop
         """
-        while self.is_running and self.employee.status == "active":
+        while self.is_running:
+            # Refresh employee status from DB if checker provided
+            if self._status_checker:
+                try:
+                    await self._status_checker(self.employee)
+                except Exception:
+                    logger.warning(
+                        "Status checker failed, continuing with current status",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+
+            # Handle paused status: sleep and recheck
+            if self.employee.status == "paused":
+                await self._sleep_interruptible(5.0)
+                continue
+
+            # Exit on any non-active status (stopped, terminated, etc.)
+            if self.employee.status != "active":
+                break
+
             try:
                 cycle_start = time.time()
                 self.cycle_count += 1
@@ -403,13 +435,7 @@ class ProactiveExecutionLoop:
                 if not self.is_running:
                     break
 
-                # Sleep in small increments to check is_running flag frequently
-                # This allows prompt shutdown without waiting for full cycle_interval
-                sleep_remaining: float = float(self.cycle_interval)
-                while sleep_remaining > 0 and self.is_running:
-                    sleep_chunk = min(0.1, sleep_remaining)  # Check every 100ms
-                    await asyncio.sleep(sleep_chunk)
-                    sleep_remaining -= sleep_chunk
+                await self._sleep_interruptible(float(self.cycle_interval))
 
             except Exception as e:
                 # NEVER let loop crash - log error and continue
@@ -430,15 +456,15 @@ class ProactiveExecutionLoop:
                 if not self.is_running:
                     break
 
-                # Sleep in small increments to check is_running flag frequently
-                sleep_remaining = float(self.error_backoff_interval)
-                while sleep_remaining > 0 and self.is_running:
-                    sleep_chunk = min(0.1, sleep_remaining)  # Check every 100ms
-                    await asyncio.sleep(sleep_chunk)
-                    sleep_remaining -= sleep_chunk
+                await self._sleep_interruptible(float(self.error_backoff_interval))
 
         # Determine exit reason before clearing flag
-        exit_reason = "stopped" if not self.is_running else "employee_deactivated"
+        if not self.is_running:
+            exit_reason = "stopped"
+        elif self.employee.status == "paused":
+            exit_reason = "paused"  # shouldn't normally reach here
+        else:
+            exit_reason = f"employee_{self.employee.status}"
 
         # Clear running flag on natural exit (employee deactivated, etc.)
         # This ensures the loop can be restarted after natural shutdown
@@ -452,6 +478,14 @@ class ProactiveExecutionLoop:
                 "reason": exit_reason,
             },
         )
+
+    async def _sleep_interruptible(self, seconds: float) -> None:
+        """Sleep in small increments so stop() takes effect promptly."""
+        remaining = seconds
+        while remaining > 0 and self.is_running:
+            chunk = min(0.1, remaining)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
 
     async def _run_cycle(self) -> IntentionResult | None:
         """

@@ -21,6 +21,7 @@ import asyncio
 import logging
 import os
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -274,7 +275,11 @@ class DigitalEmployee(ABC):
     # Lifecycle Methods
     # =========================================================================
 
-    async def start(self, run_loop: bool = True) -> None:
+    async def start(
+        self,
+        run_loop: bool = True,
+        status_checker: Callable[[EmployeeModel], Awaitable[None]] | None = None,
+    ) -> None:
         """
         Start the digital employee.
 
@@ -285,6 +290,9 @@ class DigitalEmployee(ABC):
                 WARNING: If True, this method blocks until stop() is called.
                 For background operation, set run_loop=False and call
                 the loop separately.
+            status_checker: Optional async callback that refreshes
+                employee.status from the database each cycle. Used by
+                the runner process for pause-via-DB.
 
         Raises:
             EmployeeStartupError: If initialization fails
@@ -334,7 +342,7 @@ class DigitalEmployee(ABC):
             await self._create_default_goals()
 
             # Create proactive loop
-            await self._init_loop()
+            await self._init_loop(status_checker=status_checker)
 
             # Mark as running
             self._is_running = True
@@ -727,7 +735,10 @@ class DigitalEmployee(ABC):
 
         logger.debug(f"Created {len(goals)} default goals")
 
-    async def _init_loop(self) -> None:
+    async def _init_loop(
+        self,
+        status_checker: Callable[[EmployeeModel], Awaitable[None]] | None = None,
+    ) -> None:
         """Initialize proactive execution loop."""
         # All components must be initialized before loop
         assert self._db_employee is not None, "Employee record not initialized"
@@ -751,6 +762,7 @@ class DigitalEmployee(ABC):
             memory=self._memory,
             capability_registry=self._capabilities,
             config=loop_config,
+            status_checker=status_checker,
         )
 
         logger.debug("Initialized proactive loop")
