@@ -827,7 +827,7 @@ class SimulatedWorkspaceCapability(BaseCapability):
             return []
         return []
 
-    async def _execute_action_impl(self, action: Action) -> ActionResult:  # noqa: PLR0911
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         operation = action.operation
         params = action.parameters
         ws = self.environment.workspace

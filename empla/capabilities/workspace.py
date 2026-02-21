@@ -234,11 +234,10 @@ class WorkspaceCapability(BaseCapability):
         # Block .state/ access
         try:
             full.relative_to(ws_root / ".state")
+        except ValueError:
+            pass  # Not inside .state — that's fine
+        else:
             raise ValueError("Access to .state/ is not allowed")
-        except ValueError as e:
-            if "Access to .state/" in str(e):
-                raise
-            # Not inside .state — that's fine
 
         return full
 
@@ -266,13 +265,18 @@ class WorkspaceCapability(BaseCapability):
         try:
             # 1. Stale drafts
             drafts_dir = ws_root / "drafts"
-            if drafts_dir.exists():
-                cutoff = datetime.now(UTC) - timedelta(days=self.config.stale_draft_days)
-                for f in await asyncio.to_thread(lambda: list(drafts_dir.iterdir())):
+            stale_draft_days = self.config.stale_draft_days
+
+            def _scan_stale_drafts() -> list[Observation]:
+                if not drafts_dir.exists():
+                    return []
+                result: list[Observation] = []
+                cutoff = datetime.now(UTC) - timedelta(days=stale_draft_days)
+                for f in drafts_dir.iterdir():
                     if f.is_file():
                         mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=UTC)
                         if mtime < cutoff:
-                            observations.append(
+                            result.append(
                                 Observation(
                                     employee_id=self.employee_id,
                                     tenant_id=self.tenant_id,
@@ -287,37 +291,52 @@ class WorkspaceCapability(BaseCapability):
                                     requires_action=False,
                                 )
                             )
+                return result
+
+            observations.extend(await asyncio.to_thread(_scan_stale_drafts))
 
             # 2. New data files
-            for check_path in self.config.perception_check_paths:
-                check_dir = ws_root / check_path
-                if not check_dir.exists():
-                    continue
-                for f in await asyncio.to_thread(lambda d=check_dir: list(d.iterdir())):
-                    if not f.is_file():
+            check_paths = self.config.perception_check_paths
+            perception_seeded = self._perception_seeded
+            last_mtimes = self._last_perception_mtimes
+
+            def _scan_new_data() -> tuple[list[Observation], dict[str, float]]:
+                result: list[Observation] = []
+                mtime_updates: dict[str, float] = {}
+                for check_path in check_paths:
+                    check_dir = ws_root / check_path
+                    if not check_dir.exists():
                         continue
-                    rel = str(f.relative_to(ws_root))
-                    current_mtime = f.stat().st_mtime
-                    prev_mtime = self._last_perception_mtimes.get(rel)
-                    if prev_mtime is None or current_mtime > prev_mtime:
-                        # Only report new/changed files after the first perception pass
-                        # has established baseline mtimes (seed pass records but doesn't report)
-                        if self._perception_seeded:
-                            observations.append(
-                                Observation(
-                                    employee_id=self.employee_id,
-                                    tenant_id=self.tenant_id,
-                                    observation_type="new_data_file",
-                                    source="workspace",
-                                    content={
-                                        "path": rel,
-                                        "size_bytes": f.stat().st_size,
-                                    },
-                                    priority=5,
-                                    requires_action=False,
+                    for f in check_dir.iterdir():
+                        if not f.is_file():
+                            continue
+                        rel = str(f.relative_to(ws_root))
+                        current_mtime = f.stat().st_mtime
+                        prev_mtime = last_mtimes.get(rel)
+                        if prev_mtime is None or current_mtime > prev_mtime:
+                            # Only report new/changed files after the first perception pass
+                            # has established baseline mtimes (seed pass records but doesn't report)
+                            if perception_seeded:
+                                result.append(
+                                    Observation(
+                                        employee_id=self.employee_id,
+                                        tenant_id=self.tenant_id,
+                                        observation_type="new_data_file",
+                                        source="workspace",
+                                        content={
+                                            "path": rel,
+                                            "size_bytes": f.stat().st_size,
+                                        },
+                                        priority=5,
+                                        requires_action=False,
+                                    )
                                 )
-                            )
-                        self._last_perception_mtimes[rel] = current_mtime
+                            mtime_updates[rel] = current_mtime
+                return result, mtime_updates
+
+            new_data_obs, mtime_updates = await asyncio.to_thread(_scan_new_data)
+            observations.extend(new_data_obs)
+            self._last_perception_mtimes.update(mtime_updates)
 
             # 3. Workspace near capacity
             total_size = await self._get_total_size_bytes()
@@ -359,7 +378,7 @@ class WorkspaceCapability(BaseCapability):
     # Action dispatch
     # ------------------------------------------------------------------
 
-    async def _execute_action_impl(self, action: Action) -> ActionResult:  # noqa: PLR0911
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
         operation = action.operation
         params = action.parameters
 
@@ -400,14 +419,16 @@ class WorkspaceCapability(BaseCapability):
                 params.get("pattern"),
             )
 
-        # get_workspace_status
-        return await self._get_workspace_status()
+        if operation == "get_workspace_status":
+            return await self._get_workspace_status()
+
+        return ActionResult(success=False, error=f"Unknown operation: {operation}")
 
     # ------------------------------------------------------------------
     # Operations
     # ------------------------------------------------------------------
 
-    async def _read_file(self, path: str) -> ActionResult:  # noqa: PLR0911
+    async def _read_file(self, path: str) -> ActionResult:
         try:
             full = self._resolve_safe_path(path)
         except ValueError as e:
@@ -457,7 +478,7 @@ class WorkspaceCapability(BaseCapability):
             },
         )
 
-    async def _write_file(self, path: str, content: str) -> ActionResult:  # noqa: PLR0911
+    async def _write_file(self, path: str, content: str) -> ActionResult:
         try:
             full = self._resolve_safe_path(path)
         except ValueError as e:
@@ -586,7 +607,7 @@ class WorkspaceCapability(BaseCapability):
             output={"files": entries},
         )
 
-    async def _delete_file(self, path: str) -> ActionResult:  # noqa: PLR0911
+    async def _delete_file(self, path: str) -> ActionResult:
         try:
             full = self._resolve_safe_path(path)
         except ValueError as e:
