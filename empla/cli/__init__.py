@@ -10,20 +10,25 @@ Usage:
     python -m empla.cli employee list
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import json
 import logging
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from empla.services.employee_manager import get_employee_manager
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
 logger = logging.getLogger(__name__)
 
 
-def _get_session_factory() -> tuple[Any, Any]:
+def _get_session_factory() -> tuple[async_sessionmaker[AsyncSession], AsyncEngine]:
     """Create a DB session factory for CLI operations.
 
     Returns:
@@ -123,7 +128,7 @@ async def _status_employee(args: argparse.Namespace) -> None:
 
 
 async def _list_employees(_args: argparse.Namespace) -> None:
-    """List active employees from the database."""
+    """List running employees (active and paused) from the database."""
     session_factory, engine = _get_session_factory()
 
     try:
@@ -133,12 +138,12 @@ async def _list_employees(_args: argparse.Namespace) -> None:
 
         async with session_factory() as session:
             result = await session.execute(
-                select(EmployeeModel).where(EmployeeModel.status == "active")
+                select(EmployeeModel).where(EmployeeModel.status.in_(["active", "paused"]))
             )
             employees = result.scalars().all()
 
         if not employees:
-            print("No active employees.")
+            print("No running employees.")
             return
 
         for emp in employees:

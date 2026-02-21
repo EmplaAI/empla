@@ -179,6 +179,7 @@ async def pause_employee(
         ) from e
 
     await db.refresh(employee)
+    runtime_status = manager.get_status(employee_id)
 
     logger.info(
         f"Employee {employee_id} paused via API",
@@ -190,9 +191,10 @@ async def pause_employee(
         name=employee.name,
         status=cast(EmployeeStatus, employee.status),
         lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
-        is_running=True,
+        is_running=runtime_status.get("is_running", False),
         is_paused=employee.status == "paused",
-        has_error=False,
+        has_error=runtime_status.get("has_error", False),
+        last_error=runtime_status.get("last_error"),
     )
 
 
@@ -220,6 +222,7 @@ async def resume_employee(
         ) from e
 
     await db.refresh(employee)
+    runtime_status = manager.get_status(employee_id)
 
     logger.info(
         f"Employee {employee_id} resumed via API",
@@ -231,9 +234,10 @@ async def resume_employee(
         name=employee.name,
         status=cast(EmployeeStatus, employee.status),
         lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
-        is_running=True,
+        is_running=runtime_status.get("is_running", False),
         is_paused=employee.status == "paused",
-        has_error=False,
+        has_error=runtime_status.get("has_error", False),
+        last_error=runtime_status.get("last_error"),
     )
 
 

@@ -80,7 +80,11 @@ class EmployeeManager:
         logger.info("EmployeeManager initialized (subprocess backend)")
 
     async def _get_lock(self) -> asyncio.Lock:
-        """Get or create the asyncio lock (deferred to avoid event-loop warnings)."""
+        """Get or create the asyncio lock (deferred to avoid event-loop warnings).
+
+        Safe without additional synchronization: no await between the None check
+        and assignment, so the GIL guarantees atomicity. Do not add awaits here.
+        """
         if self._lock is None:
             self._lock = asyncio.Lock()
         return self._lock

@@ -787,6 +787,8 @@ async def test_stop_all_continues_on_failure(
     proc1.poll.return_value = None
     proc1.wait.side_effect = Exception("boom")
 
+    # No session passed — this test focuses on partial-failure resilience.
+    # DB update path is covered by test_stop_all.
     result = await manager.stop_all()
 
     # One should have succeeded, one failed
