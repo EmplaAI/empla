@@ -936,14 +936,14 @@ async def test_get_health_generic_error(
     mock_session: AsyncMock,
     mock_db_employee: Mock,
 ):
-    """Test get_health returns None on unexpected error."""
+    """Test get_health returns None on other httpx errors (e.g. TooManyRedirects)."""
     _setup_session_with_employee(mock_session, mock_db_employee)
     mock_popen_cls.return_value = _mock_popen()
     await manager.start_employee(employee_id, tenant_id, mock_session)
 
     with patch("empla.services.employee_manager.httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=RuntimeError("unexpected"))
+        mock_client.get = AsyncMock(side_effect=httpx.TooManyRedirects("Too many redirects"))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
@@ -1011,7 +1011,7 @@ async def test_start_employee_cleans_up_on_commit_failure(
     mock_session: AsyncMock,
     mock_db_employee: Mock,
 ):
-    """Test subprocess is terminated if DB commit fails after spawn."""
+    """Test subprocess is terminated and waited on if DB commit fails after spawn."""
     _setup_session_with_employee(mock_session, mock_db_employee)
     proc = _mock_popen()
     mock_popen_cls.return_value = proc
@@ -1021,6 +1021,7 @@ async def test_start_employee_cleans_up_on_commit_failure(
         await manager.start_employee(employee_id, tenant_id, mock_session)
 
     proc.terminate.assert_called_once()
+    proc.wait.assert_called_once_with(timeout=5)
     assert employee_id not in manager._processes
     assert employee_id not in manager._health_ports
     assert employee_id not in manager._tenant_ids

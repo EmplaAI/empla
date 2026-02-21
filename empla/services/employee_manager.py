@@ -184,7 +184,14 @@ class EmployeeManager:
                     exc_info=True,
                     extra={"employee_id": str(employee_id), "pid": proc.pid},
                 )
-                proc.terminate()
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                except (ProcessLookupError, OSError):
+                    pass  # Already exited
                 self._processes.pop(employee_id, None)
                 self._health_ports.pop(employee_id, None)
                 self._tenant_ids.pop(employee_id, None)
@@ -445,7 +452,7 @@ class EmployeeManager:
                 f"Health check timed out for employee {employee_id} on port {port}",
                 extra={"employee_id": str(employee_id), "health_port": port},
             )
-        except Exception:
+        except httpx.HTTPError:
             logger.warning(
                 f"Health check failed for employee {employee_id} on port {port}",
                 exc_info=True,

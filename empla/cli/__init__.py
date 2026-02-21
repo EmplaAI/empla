@@ -7,7 +7,7 @@ Usage:
     python -m empla.cli employee start <employee-id> --tenant-id UUID
     python -m empla.cli employee stop <employee-id> --tenant-id UUID
     python -m empla.cli employee status <employee-id> --tenant-id UUID
-    python -m empla.cli employee list
+    python -m empla.cli employee list --tenant-id UUID
 """
 
 from __future__ import annotations
@@ -63,7 +63,11 @@ async def _start_employee(args: argparse.Namespace) -> None:
 
 
 async def _stop_employee(args: argparse.Namespace) -> None:
-    """Stop a running employee."""
+    """Stop a running employee.
+
+    Note: args.tenant_id is accepted for CLI consistency but not forwarded
+    to stop_employee — the manager already tracks tenant_id from start.
+    """
     session_factory, engine = _get_session_factory()
     manager = get_employee_manager()
 
@@ -116,7 +120,10 @@ async def _status_employee(args: argparse.Namespace) -> None:
             "is_paused": db_employee.status == "paused",
         }
 
-        # Probe health endpoint if manager knows the port
+        # Probe health endpoint if manager knows the port.
+        # Note: in a standalone CLI process, _health_ports is empty —
+        # health probing only works when the CLI runs in the API server
+        # process. Use the /employees/{id}/health API endpoint instead.
         manager = get_employee_manager()
         port = manager.get_health_port(args.employee_id)
         if port is not None:
@@ -133,7 +140,7 @@ async def _status_employee(args: argparse.Namespace) -> None:
         await engine.dispose()
 
 
-async def _list_employees(_args: argparse.Namespace) -> None:
+async def _list_employees(args: argparse.Namespace) -> None:
     """List running employees (active and paused) from the database."""
     session_factory, engine = _get_session_factory()
 
@@ -145,6 +152,7 @@ async def _list_employees(_args: argparse.Namespace) -> None:
         async with session_factory() as session:
             result = await session.execute(
                 select(EmployeeModel).where(
+                    EmployeeModel.tenant_id == args.tenant_id,
                     EmployeeModel.status.in_(["active", "paused"]),
                     EmployeeModel.deleted_at.is_(None),
                 )
@@ -193,6 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # list
     list_p = emp_sub.add_parser("list", help="List active employees")
+    list_p.add_argument("--tenant-id", type=UUID, required=True, help="Tenant UUID")
     list_p.set_defaults(func=_list_employees)
 
     return parser

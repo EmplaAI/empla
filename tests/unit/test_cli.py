@@ -55,10 +55,19 @@ def test_parser_status_command():
 
 def test_parser_list_command():
     """Test parsing list command."""
+    tid = str(uuid4())
     parser = build_parser()
-    args = parser.parse_args(["employee", "list"])
+    args = parser.parse_args(["employee", "list", "--tenant-id", tid])
     assert args.command == "employee"
     assert args.action == "list"
+    assert str(args.tenant_id) == tid
+
+
+def test_parser_list_requires_tenant_id():
+    """Test list command requires --tenant-id."""
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["employee", "list"])
 
 
 def test_parser_invalid_uuid_raises():
