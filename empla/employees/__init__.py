@@ -87,6 +87,9 @@ from empla.employees.personality import (
     Verbosity,
 )
 
+# Registry
+from empla.employees.registry import get_employee_class, get_supported_roles
+
 # Pre-built employees
 from empla.employees.sales_ae import SalesAE
 
@@ -94,24 +97,18 @@ from empla.employees.sales_ae import SalesAE
 CSM = CustomerSuccessManager
 
 __all__ = [
-    "CSM",  # Alias
-    # Default goals
+    "CSM",
     "CSM_DEFAULT_GOALS",
-    # Pre-built personalities
     "CSM_PERSONALITY",
     "PM_DEFAULT_GOALS",
     "PM_PERSONALITY",
     "SALES_AE_DEFAULT_GOALS",
     "SALES_AE_PERSONALITY",
-    # Personality
     "CommunicationStyle",
     "CustomerSuccessManager",
     "DecisionStyle",
-    # Base classes
     "DigitalEmployee",
-    # Configuration
     "EmployeeConfig",
-    # Exceptions
     "EmployeeConfigError",
     "EmployeeError",
     "EmployeeNotStartedError",
@@ -124,8 +121,9 @@ __all__ = [
     "LoopSettings",
     "MemorySystem",
     "Personality",
-    # Pre-built employees
     "SalesAE",
     "Tone",
     "Verbosity",
+    "get_employee_class",
+    "get_supported_roles",
 ]

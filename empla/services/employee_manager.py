@@ -1,61 +1,59 @@
 """
 empla.services.employee_manager - Employee Runtime Manager
 
-Singleton service that manages running digital employee instances.
-Handles start, stop, pause, resume operations.
+Manages digital employee processes. Each employee runs as an independent
+subprocess via ``python -m empla.runner``. The API server is the *control
+plane* (lifecycle, routing, monitoring), NOT the execution plane.
+
+Pause/resume is DB-only: the manager writes status to the DB and the
+employee subprocess reads it each cycle (pause-via-DB pattern).
 """
 
 import asyncio
-import contextlib
 import logging
+import signal
+import subprocess
+import sys
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+import httpx
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from empla.employees import CustomerSuccessManager, SalesAE
-from empla.employees.base import DigitalEmployee
-from empla.employees.config import EmployeeConfig
+from empla.employees.registry import get_employee_class, get_supported_roles
 from empla.models.employee import Employee as EmployeeModel
 
 logger = logging.getLogger(__name__)
 
-# Circuit breaker settings for employee loop errors
-MAX_CONSECUTIVE_ERRORS = 5
-ERROR_BACKOFF_SECONDS = 30
+# Base port for employee health servers. Ports are allocated sequentially
+# starting from this value (9100, 9101, 9102, ...). Ports are never
+# reclaimed — monotonically increasing. Acceptable for the current
+# process-per-container model where restarts are infrequent.
+_HEALTH_PORT_BASE = 9100
+
+# Timeout in seconds for subprocess graceful shutdown before SIGKILL.
+_STOP_TIMEOUT_SECONDS = 30
 
 
 class UnsupportedRoleError(ValueError):
     """Raised when attempting to start an employee with an unsupported role."""
 
 
-# Map role strings to employee classes
-EMPLOYEE_CLASSES: dict[str, type[DigitalEmployee]] = {
-    "sales_ae": SalesAE,
-    "csm": CustomerSuccessManager,
-}
-
-
 class EmployeeManager:
     """
-    Singleton manager for running employee instances.
+    Singleton manager for employee subprocesses.
 
-    Provides:
-    - Start/stop/pause/resume employee lifecycle
-    - Track running instances
-    - Get runtime status
-
-    Usage:
-        manager = get_employee_manager()
-        await manager.start_employee(employee_id, tenant_id, db)
-        status = manager.get_status(employee_id)
-        await manager.stop_employee(employee_id)
+    Lifecycle:
+        start_employee  → spawns ``python -m empla.runner`` subprocess
+        stop_employee   → sends SIGTERM, waits, SIGKILL if needed
+        pause_employee  → writes status='paused' to DB (subprocess reads it)
+        resume_employee → writes status='active' to DB
+        get_status      → checks if subprocess is alive (local only)
     """
 
     _instance: "EmployeeManager | None" = None
-    # Initialize lock at class level to avoid race condition during lazy init
     _lock: asyncio.Lock = asyncio.Lock()
 
     def __new__(cls) -> "EmployeeManager":
@@ -66,17 +64,24 @@ class EmployeeManager:
         return cls._instance
 
     def __init__(self) -> None:
-        """Initialize manager state."""
         if getattr(self, "_initialized", False):
             return
 
-        self._instances: dict[UUID, DigitalEmployee] = {}
-        self._tasks: dict[UUID, asyncio.Task[None]] = {}
-        self._paused: set[UUID] = set()
-        self._error_states: dict[UUID, str] = {}  # Track last error per employee
-        self._initialized = True
+        # Subprocess tracking
+        self._processes: dict[UUID, subprocess.Popen[bytes]] = {}
+        self._health_ports: dict[UUID, int] = {}
+        self._tenant_ids: dict[UUID, UUID] = {}
+        self._next_health_port: int = _HEALTH_PORT_BASE
 
-        logger.info("EmployeeManager initialized")
+        # Error tracking (populated when we detect a process crashed)
+        self._error_states: dict[UUID, str] = {}
+
+        self._initialized = True
+        logger.info("EmployeeManager initialized (subprocess backend)")
+
+    # =========================================================================
+    # Lifecycle
+    # =========================================================================
 
     async def start_employee(
         self,
@@ -85,25 +90,21 @@ class EmployeeManager:
         session: AsyncSession,
     ) -> dict[str, Any]:
         """
-        Start a digital employee.
+        Start a digital employee as a subprocess.
 
-        Args:
-            employee_id: UUID of the employee to start
-            tenant_id: UUID of the tenant (enforces tenant isolation)
-            session: Database session for fetching employee data
-
-        Returns:
-            Status dictionary with employee info
-
-        Raises:
-            ValueError: If employee not found
-            UnsupportedRoleError: If role is not supported
-            RuntimeError: If employee is already running
+        Validates the employee exists and has a supported role, spawns
+        ``python -m empla.runner``, and updates DB status to ``active``.
         """
         async with self._lock:
             # Check if already running
-            if employee_id in self._instances:
-                raise RuntimeError(f"Employee {employee_id} is already running")
+            if employee_id in self._processes:
+                proc = self._processes[employee_id]
+                if proc.poll() is None:
+                    raise RuntimeError(f"Employee {employee_id} is already running")
+                # Process exited — clean up stale entry
+                self._processes.pop(employee_id, None)
+                self._health_ports.pop(employee_id, None)
+                self._tenant_ids.pop(employee_id, None)
 
             # Fetch employee from database with tenant isolation
             result = await session.execute(
@@ -118,120 +119,59 @@ class EmployeeManager:
             if db_employee is None:
                 raise ValueError(f"Employee {employee_id} not found")
 
-            # Get employee class for role
-            employee_class = EMPLOYEE_CLASSES.get(db_employee.role)
+            # Validate role
+            employee_class = get_employee_class(db_employee.role)
             if employee_class is None:
                 raise UnsupportedRoleError(
                     f"Unsupported role '{db_employee.role}'. "
-                    f"Supported roles: {list(EMPLOYEE_CLASSES.keys())}"
+                    f"Supported roles: {get_supported_roles()}"
                 )
 
-            # Create employee config from database record
-            config = EmployeeConfig(
-                name=db_employee.name,
-                role=db_employee.role,
-                email=db_employee.email,
-                tenant_id=db_employee.tenant_id,
-                capabilities=db_employee.capabilities,
+            # Allocate health port
+            health_port = self._next_health_port
+            self._next_health_port += 1
+
+            # Spawn subprocess
+            cmd = [
+                sys.executable,
+                "-m",
+                "empla.runner",
+                "--employee-id",
+                str(employee_id),
+                "--tenant-id",
+                str(tenant_id),
+                "--health-port",
+                str(health_port),
+            ]
+
+            logger.info(
+                f"Spawning employee subprocess: {employee_id} on port {health_port}",
+                extra={"employee_id": str(employee_id), "health_port": health_port},
             )
 
-            # Create employee instance
-            employee = employee_class(config)
+            proc = subprocess.Popen(  # noqa: ASYNC220
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
 
-            # Start employee (non-blocking)
-            logger.info(f"Starting employee {employee_id} ({db_employee.name})")
-            await employee.start(run_loop=False)
-
-            # Store instance
-            self._instances[employee_id] = employee
-
-            # Start the loop in background
-            task = asyncio.create_task(self._run_employee_loop(employee_id, employee))
-            self._tasks[employee_id] = task
+            self._processes[employee_id] = proc
+            self._health_ports[employee_id] = health_port
+            self._tenant_ids[employee_id] = tenant_id
+            self._error_states.pop(employee_id, None)
 
             # Update database status
-            # Only set activated_at on first transition into "active"
             if db_employee.status != "active":
                 db_employee.activated_at = datetime.now(UTC)
             db_employee.status = "active"
             await session.commit()
 
-            logger.info(f"Employee {employee_id} started successfully")
+            logger.info(
+                f"Employee {employee_id} subprocess started (pid={proc.pid})",
+                extra={"employee_id": str(employee_id), "pid": proc.pid},
+            )
 
             return self.get_status(employee_id)
-
-    async def _run_employee_loop(
-        self,
-        employee_id: UUID,
-        employee: DigitalEmployee,
-    ) -> None:
-        """
-        Run the employee's proactive loop in background.
-
-        This task runs until the employee is stopped.
-        Implements circuit breaker pattern to stop on repeated failures.
-        """
-        consecutive_errors = 0
-
-        try:
-            while employee.is_running and employee_id in self._instances:
-                # Check if paused
-                if employee_id in self._paused:
-                    await asyncio.sleep(1)
-                    continue
-
-                # Run one cycle with circuit breaker pattern
-                try:
-                    await employee.run_once()
-                    consecutive_errors = 0  # Reset on success
-                except asyncio.CancelledError:
-                    raise  # Let cancellation propagate
-                except Exception as e:
-                    consecutive_errors += 1
-                    logger.error(
-                        f"Error in employee {employee_id} cycle "
-                        f"(attempt {consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}",
-                        exc_info=True,
-                        extra={
-                            "employee_id": str(employee_id),
-                            "error_type": type(e).__name__,
-                            "consecutive_errors": consecutive_errors,
-                        },
-                    )
-
-                    # Circuit breaker: stop loop after too many consecutive errors
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                        logger.error(
-                            f"Employee {employee_id} exceeded max consecutive errors "
-                            f"({MAX_CONSECUTIVE_ERRORS}), stopping loop",
-                            extra={"employee_id": str(employee_id)},
-                        )
-                        # Mark as in error state but keep instance for status reporting
-                        self._error_states[employee_id] = str(e)
-                        break
-
-                    # Back off on errors
-                    await asyncio.sleep(ERROR_BACKOFF_SECONDS)
-                    continue
-
-                # Wait before next cycle
-                await asyncio.sleep(employee.config.loop.cycle_interval_seconds)
-
-        except asyncio.CancelledError:
-            logger.info(f"Employee {employee_id} loop cancelled")
-        except Exception as e:
-            logger.error(
-                f"Employee {employee_id} loop failed with unexpected error: {e}",
-                exc_info=True,
-                extra={"employee_id": str(employee_id)},
-            )
-            self._error_states[employee_id] = str(e)
-        finally:
-            # Clean up under lock to avoid race conditions
-            async with self._lock:
-                self._instances.pop(employee_id, None)
-                self._tasks.pop(employee_id, None)
-                self._paused.discard(employee_id)
 
     async def stop_employee(
         self,
@@ -239,139 +179,156 @@ class EmployeeManager:
         session: AsyncSession | None = None,
     ) -> dict[str, Any]:
         """
-        Stop a running employee.
+        Stop a running employee subprocess.
 
-        Args:
-            employee_id: UUID of the employee to stop
-            session: Optional database session to update status
-
-        Returns:
-            Final status dictionary
-
-        Raises:
-            ValueError: If employee is not running
+        Sends SIGTERM for graceful shutdown, waits up to ``_STOP_TIMEOUT_SECONDS``,
+        then sends SIGKILL if the process hasn't exited.
         """
         async with self._lock:
-            if employee_id not in self._instances:
+            if employee_id not in self._processes:
                 raise ValueError(f"Employee {employee_id} is not running")
 
-            employee = self._instances[employee_id]
+            proc = self._processes[employee_id]
             status = self.get_status(employee_id)
 
-            # Capture tenant_id before cleanup for DB update with tenant isolation
-            tenant_id = employee.config.tenant_id
+            logger.info(
+                f"Stopping employee {employee_id} (pid={proc.pid})",
+                extra={"employee_id": str(employee_id)},
+            )
 
-            logger.info(f"Stopping employee {employee_id}")
+            # Send SIGTERM for graceful shutdown
+            if proc.poll() is None:
+                try:
+                    proc.send_signal(signal.SIGTERM)
+                except (ProcessLookupError, OSError) as e:
+                    logger.info(
+                        f"Employee {employee_id} already exited when sending SIGTERM: {e}",
+                        extra={"employee_id": str(employee_id)},
+                    )
 
-            # Cancel the background task
-            if employee_id in self._tasks:
-                task = self._tasks[employee_id]
-                task.cancel()
-                with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                    await asyncio.wait_for(task, timeout=10.0)
+                # Wait for process to exit
+                try:
+                    await asyncio.get_running_loop().run_in_executor(
+                        None,
+                        proc.wait,
+                        _STOP_TIMEOUT_SECONDS,
+                    )
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        f"Employee {employee_id} did not stop within "
+                        f"{_STOP_TIMEOUT_SECONDS}s, sending SIGKILL",
+                        extra={"employee_id": str(employee_id)},
+                    )
+                    proc.kill()
+                    try:
+                        await asyncio.get_running_loop().run_in_executor(None, proc.wait, 5)
+                    except subprocess.TimeoutExpired:
+                        logger.critical(
+                            f"Employee {employee_id} (pid={proc.pid}) did not exit "
+                            "after SIGKILL — process may be a zombie",
+                            extra={"employee_id": str(employee_id), "pid": proc.pid},
+                        )
 
-            # Stop the employee
-            await employee.stop()
+            # Grab tenant_id before cleanup
+            tid = self._tenant_ids.get(employee_id)
 
             # Clean up
-            self._instances.pop(employee_id, None)
-            self._tasks.pop(employee_id, None)
-            self._paused.discard(employee_id)
+            self._processes.pop(employee_id, None)
+            self._health_ports.pop(employee_id, None)
+            self._tenant_ids.pop(employee_id, None)
             self._error_states.pop(employee_id, None)
 
             # Update database if session provided
-            # Note: Setting status to "stopped" (can be restarted, vs "terminated" = permanent)
-            if session:
-                result = await session.execute(
-                    select(EmployeeModel).where(
+            if session and tid:
+                await session.execute(
+                    update(EmployeeModel)
+                    .where(
                         EmployeeModel.id == employee_id,
-                        EmployeeModel.tenant_id == tenant_id,
+                        EmployeeModel.tenant_id == tid,
                     )
+                    .values(status="stopped")
                 )
-                db_employee = result.scalar_one_or_none()
-                if db_employee:
-                    db_employee.status = "stopped"
-                    await session.commit()
+                await session.commit()
 
             logger.info(f"Employee {employee_id} stopped")
 
             status["is_running"] = False
             return status
 
-    async def pause_employee(self, employee_id: UUID) -> dict[str, Any]:
+    async def pause_employee(
+        self,
+        employee_id: UUID,
+        session: AsyncSession,
+    ) -> dict[str, Any]:
         """
-        Pause a running employee.
+        Pause a running employee by setting DB status to 'paused'.
 
-        Paused employees remain in memory but don't execute cycles.
-
-        Args:
-            employee_id: UUID of the employee to pause
-
-        Returns:
-            Status dictionary
-
-        Raises:
-            ValueError: If employee is not running or already paused
+        The subprocess reads its status from DB each cycle and will
+        sleep-and-recheck when it sees 'paused'.
         """
         async with self._lock:
-            if employee_id not in self._instances:
+            if employee_id not in self._processes:
                 raise ValueError(f"Employee {employee_id} is not running")
+            if self._processes[employee_id].poll() is not None:
+                raise ValueError(f"Employee {employee_id} process has exited")
 
-            if employee_id in self._paused:
-                raise ValueError(f"Employee {employee_id} is already paused")
+            tid = self._tenant_ids.get(employee_id)
+            where_clause = [EmployeeModel.id == employee_id]
+            if tid:
+                where_clause.append(EmployeeModel.tenant_id == tid)
 
-            self._paused.add(employee_id)
-            logger.info(f"Employee {employee_id} paused")
+            await session.execute(
+                update(EmployeeModel).where(*where_clause).values(status="paused")
+            )
+            await session.commit()
+
+            logger.info(f"Employee {employee_id} paused (DB status updated)")
 
             return self.get_status(employee_id)
 
-    async def resume_employee(self, employee_id: UUID) -> dict[str, Any]:
+    async def resume_employee(
+        self,
+        employee_id: UUID,
+        session: AsyncSession,
+    ) -> dict[str, Any]:
         """
-        Resume a paused employee.
-
-        Args:
-            employee_id: UUID of the employee to resume
-
-        Returns:
-            Status dictionary
-
-        Raises:
-            ValueError: If employee is not running or not paused
+        Resume a paused employee by setting DB status to 'active'.
         """
         async with self._lock:
-            if employee_id not in self._instances:
+            if employee_id not in self._processes:
                 raise ValueError(f"Employee {employee_id} is not running")
+            if self._processes[employee_id].poll() is not None:
+                raise ValueError(f"Employee {employee_id} process has exited")
 
-            if employee_id not in self._paused:
-                raise ValueError(f"Employee {employee_id} is not paused")
+            tid = self._tenant_ids.get(employee_id)
+            where_clause = [EmployeeModel.id == employee_id]
+            if tid:
+                where_clause.append(EmployeeModel.tenant_id == tid)
 
-            self._paused.discard(employee_id)
-            logger.info(f"Employee {employee_id} resumed")
+            await session.execute(
+                update(EmployeeModel).where(*where_clause).values(status="active")
+            )
+            await session.commit()
+
+            logger.info(f"Employee {employee_id} resumed (DB status updated)")
 
             return self.get_status(employee_id)
+
+    # =========================================================================
+    # Status
+    # =========================================================================
 
     def get_status(self, employee_id: UUID) -> dict[str, Any]:
         """
         Get runtime status for an employee.
 
-        Args:
-            employee_id: UUID of the employee
-
-        Returns:
-            Status dictionary with:
-            - id: Employee ID
-            - name: Employee name
-            - role: Employee role
-            - is_running: Whether instance exists in memory
-            - is_paused: Whether execution is paused
-            - has_error: Whether employee stopped due to error
-            - last_error: Last error message (if any)
-            - started_at: When started
-            - cycle_count: Number of cycles run (if available)
+        Checks whether the subprocess is alive. Returns process metadata
+        (pid, health_port) for live processes; captures stderr for crashed
+        processes. Use ``get_health()`` to poll the subprocess health endpoint.
         """
         error_state = self._error_states.get(employee_id)
 
-        if employee_id not in self._instances:
+        if employee_id not in self._processes:
             return {
                 "id": str(employee_id),
                 "is_running": False,
@@ -380,54 +337,119 @@ class EmployeeManager:
                 "last_error": error_state,
             }
 
-        employee = self._instances[employee_id]
-        base_status = employee.get_status()
+        proc = self._processes[employee_id]
+        alive = proc.poll() is None
+
+        if not alive:
+            # Process exited — capture stderr if available
+            returncode = proc.returncode
+            if returncode and returncode != 0:
+                stderr_output = ""
+                if proc.stderr:
+                    try:
+                        raw = proc.stderr.read(500)
+                        stderr_output = raw.decode("utf-8", errors="replace")
+                    except Exception:
+                        stderr_output = "(stderr read failed)"
+                self._error_states[employee_id] = (
+                    f"Process exited with code {returncode}: {stderr_output}"
+                )
+            # Clean up stale entry
+            self._processes.pop(employee_id, None)
+            self._health_ports.pop(employee_id, None)
+            self._tenant_ids.pop(employee_id, None)
+            error_state = self._error_states.get(employee_id)
+            return {
+                "id": str(employee_id),
+                "is_running": False,
+                "is_paused": False,
+                "has_error": error_state is not None,
+                "last_error": error_state,
+            }
 
         return {
             "id": str(employee_id),
-            "name": base_status.get("name"),
-            "role": base_status.get("role"),
-            "email": base_status.get("email"),
             "is_running": True,
-            "is_paused": employee_id in self._paused,
-            "has_error": error_state is not None,
-            "last_error": error_state,
-            "started_at": base_status.get("started_at"),
-            "capabilities": base_status.get("capabilities"),
+            "is_paused": False,  # Pause state is in DB, not tracked here
+            "has_error": False,
+            "last_error": None,
+            "pid": proc.pid,
+            "health_port": self._health_ports.get(employee_id),
         }
 
-    def list_running(self) -> list[UUID]:
+    async def get_health(self, employee_id: UUID) -> dict[str, Any] | None:
         """
-        Get list of running employee IDs.
+        Poll the health endpoint of an employee subprocess.
 
         Returns:
-            List of UUIDs for all running employees
+            Health data dict, or None if unreachable.
         """
-        return list(self._instances.keys())
+        port = self._health_ports.get(employee_id)
+        if port is None:
+            return None
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"http://127.0.0.1:{port}/health",
+                    timeout=5.0,
+                )
+                if resp.status_code == 200:
+                    return resp.json()  # type: ignore[no-any-return]
+                logger.warning(
+                    f"Health check returned {resp.status_code} for employee {employee_id}",
+                    extra={"employee_id": str(employee_id), "status_code": resp.status_code},
+                )
+        except httpx.ConnectError:
+            logger.warning(
+                f"Health check connection refused for employee {employee_id} on port {port}",
+                extra={"employee_id": str(employee_id), "health_port": port},
+            )
+        except httpx.TimeoutException:
+            logger.warning(
+                f"Health check timed out for employee {employee_id} on port {port}",
+                extra={"employee_id": str(employee_id), "health_port": port},
+            )
+        except Exception:
+            logger.warning(
+                f"Health check failed for employee {employee_id} on port {port}",
+                exc_info=True,
+                extra={"employee_id": str(employee_id), "health_port": port},
+            )
+        return None
+
+    def list_running(self) -> list[UUID]:
+        """Get list of running employee IDs."""
+        # Prune dead processes via get_status (captures crash data)
+        dead = [eid for eid, proc in self._processes.items() if proc.poll() is not None]
+        for eid in dead:
+            self.get_status(eid)
+        return list(self._processes.keys())
 
     def is_running(self, employee_id: UUID) -> bool:
-        """Check if an employee is currently running."""
-        return employee_id in self._instances
+        """Check if an employee subprocess is currently alive."""
+        if employee_id not in self._processes:
+            return False
+        return self._processes[employee_id].poll() is None
 
-    def is_paused(self, employee_id: UUID) -> bool:
-        """Check if an employee is currently paused."""
-        return employee_id in self._paused
+    def get_health_port(self, employee_id: UUID) -> int | None:
+        """Get the health check port for a running employee."""
+        return self._health_ports.get(employee_id)
 
-    async def stop_all(self) -> dict[str, list[UUID]]:
+    async def stop_all(self, session: AsyncSession | None = None) -> dict[str, list[UUID]]:
         """
         Stop all running employees.
 
         Returns:
             Dictionary with 'stopped' and 'failed' lists of employee IDs.
-            Callers should check 'failed' to handle partial failures.
         """
-        employee_ids = list(self._instances.keys())
+        employee_ids = list(self._processes.keys())
         stopped: list[UUID] = []
         failed: list[UUID] = []
 
         for employee_id in employee_ids:
             try:
-                await self.stop_employee(employee_id)
+                await self.stop_employee(employee_id, session)
                 stopped.append(employee_id)
             except Exception as e:
                 logger.error(
@@ -444,6 +466,11 @@ class EmployeeManager:
             )
 
         return {"stopped": stopped, "failed": failed}
+
+    @classmethod
+    def reset_singleton(cls) -> None:
+        """Reset the singleton (for testing only)."""
+        cls._instance = None
 
 
 def get_employee_manager() -> EmployeeManager:

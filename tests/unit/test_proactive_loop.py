@@ -634,3 +634,141 @@ async def test_loop_stops_promptly_after_error(proactive_loop, mock_beliefs):
 
     # Verify it stopped quickly and didn't wait for full error_backoff_interval (1s)
     assert stop_duration < 0.5, f"Loop took {stop_duration}s to stop, should be < 0.5s"
+
+
+# ============================================================================
+# Test: Pause-via-DB
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_loop_pauses_when_status_set_to_paused(mock_employee, mock_beliefs, mock_goals):
+    """Test loop sleeps instead of exiting when employee.status is 'paused'."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    cycle_ran = False
+
+    async def set_paused_then_active(employee):
+        """After one real cycle, pause, then resume."""
+        nonlocal cycle_ran
+        if not cycle_ran:
+            # First call: let the cycle run normally (status is "active")
+            return
+        # After first cycle ran, set to paused briefly then back to active
+        employee.status = "paused"
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1, error_backoff_seconds=1),
+        status_checker=set_paused_then_active,
+    )
+
+    loop_task = asyncio.create_task(loop.start())
+
+    # Let the first cycle run
+    await asyncio.sleep(0.3)
+    cycle_ran = True
+
+    # Loop should still be running (paused, not exited)
+    assert loop.is_running
+    assert loop.cycle_count >= 1
+
+    # Resume by setting active and stop
+    mock_employee.status = "active"
+    await asyncio.sleep(0.2)
+    await loop.stop()
+    await loop_task
+
+
+@pytest.mark.asyncio
+async def test_loop_exits_on_stopped_status(mock_employee, mock_beliefs, mock_goals):
+    """Test loop exits when employee.status becomes 'stopped'."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1, error_backoff_seconds=1),
+    )
+
+    loop_task = asyncio.create_task(loop.start())
+    await asyncio.sleep(0.2)
+
+    # Set status to "stopped" — loop should exit
+    mock_employee.status = "stopped"
+    await asyncio.wait_for(loop_task, timeout=2.0)
+
+    assert not loop.is_running
+
+
+@pytest.mark.asyncio
+async def test_status_checker_callback_is_called(mock_employee, mock_beliefs, mock_goals):
+    """Test that the status_checker callback is invoked each cycle."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    checker_calls = 0
+
+    async def counting_checker(employee):
+        nonlocal checker_calls
+        checker_calls += 1
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1, error_backoff_seconds=1),
+        status_checker=counting_checker,
+    )
+
+    loop_task = asyncio.create_task(loop.start())
+    await asyncio.sleep(0.5)
+    await loop.stop()
+    await loop_task
+
+    # Checker should have been called at least once per cycle
+    assert checker_calls >= loop.cycle_count
+
+
+@pytest.mark.asyncio
+async def test_status_checker_failure_does_not_kill_loop(mock_employee, mock_beliefs, mock_goals):
+    """Test that status_checker exceptions are caught and the loop continues."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    call_count = 0
+
+    async def failing_checker(employee):
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("DB connection failed")
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1, error_backoff_seconds=1),
+        status_checker=failing_checker,
+    )
+
+    loop_task = asyncio.create_task(loop.start())
+    await asyncio.sleep(0.5)
+    await loop.stop()
+    await loop_task
+
+    # Loop should have survived the failing checker and run cycles
+    assert loop.cycle_count >= 1
+    assert call_count >= 1
