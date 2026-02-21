@@ -356,6 +356,52 @@ class SimulatedMetricsSystem:
         self.__init__()
 
 
+class SimulatedWorkspaceSystem:
+    """In-memory simulated filesystem for workspace capability."""
+
+    def __init__(self):
+        self.files: dict[str, str] = {}  # path -> content
+
+    def write_file(self, path: str, content: str) -> int:
+        """Write content to a path, return size in bytes."""
+        self.files[path] = content
+        return len(content.encode("utf-8"))
+
+    def read_file(self, path: str) -> str | None:
+        """Read file content, or None if not found."""
+        return self.files.get(path)
+
+    def delete_file(self, path: str) -> bool:
+        """Delete a file, return True if it existed."""
+        if path in self.files:
+            del self.files[path]
+            return True
+        return False
+
+    def list_directory(self, prefix: str) -> list[str]:
+        """List files under a prefix."""
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
+        return [p for p in self.files if p.startswith(prefix) or not prefix]
+
+    def search(self, query: str) -> list[dict[str, Any]]:
+        """Search file contents for a query string."""
+        matches: list[dict[str, Any]] = []
+        for path, content in self.files.items():
+            for i, line in enumerate(content.splitlines(), 1):
+                if query.lower() in line.lower():
+                    matches.append({"path": path, "line": i, "context": line.strip()})
+        return matches
+
+    @property
+    def total_files(self) -> int:
+        return len(self.files)
+
+    @property
+    def total_size_bytes(self) -> int:
+        return sum(len(c.encode("utf-8")) for c in self.files.values())
+
+
 class SimulatedEnvironment:
     """
     Complete simulated environment for E2E testing.
@@ -389,6 +435,7 @@ class SimulatedEnvironment:
         self.email = SimulatedEmailSystem()
         self.calendar = SimulatedCalendarSystem()
         self.crm = SimulatedCRMSystem()
+        self.workspace = SimulatedWorkspaceSystem()
         self.metrics = SimulatedMetricsSystem()
 
     def reset(self) -> None:
@@ -414,6 +461,10 @@ class SimulatedEnvironment:
                 "pipeline_coverage": self.crm.get_pipeline_coverage(),
                 "customers": len(self.crm.customers),
                 "at_risk_customers": len(self.crm.get_at_risk_customers()),
+            },
+            "workspace": {
+                "total_files": self.workspace.total_files,
+                "total_size_bytes": self.workspace.total_size_bytes,
             },
             "metrics": {
                 "goals_created": self.metrics.goals_created,

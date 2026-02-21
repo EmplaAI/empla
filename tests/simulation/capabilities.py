@@ -17,6 +17,7 @@ and proactive loop as production - only the "outside world" is simulated.
 
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -27,6 +28,7 @@ from empla.capabilities.base import (
     CAPABILITY_CALENDAR,
     CAPABILITY_CRM,
     CAPABILITY_EMAIL,
+    CAPABILITY_WORKSPACE,
     Action,
     ActionResult,
     BaseCapability,
@@ -794,6 +796,124 @@ class SimulatedCRMCapability(BaseCapability):
         )
 
 
+class SimulatedWorkspaceCapability(BaseCapability):
+    """
+    Simulated workspace capability that uses in-memory storage.
+
+    Delegates file operations to SimulatedWorkspaceSystem instead of real filesystem.
+    Note: perceive() is a no-op stub that always returns an empty list. Stale draft
+    detection, new file detection, and capacity monitoring are not simulated.
+    """
+
+    def __init__(
+        self,
+        tenant_id: UUID,
+        employee_id: UUID,
+        config: CapabilityConfig,
+        environment: SimulatedEnvironment,
+    ):
+        super().__init__(tenant_id, employee_id, config)
+        self.environment = environment
+
+    @property
+    def capability_type(self) -> str:
+        return CAPABILITY_WORKSPACE
+
+    async def initialize(self) -> None:
+        self._initialized = True
+        logger.info(f"Simulated workspace capability initialized for employee {self.employee_id}")
+
+    async def perceive(self) -> list[Observation]:
+        if not self._initialized:
+            return []
+        return []
+
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        operation = action.operation
+        params = action.parameters
+        ws = self.environment.workspace
+
+        if operation == "write_file":
+            size = ws.write_file(params["path"], params["content"])
+            return ActionResult(
+                success=True,
+                output={"path": params["path"], "size_bytes": size},
+            )
+
+        if operation == "read_file":
+            content = ws.read_file(params["path"])
+            if content is None:
+                return ActionResult(success=False, error=f"File not found: {params['path']}")
+            return ActionResult(
+                success=True,
+                output={
+                    "content": content,
+                    "size_bytes": len(content.encode("utf-8")),
+                    "modified_at": datetime.now(UTC).isoformat(),
+                },
+            )
+
+        if operation == "delete_file":
+            deleted = ws.delete_file(params["path"])
+            if not deleted:
+                return ActionResult(success=False, error=f"File not found: {params['path']}")
+            return ActionResult(success=True, output={"deleted": True})
+
+        if operation == "move_file":
+            if params["from"] == params["to"]:
+                return ActionResult(success=False, error="Source and destination are the same")
+            content = ws.read_file(params["from"])
+            if content is None:
+                return ActionResult(success=False, error=f"Source not found: {params['from']}")
+            if ws.read_file(params["to"]) is not None:
+                return ActionResult(
+                    success=False, error=f"Destination already exists: {params['to']}"
+                )
+            ws.write_file(params["to"], content)
+            if not ws.delete_file(params["from"]):
+                return ActionResult(
+                    success=False, error=f"Failed to remove source: {params['from']}"
+                )
+            return ActionResult(success=True, output={"new_path": params["to"]})
+
+        if operation == "list_directory":
+            files = ws.list_directory(params.get("path", ""))
+            return ActionResult(
+                success=True,
+                output={
+                    "files": [
+                        {
+                            "name": Path(f).name,
+                            "size_bytes": len(ws.files[f].encode("utf-8")) if f in ws.files else 0,
+                            "modified_at": datetime.now(UTC).isoformat(),
+                            "is_dir": False,
+                        }
+                        for f in files
+                    ]
+                },
+            )
+
+        if operation == "search_files":
+            matches = ws.search(params["query"])
+            return ActionResult(
+                success=True,
+                output={"matches": matches, "total": len(matches)},
+            )
+
+        if operation == "get_workspace_status":
+            return ActionResult(
+                success=True,
+                output={
+                    "total_files": ws.total_files,
+                    "total_size_mb": round(ws.total_size_bytes / (1024 * 1024), 2),
+                    "max_size_mb": 500,
+                    "recent_changes": [],
+                },
+            )
+
+        return ActionResult(success=False, error=f"Unknown operation: {operation}")
+
+
 def get_simulated_capabilities(
     tenant_id: UUID,
     employee_id: UUID,
@@ -813,7 +933,12 @@ def get_simulated_capabilities(
         Dict mapping capability types to capability instances
     """
     if enabled_capabilities is None:
-        enabled_capabilities = [CAPABILITY_EMAIL, CAPABILITY_CALENDAR, CAPABILITY_CRM]
+        enabled_capabilities = [
+            CAPABILITY_EMAIL,
+            CAPABILITY_CALENDAR,
+            CAPABILITY_CRM,
+            CAPABILITY_WORKSPACE,
+        ]
 
     capabilities = {}
 
@@ -835,6 +960,14 @@ def get_simulated_capabilities(
 
     if CAPABILITY_CRM in enabled_capabilities:
         capabilities[CAPABILITY_CRM] = SimulatedCRMCapability(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            config=CapabilityConfig(),
+            environment=environment,
+        )
+
+    if CAPABILITY_WORKSPACE in enabled_capabilities:
+        capabilities[CAPABILITY_WORKSPACE] = SimulatedWorkspaceCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,
             config=CapabilityConfig(),

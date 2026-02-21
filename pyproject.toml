@@ -132,6 +132,7 @@ ignore = [
     "ANN401",  # Dynamically typed expressions (Any) are disallowed
     "PLR0913", # Too many arguments to function call
     "PLR2004", # Magic value used in comparison (too strict for simple values like 2)
+    "PLR0911", # Too many return statements (acceptable for dispatch/error-handling methods)
     "PLR0912", # Too many branches (acceptable for complex parsing/validation logic)
     "PLR0915", # Too many statements (acceptable for complex functions)
     "ERA001",  # Commented-out code (sometimes used for documentation)
