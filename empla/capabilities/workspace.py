@@ -164,7 +164,7 @@ class WorkspaceCapability(BaseCapability):
         # Load persisted perception state
         state_file = self._workspace_root / ".state" / "perception.json"
         try:
-            data = await asyncio.to_thread(state_file.read_text)
+            data = await asyncio.to_thread(state_file.read_text, encoding="utf-8")
             self._last_perception_mtimes = json.loads(data)
         except FileNotFoundError:
             pass  # No persisted state — starting fresh
@@ -717,7 +717,9 @@ class WorkspaceCapability(BaseCapability):
             if err:
                 return ActionResult(success=False, error=err)
 
-        def _search() -> list[dict[str, Any]]:
+        max_results = 50
+
+        def _search() -> tuple[list[dict[str, Any]], bool]:
             matches: list[dict[str, Any]] = []
 
             files = list(search_root.rglob(pattern)) if pattern else list(search_root.rglob("*"))
@@ -756,18 +758,22 @@ class WorkspaceCapability(BaseCapability):
                                 "context": line.strip(),
                             }
                         )
-                        if len(matches) >= 50:
-                            return matches
-            return matches
+                        if len(matches) >= max_results:
+                            return matches, True
+            return matches, False
 
         try:
-            results = await asyncio.to_thread(_search)
+            results, truncated = await asyncio.to_thread(_search)
         except OSError as e:
             return ActionResult(success=False, error=f"Error searching files: {e}")
 
         return ActionResult(
             success=True,
-            output={"matches": results, "total": len(results)},
+            output={
+                "matches": results,
+                "total": len(results),
+                "truncated": truncated,
+            },
         )
 
     async def _get_workspace_status(self) -> ActionResult:
@@ -813,7 +819,10 @@ class WorkspaceCapability(BaseCapability):
                 "recent_changes": recent_changes[:20],
             }
 
-        status = await asyncio.to_thread(_status)
+        try:
+            status = await asyncio.to_thread(_status)
+        except OSError as e:
+            return ActionResult(success=False, error=f"Error getting workspace status: {e}")
 
         return ActionResult(success=True, output=status)
 
@@ -829,7 +838,7 @@ class WorkspaceCapability(BaseCapability):
         state_file = self._workspace_root / ".state" / "perception.json"
         try:
             data = json.dumps(self._last_perception_mtimes)
-            await asyncio.to_thread(state_file.write_text, data)
+            await asyncio.to_thread(state_file.write_text, data, encoding="utf-8")
         except (TypeError, ValueError) as e:
             logger.error(
                 "Failed to serialize perception state",

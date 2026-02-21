@@ -17,6 +17,7 @@ and proactive loop as production - only the "outside world" is simulated.
 
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -845,7 +846,11 @@ class SimulatedWorkspaceCapability(BaseCapability):
                 return ActionResult(success=False, error=f"File not found: {params['path']}")
             return ActionResult(
                 success=True,
-                output={"content": content, "size_bytes": len(content.encode("utf-8"))},
+                output={
+                    "content": content,
+                    "size_bytes": len(content.encode("utf-8")),
+                    "modified_at": datetime.now(UTC).isoformat(),
+                },
             )
 
         if operation == "delete_file":
@@ -860,6 +865,10 @@ class SimulatedWorkspaceCapability(BaseCapability):
             content = ws.read_file(params["from"])
             if content is None:
                 return ActionResult(success=False, error=f"Source not found: {params['from']}")
+            if ws.read_file(params["to"]) is not None:
+                return ActionResult(
+                    success=False, error=f"Destination already exists: {params['to']}"
+                )
             ws.write_file(params["to"], content)
             if not ws.delete_file(params["from"]):
                 return ActionResult(
@@ -871,7 +880,17 @@ class SimulatedWorkspaceCapability(BaseCapability):
             files = ws.list_directory(params.get("path", ""))
             return ActionResult(
                 success=True,
-                output={"files": [{"name": f.split("/")[-1], "path": f} for f in files]},
+                output={
+                    "files": [
+                        {
+                            "name": Path(f).name,
+                            "size_bytes": len(ws.files[f].encode("utf-8")) if f in ws.files else 0,
+                            "modified_at": datetime.now(UTC).isoformat(),
+                            "is_dir": False,
+                        }
+                        for f in files
+                    ]
+                },
             )
 
         if operation == "search_files":
@@ -886,7 +905,9 @@ class SimulatedWorkspaceCapability(BaseCapability):
                 success=True,
                 output={
                     "total_files": ws.total_files,
-                    "total_size_bytes": ws.total_size_bytes,
+                    "total_size_mb": round(ws.total_size_bytes / (1024 * 1024), 2),
+                    "max_size_mb": 500,
+                    "recent_changes": [],
                 },
             )
 
