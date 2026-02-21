@@ -855,11 +855,16 @@ class SimulatedWorkspaceCapability(BaseCapability):
             return ActionResult(success=True, output={"deleted": True})
 
         if operation == "move_file":
+            if params["from"] == params["to"]:
+                return ActionResult(success=False, error="Source and destination are the same")
             content = ws.read_file(params["from"])
             if content is None:
                 return ActionResult(success=False, error=f"Source not found: {params['from']}")
             ws.write_file(params["to"], content)
-            ws.delete_file(params["from"])
+            if not ws.delete_file(params["from"]):
+                return ActionResult(
+                    success=False, error=f"Failed to remove source: {params['from']}"
+                )
             return ActionResult(success=True, output={"new_path": params["to"]})
 
         if operation == "list_directory":

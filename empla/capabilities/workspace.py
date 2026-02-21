@@ -163,22 +163,23 @@ class WorkspaceCapability(BaseCapability):
 
         # Load persisted perception state
         state_file = self._workspace_root / ".state" / "perception.json"
-        if state_file.exists():
-            try:
-                data = await asyncio.to_thread(state_file.read_text)
-                self._last_perception_mtimes = json.loads(data)
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                logger.warning(
-                    "Corrupted perception state file, starting fresh",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee_id), "error": str(e)},
-                )
-            except OSError as e:
-                logger.error(
-                    "Cannot read perception state file",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee_id), "error": str(e)},
-                )
+        try:
+            data = await asyncio.to_thread(state_file.read_text)
+            self._last_perception_mtimes = json.loads(data)
+        except FileNotFoundError:
+            pass  # No persisted state — starting fresh
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            logger.warning(
+                "Corrupted perception state file, starting fresh",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
+        except OSError as e:
+            logger.error(
+                "Cannot read perception state file",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "error": str(e)},
+            )
 
         self._initialized = True
 
@@ -502,11 +503,15 @@ class WorkspaceCapability(BaseCapability):
 
         self._require_initialized()
         current_size = await self._get_total_size_bytes()
+
         # Account for overwrite: subtract existing file size if it exists
-        try:
-            existing_size = full.stat().st_size if full.exists() else 0
-        except OSError:
-            existing_size = 0
+        def _existing_size() -> int:
+            try:
+                return full.stat().st_size if full.exists() else 0
+            except OSError:
+                return 0
+
+        existing_size = await asyncio.to_thread(_existing_size)
         new_total = current_size - existing_size + len(content_bytes)
         max_ws_bytes = self.config.max_workspace_size_mb * 1024 * 1024
         if new_total > max_ws_bytes:
@@ -574,9 +579,12 @@ class WorkspaceCapability(BaseCapability):
                     resolved.relative_to(ws_root)
                 except ValueError:
                     continue
-                # Skip .state/ entries
-                if entry.name == ".state" and entry.parent.resolve() == ws_root:
+                # Skip .state/ and its descendants
+                try:
+                    resolved.relative_to(ws_root / ".state")
                     continue
+                except ValueError:
+                    pass
                 safe_entries.append(entry)
 
             files: list[dict[str, Any]] = []
@@ -651,6 +659,9 @@ class WorkspaceCapability(BaseCapability):
 
         if not src.exists():
             return ActionResult(success=False, error=f"Source not found: {from_path}")
+
+        if not src.is_file():
+            return ActionResult(success=False, error=f"Cannot move non-file: {from_path}")
 
         if dst.exists():
             return ActionResult(
