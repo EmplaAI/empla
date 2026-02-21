@@ -199,6 +199,24 @@ class WorkspaceCapability(BaseCapability):
     # Path security
     # ------------------------------------------------------------------
 
+    def _is_inside_workspace(self, resolved_path: Path) -> bool:
+        """Check if a resolved path is contained within the workspace root."""
+        ws_root = self._require_initialized()
+        try:
+            resolved_path.relative_to(ws_root)
+            return True
+        except ValueError:
+            return False
+
+    def _is_inside_state_dir(self, resolved_path: Path) -> bool:
+        """Check if a resolved path falls inside the .state/ directory."""
+        ws_root = self._require_initialized()
+        try:
+            resolved_path.relative_to(ws_root / ".state")
+            return True
+        except ValueError:
+            return False
+
     def _resolve_safe_path(self, relative_path: str) -> Path:
         """
         Validate and resolve a relative path within the workspace.
@@ -227,17 +245,10 @@ class WorkspaceCapability(BaseCapability):
 
         # Resolve full path (follows symlinks) and verify containment
         full = (ws_root / p).resolve()
-        try:
-            full.relative_to(ws_root)
-        except ValueError:
-            raise ValueError("Path escapes workspace root") from None
+        if not self._is_inside_workspace(full):
+            raise ValueError("Path escapes workspace root")
 
-        # Block .state/ access
-        try:
-            full.relative_to(ws_root / ".state")
-        except ValueError:
-            pass  # Not inside .state — that's fine
-        else:
+        if self._is_inside_state_dir(full):
             raise ValueError("Access to .state/ is not allowed")
 
         return full
@@ -423,7 +434,11 @@ class WorkspaceCapability(BaseCapability):
         if operation == "get_workspace_status":
             return await self._get_workspace_status()
 
-        return ActionResult(success=False, error=f"Unknown operation: {operation}")
+        # Unreachable: _REQUIRED_PARAMS.get(operation) already rejects unknown operations above.
+        # Kept as a defensive fallback.
+        return ActionResult(
+            success=False, error=f"Unknown operation: {operation}"
+        )  # pragma: no cover
 
     # ------------------------------------------------------------------
     # Operations
@@ -501,7 +516,6 @@ class WorkspaceCapability(BaseCapability):
                 error=f"File size ({len(content_bytes)} bytes) exceeds limit ({max_file_bytes} bytes)",
             )
 
-        self._require_initialized()
         current_size = await self._get_total_size_bytes()
 
         # Account for overwrite: subtract existing file size if it exists
@@ -571,21 +585,11 @@ class WorkspaceCapability(BaseCapability):
         def _list() -> list[dict[str, Any]]:
             entries = list(full.glob(pattern)) if pattern else list(full.iterdir())
 
-            # Filter out .state/ and entries outside workspace root
             safe_entries = []
-            for entry in entries:
-                resolved = entry.resolve()
-                try:
-                    resolved.relative_to(ws_root)
-                except ValueError:
-                    continue
-                # Skip .state/ and its descendants
-                try:
-                    resolved.relative_to(ws_root / ".state")
-                    continue
-                except ValueError:
-                    pass
-                safe_entries.append(entry)
+            for e in entries:
+                resolved = e.resolve()
+                if self._is_inside_workspace(resolved) and not self._is_inside_state_dir(resolved):
+                    safe_entries.append(e)
 
             files: list[dict[str, Any]] = []
             for entry in sorted(safe_entries, key=lambda e: e.name):
@@ -721,21 +725,26 @@ class WorkspaceCapability(BaseCapability):
             for f in files:
                 if not f.is_file():
                     continue
-                # Skip .state/
-                try:
-                    f.relative_to(ws_root / ".state")
+                resolved = f.resolve()
+                if self._is_inside_state_dir(resolved):
                     continue
-                except ValueError:
-                    pass
-                # Skip entries that escaped workspace root via glob
-                try:
-                    f.resolve().relative_to(ws_root)
-                except ValueError:
+                if not self._is_inside_workspace(resolved):
                     continue
 
                 try:
                     content = f.read_text(encoding="utf-8")
-                except (UnicodeDecodeError, PermissionError):
+                except UnicodeDecodeError:
+                    continue
+                except PermissionError:
+                    logger.warning(
+                        "Permission denied reading file during search, skipping",
+                        extra={
+                            "employee_id": str(self.employee_id),
+                            "path": str(f.relative_to(ws_root))
+                            if self.config.log_pii
+                            else "[redacted]",
+                        },
+                    )
                     continue
 
                 for i, line in enumerate(content.splitlines(), 1):
@@ -751,7 +760,10 @@ class WorkspaceCapability(BaseCapability):
                             return matches
             return matches
 
-        results = await asyncio.to_thread(_search)
+        try:
+            results = await asyncio.to_thread(_search)
+        except OSError as e:
+            return ActionResult(success=False, error=f"Error searching files: {e}")
 
         return ActionResult(
             success=True,
@@ -770,12 +782,8 @@ class WorkspaceCapability(BaseCapability):
             for f in ws_root.rglob("*"):
                 if not f.is_file():
                     continue
-                # Skip .state/
-                try:
-                    f.relative_to(ws_root / ".state")
+                if self._is_inside_state_dir(f):
                     continue
-                except ValueError:
-                    pass
 
                 try:
                     stat = f.stat()
@@ -845,11 +853,14 @@ class WorkspaceCapability(BaseCapability):
         def _calc() -> int:
             total = 0
             for f in ws_root.rglob("*"):
-                if f.is_file():
-                    try:
-                        total += f.stat().st_size
-                    except OSError:
-                        continue
+                if not f.is_file():
+                    continue
+                if self._is_inside_state_dir(f):
+                    continue
+                try:
+                    total += f.stat().st_size
+                except OSError:
+                    continue
             return total
 
         return await asyncio.to_thread(_calc)

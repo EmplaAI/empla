@@ -309,8 +309,10 @@ class TestWriteFile:
         assert "not allowed" in result.error.lower()
 
     @pytest.mark.asyncio
-    async def test_write_capacity_limit(self, tmp_path):
-        # Both limits set to 0 to satisfy the model_validator (file <= workspace)
+    async def test_write_zero_limits_rejects(self, tmp_path):
+        # Both limits set to 0 to satisfy the model_validator (file <= workspace).
+        # With max_file_size_mb=0, the per-file size check rejects before the
+        # workspace capacity check runs.
         cap, _ids = make_capability(
             tmp_path,
             config_overrides={"max_file_size_mb": 0, "max_workspace_size_mb": 0},
@@ -322,9 +324,32 @@ class TestWriteFile:
             operation="write_file",
             parameters={"path": "test.txt", "content": "some data"},
         )
-        # max_file_size_mb=0 triggers the file size check first
         result = await cap._execute_action_impl(action)
         assert result.success is False
+        assert "exceeds limit" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_write_workspace_capacity_exceeded(self, tmp_path):
+        """Workspace capacity check fires when file fits within file limit but exceeds total."""
+        cap, ids = make_capability(
+            tmp_path,
+            config_overrides={"max_file_size_mb": 1, "max_workspace_size_mb": 1},
+        )
+        await cap.initialize()
+        root = workspace_root(tmp_path, ids["tenant_id"], ids["employee_id"])
+
+        # Pre-fill workspace close to capacity (~900KB)
+        (root / "data" / "filler.txt").write_text("x" * (900 * 1024))
+
+        # Write another 200KB — within per-file limit but exceeds 1MB workspace total
+        action = Action(
+            capability="workspace",
+            operation="write_file",
+            parameters={"path": "notes/extra.txt", "content": "y" * (200 * 1024)},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "capacity exceeded" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_write_path_traversal(self, tmp_path):
