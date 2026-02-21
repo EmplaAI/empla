@@ -174,7 +174,21 @@ class EmployeeManager:
             if db_employee.status != "active":
                 db_employee.activated_at = datetime.now(UTC)
             db_employee.status = "active"
-            await session.commit()
+            try:
+                await session.commit()
+            except Exception:
+                # Commit failed — kill orphaned subprocess and clean up tracking
+                logger.error(
+                    f"DB commit failed after spawning employee {employee_id} "
+                    f"(pid={proc.pid}), terminating subprocess",
+                    exc_info=True,
+                    extra={"employee_id": str(employee_id), "pid": proc.pid},
+                )
+                proc.terminate()
+                self._processes.pop(employee_id, None)
+                self._health_ports.pop(employee_id, None)
+                self._tenant_ids.pop(employee_id, None)
+                raise
 
             logger.info(
                 f"Employee {employee_id} subprocess started (pid={proc.pid})",
@@ -199,6 +213,9 @@ class EmployeeManager:
                 raise ValueError(f"Employee {employee_id} is not running")
 
             proc = self._processes[employee_id]
+            # Capture tenant_id BEFORE get_status — _prune_dead_process
+            # (called by get_status) removes _tenant_ids if process died.
+            tid = self._tenant_ids.get(employee_id)
             status = self.get_status(employee_id)
 
             logger.info(
@@ -238,9 +255,6 @@ class EmployeeManager:
                             "after SIGKILL — process may be a zombie",
                             extra={"employee_id": str(employee_id), "pid": proc.pid},
                         )
-
-            # Grab tenant_id before cleanup
-            tid = self._tenant_ids.get(employee_id)
 
             # Clean up
             self._processes.pop(employee_id, None)
@@ -357,7 +371,7 @@ class EmployeeManager:
         if proc.poll() is None:
             return  # still alive
         returncode = proc.returncode
-        if returncode and returncode != 0:
+        if returncode != 0:
             self._error_states[employee_id] = f"Process exited with code {returncode}"
         self._processes.pop(employee_id, None)
         self._health_ports.pop(employee_id, None)

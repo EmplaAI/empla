@@ -171,7 +171,7 @@ async def pause_employee(
     manager = get_employee_manager()
 
     try:
-        await manager.pause_employee(employee_id, db)
+        runtime_status = await manager.pause_employee(employee_id, db)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -179,7 +179,6 @@ async def pause_employee(
         ) from e
 
     await db.refresh(employee)
-    runtime_status = manager.get_status(employee_id)
 
     logger.info(
         f"Employee {employee_id} paused via API",
@@ -214,7 +213,7 @@ async def resume_employee(
     manager = get_employee_manager()
 
     try:
-        await manager.resume_employee(employee_id, db)
+        runtime_status = await manager.resume_employee(employee_id, db)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -222,7 +221,6 @@ async def resume_employee(
         ) from e
 
     await db.refresh(employee)
-    runtime_status = manager.get_status(employee_id)
 
     logger.info(
         f"Employee {employee_id} resumed via API",

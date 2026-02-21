@@ -20,6 +20,8 @@ import sys
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+import httpx
+
 from empla.services.employee_manager import get_employee_manager
 
 if TYPE_CHECKING:
@@ -53,6 +55,9 @@ async def _start_employee(args: argparse.Namespace) -> None:
                 session=session,
             )
         print(json.dumps(status, indent=2, default=str))
+    except (ValueError, RuntimeError) as e:
+        print(json.dumps({"error": str(e)}, indent=2))
+        sys.exit(1)
     finally:
         await engine.dispose()
 
@@ -69,6 +74,9 @@ async def _stop_employee(args: argparse.Namespace) -> None:
                 session=session,
             )
         print(json.dumps(status, indent=2, default=str))
+    except (ValueError, RuntimeError) as e:
+        print(json.dumps({"error": str(e)}, indent=2))
+        sys.exit(1)
     finally:
         await engine.dispose()
 
@@ -109,8 +117,6 @@ async def _status_employee(args: argparse.Namespace) -> None:
         }
 
         # Probe health endpoint if manager knows the port
-        import httpx
-
         manager = get_employee_manager()
         port = manager.get_health_port(args.employee_id)
         if port is not None:
@@ -119,7 +125,7 @@ async def _status_employee(args: argparse.Namespace) -> None:
                     resp = await client.get(f"http://127.0.0.1:{port}/health", timeout=3.0)
                     if resp.status_code == 200:
                         status["health"] = resp.json()
-            except Exception as exc:
+            except httpx.RequestError as exc:
                 logger.debug("Health probe failed for port %s: %s", port, exc, exc_info=True)
 
         print(json.dumps(status, indent=2, default=str))
@@ -138,7 +144,10 @@ async def _list_employees(_args: argparse.Namespace) -> None:
 
         async with session_factory() as session:
             result = await session.execute(
-                select(EmployeeModel).where(EmployeeModel.status.in_(["active", "paused"]))
+                select(EmployeeModel).where(
+                    EmployeeModel.status.in_(["active", "paused"]),
+                    EmployeeModel.deleted_at.is_(None),
+                )
             )
             employees = result.scalars().all()
 

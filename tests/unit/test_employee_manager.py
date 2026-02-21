@@ -10,6 +10,7 @@ from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 
 from empla.services.employee_manager import (
@@ -795,3 +796,231 @@ async def test_stop_all_continues_on_failure(
     assert len(result["stopped"]) + len(result["failed"]) == 2
     assert eid1 in result["failed"]
     assert eid2 in result["stopped"]
+
+
+# ============================================================================
+# Test: get_health
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_get_health_no_port(manager: EmployeeManager):
+    """Test get_health returns None when employee has no health port."""
+    result = await manager.get_health(uuid4())
+    assert result is None
+
+
+@pytest.mark.asyncio
+@patch("empla.services.employee_manager.subprocess.Popen")
+async def test_get_health_success(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
+):
+    """Test get_health returns health data on HTTP 200."""
+    _setup_session_with_employee(mock_session, mock_db_employee)
+    mock_popen_cls.return_value = _mock_popen()
+    await manager.start_employee(employee_id, tenant_id, mock_session)
+
+    health_data = {"status": "healthy", "uptime_seconds": 42}
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = health_data
+
+    with patch("empla.services.employee_manager.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        result = await manager.get_health(employee_id)
+
+    assert result == health_data
+
+
+@pytest.mark.asyncio
+@patch("empla.services.employee_manager.subprocess.Popen")
+async def test_get_health_non_200(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
+):
+    """Test get_health returns None on non-200 status."""
+    _setup_session_with_employee(mock_session, mock_db_employee)
+    mock_popen_cls.return_value = _mock_popen()
+    await manager.start_employee(employee_id, tenant_id, mock_session)
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 500
+
+    with patch("empla.services.employee_manager.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        result = await manager.get_health(employee_id)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+@patch("empla.services.employee_manager.subprocess.Popen")
+async def test_get_health_connect_error(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
+):
+    """Test get_health returns None on connection refused."""
+    _setup_session_with_employee(mock_session, mock_db_employee)
+    mock_popen_cls.return_value = _mock_popen()
+    await manager.start_employee(employee_id, tenant_id, mock_session)
+
+    with patch("empla.services.employee_manager.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        result = await manager.get_health(employee_id)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+@patch("empla.services.employee_manager.subprocess.Popen")
+async def test_get_health_timeout(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
+):
+    """Test get_health returns None on timeout."""
+    _setup_session_with_employee(mock_session, mock_db_employee)
+    mock_popen_cls.return_value = _mock_popen()
+    await manager.start_employee(employee_id, tenant_id, mock_session)
+
+    with patch("empla.services.employee_manager.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ReadTimeout("Read timed out"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        result = await manager.get_health(employee_id)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+@patch("empla.services.employee_manager.subprocess.Popen")
+async def test_get_health_generic_error(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
+):
+    """Test get_health returns None on unexpected error."""
+    _setup_session_with_employee(mock_session, mock_db_employee)
+    mock_popen_cls.return_value = _mock_popen()
+    await manager.start_employee(employee_id, tenant_id, mock_session)
+
+    with patch("empla.services.employee_manager.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=RuntimeError("unexpected"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        result = await manager.get_health(employee_id)
+
+    assert result is None
+
+
+# ============================================================================
+# Test: tid-capture regression (stop after process death)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+@patch("empla.services.employee_manager.subprocess.Popen")
+async def test_stop_dead_process_preserves_tid_for_db_update(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
+):
+    """Regression: stop_employee must capture tid before get_status prunes it.
+
+    If the process died between the running check and get_status call,
+    _prune_dead_process removes _tenant_ids. Without the fix, tid would
+    be None and stop_employee would raise ValueError.
+    """
+    _setup_session_with_employee(mock_session, mock_db_employee)
+    proc = _mock_popen()
+    mock_popen_cls.return_value = proc
+    await manager.start_employee(employee_id, tenant_id, mock_session)
+
+    # Process is alive for the "is not running" check, then dies before get_status
+    alive_then_dead = [None, 1, 1, 1, 1]  # first poll=alive, subsequent=dead
+    proc.poll.side_effect = alive_then_dead
+    proc.returncode = 1
+
+    mock_session.execute.reset_mock()
+    mock_session.commit.reset_mock()
+
+    # Should not raise ValueError about missing tenant_id
+    status = await manager.stop_employee(employee_id, mock_session)
+
+    assert status["is_running"] is False
+    # DB update should have been called with the tenant_id
+    mock_session.execute.assert_called()
+    mock_session.commit.assert_called()
+
+
+# ============================================================================
+# Test: start_employee commit failure cleanup
+# ============================================================================
+
+
+@pytest.mark.asyncio
+@patch("empla.services.employee_manager.subprocess.Popen")
+async def test_start_employee_cleans_up_on_commit_failure(
+    mock_popen_cls: MagicMock,
+    manager: EmployeeManager,
+    employee_id: UUID,
+    tenant_id: UUID,
+    mock_session: AsyncMock,
+    mock_db_employee: Mock,
+):
+    """Test subprocess is terminated if DB commit fails after spawn."""
+    _setup_session_with_employee(mock_session, mock_db_employee)
+    proc = _mock_popen()
+    mock_popen_cls.return_value = proc
+    mock_session.commit = AsyncMock(side_effect=RuntimeError("DB down"))
+
+    with pytest.raises(RuntimeError, match="DB down"):
+        await manager.start_employee(employee_id, tenant_id, mock_session)
+
+    proc.terminate.assert_called_once()
+    assert employee_id not in manager._processes
+    assert employee_id not in manager._health_ports
+    assert employee_id not in manager._tenant_ids
