@@ -13,6 +13,20 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from pydantic import BaseModel, Field
 
+from empla.core.hooks import (
+    HOOK_AFTER_BELIEF_UPDATE,
+    HOOK_AFTER_INTENTION_EXECUTION,
+    HOOK_AFTER_PERCEPTION,
+    HOOK_AFTER_REFLECTION,
+    HOOK_AFTER_STRATEGIC_PLANNING,
+    HOOK_BEFORE_BELIEF_UPDATE,
+    HOOK_BEFORE_INTENTION_EXECUTION,
+    HOOK_BEFORE_PERCEPTION,
+    HOOK_BEFORE_STRATEGIC_PLANNING,
+    HOOK_CYCLE_END,
+    HOOK_CYCLE_START,
+    HookRegistry,
+)
 from empla.core.loop.models import (
     IntentionResult,
     LoopConfig,
@@ -222,6 +236,7 @@ class ProactiveExecutionLoop:
         llm_service: "LLMService | None" = None,  # LLM service for reasoning
         config: LoopConfig | None = None,
         status_checker: Callable[[Employee], Awaitable[None]] | None = None,
+        hooks: HookRegistry | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
@@ -239,6 +254,8 @@ class ProactiveExecutionLoop:
                 from the database. When provided, called at the start of each cycle
                 so the loop can react to external status changes (e.g. pause-via-DB).
                 When None, the loop reads employee.status directly (suitable for tests).
+            hooks: Optional hook registry for lifecycle event callbacks.
+                When None, a default empty registry is created.
 
         Notes:
             Initializes internal timing/state (cycle interval, error backoff, counters, and last-run timestamps) and logs startup metadata including whether a capability registry is present.
@@ -251,6 +268,7 @@ class ProactiveExecutionLoop:
         self.capability_registry = capability_registry
         self.llm_service = llm_service
         self._status_checker = status_checker
+        self._hooks = hooks or HookRegistry()
 
         # Configuration
         self.config = config or LoopConfig()
@@ -352,9 +370,28 @@ class ProactiveExecutionLoop:
                     extra={"employee_id": str(self.employee.id)},
                 )
 
+                await self._hooks.emit(
+                    HOOK_CYCLE_START,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                )
+
                 # ============ PERCEIVE ============
                 # Gather observations from environment
+                await self._hooks.emit(
+                    HOOK_BEFORE_PERCEPTION,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                )
+
                 perception_result = await self.perceive_environment()
+
+                await self._hooks.emit(
+                    HOOK_AFTER_PERCEPTION,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                    perception_result=perception_result,
+                )
 
                 logger.info(
                     f"Perception complete: {len(perception_result.observations)} observations",
@@ -368,7 +405,19 @@ class ProactiveExecutionLoop:
 
                 # ============ UPDATE BELIEFS ============
                 # Process observations into world model updates
+                await self._hooks.emit(
+                    HOOK_BEFORE_BELIEF_UPDATE,
+                    employee_id=self.employee.id,
+                    observations=perception_result.observations,
+                )
+
                 changed_beliefs = await self.beliefs.update_beliefs(perception_result.observations)
+
+                await self._hooks.emit(
+                    HOOK_AFTER_BELIEF_UPDATE,
+                    employee_id=self.employee.id,
+                    changed_beliefs=changed_beliefs,
+                )
 
                 logger.info(
                     f"Beliefs updated: {len(changed_beliefs)} changes",
@@ -381,8 +430,18 @@ class ProactiveExecutionLoop:
                 # ============ STRATEGIC REASONING ============
                 # Deep planning when needed (expensive operation)
                 if self.should_run_strategic_planning(changed_beliefs):
+                    await self._hooks.emit(
+                        HOOK_BEFORE_STRATEGIC_PLANNING,
+                        employee_id=self.employee.id,
+                    )
+
                     await self.strategic_planning_cycle()
                     self.last_strategic_planning = datetime.now(UTC)
+
+                    await self._hooks.emit(
+                        HOOK_AFTER_STRATEGIC_PLANNING,
+                        employee_id=self.employee.id,
+                    )
 
                 # ============ GOAL MANAGEMENT ============
                 # Update goal progress based on current beliefs
@@ -402,12 +461,29 @@ class ProactiveExecutionLoop:
 
                 # ============ INTENTION EXECUTION ============
                 # Execute highest priority work
+                await self._hooks.emit(
+                    HOOK_BEFORE_INTENTION_EXECUTION,
+                    employee_id=self.employee.id,
+                )
+
                 result = await self.execute_intentions()
+
+                await self._hooks.emit(
+                    HOOK_AFTER_INTENTION_EXECUTION,
+                    employee_id=self.employee.id,
+                    result=result,
+                )
 
                 # ============ LEARNING ============
                 # Reflect on outcomes and learn
                 if result:
                     await self.reflection_cycle(result)
+
+                    await self._hooks.emit(
+                        HOOK_AFTER_REFLECTION,
+                        employee_id=self.employee.id,
+                        result=result,
+                    )
 
                 # ============ DEEP REFLECTION ============
                 # Periodic deep reflection (less frequent)
@@ -430,6 +506,14 @@ class ProactiveExecutionLoop:
                     },
                 )
 
+                await self._hooks.emit(
+                    HOOK_CYCLE_END,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                    duration_seconds=cycle_duration,
+                    success=True,
+                )
+
                 # ============ SLEEP ============
                 # Wait before next cycle (check is_running flag during sleep for prompt shutdown)
                 if not self.is_running:
@@ -448,6 +532,22 @@ class ProactiveExecutionLoop:
                         "error": str(e),
                     },
                 )
+
+                try:
+                    cycle_duration = time.time() - cycle_start
+                    await self._hooks.emit(
+                        HOOK_CYCLE_END,
+                        employee_id=self.employee.id,
+                        cycle_count=self.cycle_count,
+                        duration_seconds=cycle_duration,
+                        success=False,
+                    )
+                except Exception:
+                    logger.error(
+                        "Failed to emit cycle_end hook in error handler",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
 
                 # TODO: Add metrics for errors
                 # metrics.increment("proactive_loop.errors")
@@ -493,6 +593,7 @@ class ProactiveExecutionLoop:
 
         This is the core of the proactive loop, extracted for use by
         DigitalEmployee.run_once() for testing and manual control.
+        Lifecycle hooks are emitted at each phase boundary.
 
         The cycle performs:
         1. PERCEIVE: Gather observations from environment
@@ -508,7 +609,8 @@ class ProactiveExecutionLoop:
 
         Raises:
             Exception: If any phase fails critically (logged but not suppressed
-                      to allow caller to handle).
+                      to allow caller to handle). HOOK_CYCLE_END with
+                      success=False is emitted before re-raising.
         """
         cycle_start = time.time()
         self.cycle_count += 1
@@ -518,68 +620,152 @@ class ProactiveExecutionLoop:
             extra={"employee_id": str(self.employee.id)},
         )
 
-        # ============ PERCEIVE ============
-        perception_result = await self.perceive_environment()
+        try:
+            await self._hooks.emit(
+                HOOK_CYCLE_START,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
+            )
 
-        logger.debug(
-            f"Perception complete: {len(perception_result.observations)} observations",
-            extra={
-                "employee_id": str(self.employee.id),
-                "observations": len(perception_result.observations),
-            },
-        )
+            # ============ PERCEIVE ============
+            await self._hooks.emit(
+                HOOK_BEFORE_PERCEPTION,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
+            )
 
-        # ============ UPDATE BELIEFS ============
-        changed_beliefs = await self.beliefs.update_beliefs(perception_result.observations)
+            perception_result = await self.perceive_environment()
 
-        logger.debug(
-            f"Beliefs updated: {len(changed_beliefs)} changes",
-            extra={
-                "employee_id": str(self.employee.id),
-                "changed_beliefs": len(changed_beliefs),
-            },
-        )
+            await self._hooks.emit(
+                HOOK_AFTER_PERCEPTION,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
+                perception_result=perception_result,
+            )
 
-        # ============ STRATEGIC REASONING ============
-        if self.should_run_strategic_planning(changed_beliefs):
-            await self.strategic_planning_cycle()
-            self.last_strategic_planning = datetime.now(UTC)
+            logger.debug(
+                f"Perception complete: {len(perception_result.observations)} observations",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "observations": len(perception_result.observations),
+                },
+            )
 
-        # ============ GOAL MANAGEMENT ============
-        active_goals = await self.goals.get_active_goals()
-        for goal in active_goals:
-            progress = self._evaluate_goal_progress_from_beliefs(
-                goal=goal,
+            # ============ UPDATE BELIEFS ============
+            await self._hooks.emit(
+                HOOK_BEFORE_BELIEF_UPDATE,
+                employee_id=self.employee.id,
+                observations=perception_result.observations,
+            )
+
+            changed_beliefs = await self.beliefs.update_beliefs(perception_result.observations)
+
+            await self._hooks.emit(
+                HOOK_AFTER_BELIEF_UPDATE,
+                employee_id=self.employee.id,
                 changed_beliefs=changed_beliefs,
             )
-            if progress:
-                await self.goals.update_goal_progress(goal.id, progress)
 
-        logger.debug(
-            f"Goal progress updated for {len(active_goals)} active goals",
-            extra={"employee_id": str(self.employee.id)},
-        )
+            logger.debug(
+                f"Beliefs updated: {len(changed_beliefs)} changes",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "changed_beliefs": len(changed_beliefs),
+                },
+            )
 
-        # ============ INTENTION EXECUTION ============
-        result = await self.execute_intentions()
+            # ============ STRATEGIC REASONING ============
+            if self.should_run_strategic_planning(changed_beliefs):
+                await self._hooks.emit(
+                    HOOK_BEFORE_STRATEGIC_PLANNING,
+                    employee_id=self.employee.id,
+                )
 
-        # ============ LEARNING ============
-        if result:
-            await self.reflection_cycle(result)
+                await self.strategic_planning_cycle()
+                self.last_strategic_planning = datetime.now(UTC)
 
-        # ============ METRICS ============
-        cycle_duration = time.time() - cycle_start
+                await self._hooks.emit(
+                    HOOK_AFTER_STRATEGIC_PLANNING,
+                    employee_id=self.employee.id,
+                )
 
-        logger.debug(
-            f"Single cycle {self.cycle_count} complete",
-            extra={
-                "employee_id": str(self.employee.id),
-                "duration_seconds": cycle_duration,
-                "had_work": result is not None,
-            },
-        )
+            # ============ GOAL MANAGEMENT ============
+            active_goals = await self.goals.get_active_goals()
+            for goal in active_goals:
+                progress = self._evaluate_goal_progress_from_beliefs(
+                    goal=goal,
+                    changed_beliefs=changed_beliefs,
+                )
+                if progress:
+                    await self.goals.update_goal_progress(goal.id, progress)
 
-        return result
+            logger.debug(
+                f"Goal progress updated for {len(active_goals)} active goals",
+                extra={"employee_id": str(self.employee.id)},
+            )
+
+            # ============ INTENTION EXECUTION ============
+            await self._hooks.emit(
+                HOOK_BEFORE_INTENTION_EXECUTION,
+                employee_id=self.employee.id,
+            )
+
+            result = await self.execute_intentions()
+
+            await self._hooks.emit(
+                HOOK_AFTER_INTENTION_EXECUTION,
+                employee_id=self.employee.id,
+                result=result,
+            )
+
+            # ============ LEARNING ============
+            if result:
+                await self.reflection_cycle(result)
+
+                await self._hooks.emit(
+                    HOOK_AFTER_REFLECTION,
+                    employee_id=self.employee.id,
+                    result=result,
+                )
+
+            # ============ METRICS ============
+            cycle_duration = time.time() - cycle_start
+
+            logger.debug(
+                f"Single cycle {self.cycle_count} complete",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "duration_seconds": cycle_duration,
+                    "had_work": result is not None,
+                },
+            )
+
+            await self._hooks.emit(
+                HOOK_CYCLE_END,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
+                duration_seconds=cycle_duration,
+                success=True,
+            )
+
+            return result
+
+        except Exception:
+            try:
+                await self._hooks.emit(
+                    HOOK_CYCLE_END,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                    duration_seconds=time.time() - cycle_start,
+                    success=False,
+                )
+            except Exception:
+                logger.error(
+                    "Failed to emit cycle_end hook during error handling",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+            raise
 
     # ========================================================================
     # Phase 1: Perception

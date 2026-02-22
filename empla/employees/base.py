@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
 from empla.capabilities import CapabilityRegistry
+from empla.core.hooks import HOOK_EMPLOYEE_START, HOOK_EMPLOYEE_STOP, HookRegistry
 from empla.core.loop import LoopConfig, ProactiveExecutionLoop
 from empla.core.memory import (
     EpisodicMemorySystem,
@@ -150,6 +151,9 @@ class DigitalEmployee(ABC):
         self._capabilities: CapabilityRegistry | None = None
         self._loop: ProactiveExecutionLoop | None = None
         self._db_employee: EmployeeModel | None = None
+
+        # Lifecycle hooks
+        self._hooks = HookRegistry()
 
         # State
         self._is_running = False
@@ -271,6 +275,15 @@ class DigitalEmployee(ABC):
             )
         return self._capabilities
 
+    @property
+    def hooks(self) -> HookRegistry:
+        """Hook registry for lifecycle events.
+
+        Available immediately after construction, before start().
+        Register handlers here to observe the BDI cycle.
+        """
+        return self._hooks
+
     # =========================================================================
     # Lifecycle Methods
     # =========================================================================
@@ -361,6 +374,13 @@ class DigitalEmployee(ABC):
             # Commit all initialization changes
             await self._session.commit()
 
+            await self._hooks.emit(
+                HOOK_EMPLOYEE_START,
+                employee_id=self._employee_id,
+                name=self.name,
+                role=self.role,
+            )
+
             logger.info(f"Employee {self.name} started successfully")
 
             # Start the loop (blocks if run_loop=True)
@@ -384,9 +404,8 @@ class DigitalEmployee(ABC):
         Stop the digital employee.
 
         Gracefully shuts down the loop and all components.
-
-        Raises:
-            EmployeeShutdownError: If shutdown encounters errors (non-fatal, logged)
+        Errors during shutdown are logged but do not propagate;
+        the method always completes.
         """
         if not self._is_running:
             logger.warning(f"Employee {self.name} is not running")
@@ -413,6 +432,17 @@ class DigitalEmployee(ABC):
             except TimeoutError:
                 logger.warning(f"Loop task cancellation timed out for {self.name}")
                 shutdown_errors.append(("loop_task", TimeoutError("Cancellation timed out")))
+
+        # Emit employee_stop hook (after loop stops, before resource teardown)
+        try:
+            await self._hooks.emit(
+                HOOK_EMPLOYEE_STOP,
+                employee_id=self._employee_id,
+                name=self.name,
+            )
+        except Exception as e:
+            logger.error(f"employee_stop hook emission failed for {self.name}: {e}", exc_info=True)
+            shutdown_errors.append(("hook_employee_stop", e))
 
         # Shutdown capabilities for this employee only (continue even if some fail)
         if self._capabilities and self._employee_id:
@@ -763,6 +793,7 @@ class DigitalEmployee(ABC):
             capability_registry=self._capabilities,
             config=loop_config,
             status_checker=status_checker,
+            hooks=self._hooks,
         )
 
         logger.debug("Initialized proactive loop")

@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from empla.core.hooks import HookRegistry
 from empla.employees.base import DigitalEmployee, MemorySystem
 from empla.employees.config import EmployeeConfig, GoalConfig
 from empla.employees.exceptions import EmployeeNotStartedError
@@ -387,3 +388,46 @@ class TestMemorySystem:
         assert "semantic" in source
         assert "procedural" in source
         assert "working" in source
+
+
+class TestDigitalEmployeeHooks:
+    """Tests for DigitalEmployee lifecycle hooks."""
+
+    def test_hooks_property_accessible_before_start(self):
+        """Test hooks registry is accessible before start()."""
+        config = EmployeeConfig(
+            name="Test",
+            role="custom",
+            email="test@test.com",
+        )
+        employee = ConcreteEmployee(config)
+
+        assert isinstance(employee.hooks, HookRegistry)
+
+    def test_hooks_registry_created_on_init(self):
+        """Test that a HookRegistry is created during __init__."""
+        config = EmployeeConfig(
+            name="Test",
+            role="custom",
+            email="test@test.com",
+        )
+        employee = ConcreteEmployee(config)
+
+        # Should be able to register handlers before start
+        assert not employee.hooks.has_handlers("test_event")
+
+    def test_hooks_can_register_before_start(self):
+        """Test handlers can be registered before employee starts."""
+        from unittest.mock import AsyncMock
+
+        config = EmployeeConfig(
+            name="Test",
+            role="custom",
+            email="test@test.com",
+        )
+        employee = ConcreteEmployee(config)
+
+        handler = AsyncMock()
+        employee.hooks.register("employee_start", handler)
+
+        assert employee.hooks.has_handlers("employee_start")
