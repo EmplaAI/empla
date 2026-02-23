@@ -15,6 +15,7 @@ from empla.core.hooks import (
     HOOK_AFTER_BELIEF_UPDATE,
     HOOK_AFTER_INTENTION_EXECUTION,
     HOOK_AFTER_PERCEPTION,
+    HOOK_AFTER_REFLECTION,
     HOOK_BEFORE_BELIEF_UPDATE,
     HOOK_BEFORE_INTENTION_EXECUTION,
     HOOK_BEFORE_PERCEPTION,
@@ -860,7 +861,7 @@ async def test_hooks_not_required(mock_employee, mock_beliefs, mock_goals):
     )
 
     # Should run without errors
-    result = await loop._run_cycle()
+    await loop._run_cycle()
     assert loop.cycle_count == 1
 
 
@@ -1014,8 +1015,6 @@ async def test_after_reflection_hook_emitted_when_intention_executed(
     intentions.dependencies_satisfied.return_value = True
 
     hooks = HookRegistry()
-    from empla.core.hooks import HOOK_AFTER_REFLECTION
-
     reflection_handler = AsyncMock()
     hooks.register(HOOK_AFTER_REFLECTION, reflection_handler)
 

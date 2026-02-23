@@ -374,12 +374,18 @@ class DigitalEmployee(ABC):
             # Commit all initialization changes
             await self._session.commit()
 
-            await self._hooks.emit(
-                HOOK_EMPLOYEE_START,
-                employee_id=self._employee_id,
-                name=self.name,
-                role=self.role,
-            )
+            try:
+                await self._hooks.emit(
+                    HOOK_EMPLOYEE_START,
+                    employee_id=self._employee_id,
+                    name=self.name,
+                    role=self.role,
+                )
+            except Exception as e:
+                logger.error(
+                    f"employee_start hook emission failed for {self.name}: {e}",
+                    exc_info=True,
+                )
 
             logger.info(f"Employee {self.name} started successfully")
 

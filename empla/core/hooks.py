@@ -73,8 +73,14 @@ class HookRegistry:
         self._handlers: dict[str, list[HookHandler]] = defaultdict(list)
 
     def register(self, event: str, handler: HookHandler) -> None:
-        """Register a handler for an event."""
-        self._handlers[event].append(handler)
+        """Register a handler for an event.
+
+        Duplicate registrations are ignored; a handler is only
+        called once per event emission.
+        """
+        handlers = self._handlers[event]
+        if handler not in handlers:
+            handlers.append(handler)
 
     def unregister(self, event: str, handler: HookHandler) -> bool:
         """Unregister a handler. Returns True if found."""
@@ -93,7 +99,7 @@ class HookRegistry:
         handlers = self._handlers.get(event)
         if not handlers:
             return
-        for handler in handlers:
+        for handler in list(handlers):
             try:
                 await handler(**kwargs)
             except Exception:

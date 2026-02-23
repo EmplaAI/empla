@@ -22,6 +22,7 @@ from empla.core.hooks import (
     HOOK_CYCLE_START,
     HOOK_EMPLOYEE_START,
     HOOK_EMPLOYEE_STOP,
+    HookHandler,
     HookRegistry,
 )
 
@@ -39,5 +40,6 @@ __all__: list[str] = [
     "HOOK_CYCLE_START",
     "HOOK_EMPLOYEE_START",
     "HOOK_EMPLOYEE_STOP",
+    "HookHandler",
     "HookRegistry",
 ]
