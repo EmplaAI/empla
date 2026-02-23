@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from time import time
 from typing import NamedTuple
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import Field, field_validator
 
@@ -48,6 +48,7 @@ DEFAULT_BLOCKED_MODULES: list[str] = [
     "http.server",
     "ctypes",
     "multiprocessing",
+    "_thread",
     "signal",
     "importlib",
     "builtins",
@@ -56,6 +57,10 @@ DEFAULT_BLOCKED_MODULES: list[str] = [
     "compileall",
     "py_compile",
     "webbrowser",
+    "antigravity",
+    "pty",
+    "pickle",
+    "gc",
 ]
 
 # Default builtins blocked in sandboxed scripts
@@ -79,6 +84,15 @@ _REQUIRED_PARAMS: dict[str, list[str]] = {
 
 # Regex for valid pip package names (PEP 508 simplified)
 _PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
+
+# PEP 503 normalization: lowercase and collapse runs of [-_.] to '-'
+_PEP503_NORMALIZE_RE = re.compile(r"[-_.]+")
+
+
+def _canonicalize_name(name: str) -> str:
+    """Normalize a package name per PEP 503."""
+    return _PEP503_NORMALIZE_RE.sub("-", name).lower()
+
 
 # Regex for valid pip version specifiers
 _VERSION_RE = re.compile(r"^[A-Za-z0-9._\-+*]+$")
@@ -329,9 +343,9 @@ class ComputeCapability(BaseCapability):
         if error:
             return ActionResult(success=False, error=error)
 
-        # Write to temp file
+        # Write to temp file (uuid suffix prevents collisions across concurrent runs)
         code_hash = hashlib.sha256(code.encode()).hexdigest()[:12]
-        temp_file = temp_dir / f"script_{code_hash}.py"
+        temp_file = temp_dir / f"script_{code_hash}_{uuid4().hex[:8]}.py"
 
         def _write_temp() -> None:
             temp_file.write_text(code, encoding="utf-8")
@@ -481,18 +495,19 @@ class ComputeCapability(BaseCapability):
                 error=f"Invalid version specifier: '{version}'",
             )
 
-        # Check allowlist
-        if (
-            self.config.allowed_packages_to_install is not None
-            and package not in self.config.allowed_packages_to_install
-        ):
-            return ActionResult(
-                success=False,
-                error=(
-                    f"Package '{package}' is not in the allowed list. "
-                    f"Allowed: {self.config.allowed_packages_to_install}"
-                ),
-            )
+        # Check allowlist (PEP 503 normalized comparison)
+        if self.config.allowed_packages_to_install is not None:
+            allowed_normalized = {
+                _canonicalize_name(p) for p in self.config.allowed_packages_to_install
+            }
+            if _canonicalize_name(package) not in allowed_normalized:
+                return ActionResult(
+                    success=False,
+                    error=(
+                        f"Package '{package}' is not in the allowed list. "
+                        f"Allowed: {self.config.allowed_packages_to_install}"
+                    ),
+                )
 
         pkg_spec = f"{package}=={version}" if version else package
         cmd = [self.config.python_path, "-m", "pip", "install", "--user", pkg_spec]

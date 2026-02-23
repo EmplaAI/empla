@@ -8,7 +8,7 @@ Script execution tests use the real Python interpreter via subprocess.
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -33,8 +33,8 @@ from empla.capabilities.compute import (
 def make_capability(
     tmp_path: Path,
     *,
-    tenant_id=None,
-    employee_id=None,
+    tenant_id: UUID | None = None,
+    employee_id: UUID | None = None,
     config_overrides: dict | None = None,
 ) -> tuple[ComputeCapability, dict]:
     """Create a ComputeCapability pointed at tmp_path."""
@@ -659,6 +659,26 @@ class TestInstallPackage:
             call_args = mock_run.call_args
             cmd = call_args[0][0]
             assert "pandas==2.0.0" in cmd
+
+    @pytest.mark.asyncio
+    async def test_allowlist_pep503_normalized(self, tmp_path):
+        """Allowlist comparison should be case-insensitive and normalize separators per PEP 503."""
+        cap, _ = make_capability(
+            tmp_path, config_overrides={"allowed_packages_to_install": ["Scikit-Learn"]}
+        )
+        await cap.initialize()
+
+        with patch.object(cap, "_run_subprocess", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = SubprocessResult("Installed", "", 0, 500.0)
+
+            # "scikit_learn" should match "Scikit-Learn" after PEP 503 normalization
+            action = Action(
+                capability="compute",
+                operation="install_package",
+                parameters={"package": "scikit_learn"},
+            )
+            result = await cap._execute_action_impl(action)
+            assert result.success is True
 
 
 # =========================================================================
