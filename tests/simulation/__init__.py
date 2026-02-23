@@ -40,6 +40,7 @@ Key Design Decisions:
 
 from tests.simulation.capabilities import (
     SimulatedCalendarCapability,
+    SimulatedComputeCapability,
     SimulatedCRMCapability,
     SimulatedEmailCapability,
     SimulatedWorkspaceCapability,
@@ -52,6 +53,7 @@ from tests.simulation.environment import (
     DealStage,
     EmailPriority,
     SimulatedCalendarEvent,
+    SimulatedComputeSystem,
     SimulatedContact,
     SimulatedCustomer,
     SimulatedDeal,
@@ -67,6 +69,8 @@ __all__ = [
     "SimulatedCRMCapability",
     "SimulatedCalendarCapability",
     "SimulatedCalendarEvent",
+    "SimulatedComputeCapability",
+    "SimulatedComputeSystem",
     "SimulatedContact",
     "SimulatedCustomer",
     "SimulatedDeal",

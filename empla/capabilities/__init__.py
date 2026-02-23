@@ -37,6 +37,7 @@ Usage:
 from empla.capabilities.base import (
     CAPABILITY_BROWSER,
     CAPABILITY_CALENDAR,
+    CAPABILITY_COMPUTE,
     CAPABILITY_COMPUTER_USE,
     CAPABILITY_CRM,
     CAPABILITY_DOCUMENT,
@@ -51,6 +52,7 @@ from empla.capabilities.base import (
     CapabilityType,
     Observation,
 )
+from empla.capabilities.compute import ComputeCapability, ComputeConfig
 from empla.capabilities.email import (
     Email,
     EmailCapability,
@@ -64,6 +66,7 @@ from empla.capabilities.workspace import WorkspaceCapability, WorkspaceConfig
 __all__ = [
     "CAPABILITY_BROWSER",
     "CAPABILITY_CALENDAR",
+    "CAPABILITY_COMPUTE",
     "CAPABILITY_COMPUTER_USE",
     "CAPABILITY_CRM",
     "CAPABILITY_DOCUMENT",
@@ -77,6 +80,8 @@ __all__ = [
     "CapabilityConfig",
     "CapabilityRegistry",
     "CapabilityType",
+    "ComputeCapability",
+    "ComputeConfig",
     "Email",
     "EmailCapability",
     "EmailConfig",
