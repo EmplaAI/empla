@@ -11,6 +11,18 @@ from uuid import uuid4
 
 import pytest
 
+from empla.core.hooks import (
+    HOOK_AFTER_BELIEF_UPDATE,
+    HOOK_AFTER_INTENTION_EXECUTION,
+    HOOK_AFTER_PERCEPTION,
+    HOOK_AFTER_REFLECTION,
+    HOOK_BEFORE_BELIEF_UPDATE,
+    HOOK_BEFORE_INTENTION_EXECUTION,
+    HOOK_BEFORE_PERCEPTION,
+    HOOK_CYCLE_END,
+    HOOK_CYCLE_START,
+    HookRegistry,
+)
 from empla.core.loop.execution import (
     ProactiveExecutionLoop,
 )
@@ -772,3 +784,302 @@ async def test_status_checker_failure_does_not_kill_loop(mock_employee, mock_bel
     # Loop should have survived the failing checker and run cycles
     assert loop.cycle_count >= 1
     assert call_count >= 1
+
+
+# ============================================================================
+# Test: Lifecycle Hooks
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_hooks_emitted_during_single_cycle(mock_employee, mock_beliefs, mock_goals):
+    """Test hooks are emitted at each phase boundary during _run_cycle()."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    hooks = HookRegistry()
+
+    # Register a tracker for each expected hook
+    expected_hooks = [
+        HOOK_CYCLE_START,
+        HOOK_BEFORE_PERCEPTION,
+        HOOK_AFTER_PERCEPTION,
+        HOOK_BEFORE_BELIEF_UPDATE,
+        HOOK_AFTER_BELIEF_UPDATE,
+        HOOK_BEFORE_INTENTION_EXECUTION,
+        HOOK_AFTER_INTENTION_EXECUTION,
+        HOOK_CYCLE_END,
+    ]
+
+    trackers: dict[str, AsyncMock] = {}
+    for hook_name in expected_hooks:
+        mock_handler = AsyncMock()
+        trackers[hook_name] = mock_handler
+        hooks.register(hook_name, mock_handler)
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1),
+        hooks=hooks,
+    )
+
+    await loop._run_cycle()
+
+    # All expected hooks should have been called
+    for hook_name in expected_hooks:
+        assert trackers[hook_name].called, f"Hook '{hook_name}' was not emitted"
+
+    # cycle_start should have received employee_id and cycle_count
+    call_kwargs = trackers[HOOK_CYCLE_START].call_args.kwargs
+    assert call_kwargs["employee_id"] == mock_employee.id
+    assert call_kwargs["cycle_count"] == 1
+
+    # cycle_end should have received success=True
+    call_kwargs = trackers[HOOK_CYCLE_END].call_args.kwargs
+    assert call_kwargs["success"] is True
+    assert "duration_seconds" in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_hooks_not_required(mock_employee, mock_beliefs, mock_goals):
+    """Test loop works fine without hooks (None passed)."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1),
+        hooks=None,  # Explicitly None
+    )
+
+    # Should run without errors
+    await loop._run_cycle()
+    assert loop.cycle_count == 1
+
+
+@pytest.mark.asyncio
+async def test_hook_failure_doesnt_crash_cycle(mock_employee, mock_beliefs, mock_goals):
+    """Test a failing hook handler doesn't crash the BDI cycle."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    hooks = HookRegistry()
+
+    async def failing_handler(**kwargs: object) -> None:
+        raise RuntimeError("hook explosion")
+
+    hooks.register(HOOK_CYCLE_START, failing_handler)
+    hooks.register(HOOK_BEFORE_PERCEPTION, failing_handler)
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1),
+        hooks=hooks,
+    )
+
+    # Cycle should complete despite hook failures
+    await loop._run_cycle()
+    assert loop.cycle_count == 1
+
+
+@pytest.mark.asyncio
+async def test_hooks_emitted_during_continuous_loop(mock_employee, mock_beliefs, mock_goals):
+    """Test hooks fire during run_continuous_loop()."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    hooks = HookRegistry()
+    cycle_start_count = 0
+    cycle_end_count = 0
+
+    async def count_cycle_start(**kwargs: object) -> None:
+        nonlocal cycle_start_count
+        cycle_start_count += 1
+
+    async def count_cycle_end(**kwargs: object) -> None:
+        nonlocal cycle_end_count
+        cycle_end_count += 1
+
+    hooks.register(HOOK_CYCLE_START, count_cycle_start)
+    hooks.register(HOOK_CYCLE_END, count_cycle_end)
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1),
+        hooks=hooks,
+    )
+
+    loop_task = asyncio.create_task(loop.start())
+    await asyncio.sleep(1.5)
+    await loop.stop()
+    await loop_task
+
+    # At least one cycle should have fired hooks
+    assert cycle_start_count >= 1
+    assert cycle_end_count >= 1
+    assert cycle_start_count == cycle_end_count
+
+
+@pytest.mark.asyncio
+async def test_cycle_end_hook_emitted_with_success_false_on_error(
+    mock_employee, mock_beliefs, mock_goals
+):
+    """Test HOOK_CYCLE_END fires with success=False when a cycle errors."""
+    mock_beliefs.update_beliefs = AsyncMock(side_effect=RuntimeError("db down"))
+    mock_goals.get_active_goals.return_value = []
+
+    hooks = HookRegistry()
+    cycle_end_kwargs_list: list[dict[str, object]] = []
+
+    async def capture_cycle_end(**kwargs: object) -> None:
+        cycle_end_kwargs_list.append(kwargs)
+
+    hooks.register(HOOK_CYCLE_END, capture_cycle_end)
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1, error_backoff_seconds=1),
+        hooks=hooks,
+    )
+
+    loop_task = asyncio.create_task(loop.start())
+    await asyncio.sleep(0.5)
+    await loop.stop()
+    await loop_task
+
+    assert len(cycle_end_kwargs_list) >= 1
+    assert cycle_end_kwargs_list[0]["success"] is False
+    assert "duration_seconds" in cycle_end_kwargs_list[0]
+    assert cycle_end_kwargs_list[0]["employee_id"] == mock_employee.id
+
+
+@pytest.mark.asyncio
+async def test_cycle_end_hook_success_false_in_run_cycle(mock_employee, mock_beliefs, mock_goals):
+    """Test _run_cycle() emits HOOK_CYCLE_END with success=False on error."""
+    mock_beliefs.update_beliefs = AsyncMock(side_effect=RuntimeError("db down"))
+    mock_goals.get_active_goals.return_value = []
+
+    hooks = HookRegistry()
+    cycle_end_handler = AsyncMock()
+    hooks.register(HOOK_CYCLE_END, cycle_end_handler)
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1),
+        hooks=hooks,
+    )
+
+    with pytest.raises(RuntimeError, match="db down"):
+        await loop._run_cycle()
+
+    # HOOK_CYCLE_END should have been emitted with success=False before re-raise
+    cycle_end_handler.assert_called_once()
+    assert cycle_end_handler.call_args.kwargs["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_after_reflection_hook_emitted_when_intention_executed(
+    mock_employee, mock_beliefs, mock_goals
+):
+    """Test HOOK_AFTER_REFLECTION fires when an intention produces a result."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    intentions = MockIntentionStack()
+    mock_intention = MockIntention()
+    intentions.get_next_intention.return_value = mock_intention
+    intentions.dependencies_satisfied.return_value = True
+
+    hooks = HookRegistry()
+    reflection_handler = AsyncMock()
+    hooks.register(HOOK_AFTER_REFLECTION, reflection_handler)
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=intentions,
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1),
+        hooks=hooks,
+    )
+
+    await loop._run_cycle()
+
+    reflection_handler.assert_called_once()
+    call_kwargs = reflection_handler.call_args.kwargs
+    assert call_kwargs["employee_id"] == mock_employee.id
+    assert "result" in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_hooks_fire_in_correct_order(mock_employee, mock_beliefs, mock_goals):
+    """Test hooks fire in the correct BDI phase order."""
+    mock_beliefs.update_beliefs.return_value = []
+    mock_goals.get_active_goals.return_value = []
+
+    hooks = HookRegistry()
+    order: list[str] = []
+
+    for hook_name in [
+        HOOK_CYCLE_START,
+        HOOK_BEFORE_PERCEPTION,
+        HOOK_AFTER_PERCEPTION,
+        HOOK_BEFORE_BELIEF_UPDATE,
+        HOOK_AFTER_BELIEF_UPDATE,
+        HOOK_BEFORE_INTENTION_EXECUTION,
+        HOOK_AFTER_INTENTION_EXECUTION,
+        HOOK_CYCLE_END,
+    ]:
+
+        async def tracker(n: str = hook_name, **kwargs: object) -> None:
+            order.append(n)
+
+        hooks.register(hook_name, tracker)
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=MockIntentionStack(),
+        memory=MockMemorySystem(),
+        config=LoopConfig(cycle_interval_seconds=1),
+        hooks=hooks,
+    )
+
+    await loop._run_cycle()
+
+    assert order == [
+        "cycle_start",
+        "before_perception",
+        "after_perception",
+        "before_belief_update",
+        "after_belief_update",
+        "before_intention_execution",
+        "after_intention_execution",
+        "cycle_end",
+    ]

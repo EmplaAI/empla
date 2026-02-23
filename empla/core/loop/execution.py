@@ -13,6 +13,20 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from pydantic import BaseModel, Field
 
+from empla.core.hooks import (
+    HOOK_AFTER_BELIEF_UPDATE,
+    HOOK_AFTER_INTENTION_EXECUTION,
+    HOOK_AFTER_PERCEPTION,
+    HOOK_AFTER_REFLECTION,
+    HOOK_AFTER_STRATEGIC_PLANNING,
+    HOOK_BEFORE_BELIEF_UPDATE,
+    HOOK_BEFORE_INTENTION_EXECUTION,
+    HOOK_BEFORE_PERCEPTION,
+    HOOK_BEFORE_STRATEGIC_PLANNING,
+    HOOK_CYCLE_END,
+    HOOK_CYCLE_START,
+    HookRegistry,
+)
 from empla.core.loop.models import (
     IntentionResult,
     LoopConfig,
@@ -222,6 +236,7 @@ class ProactiveExecutionLoop:
         llm_service: "LLMService | None" = None,  # LLM service for reasoning
         config: LoopConfig | None = None,
         status_checker: Callable[[Employee], Awaitable[None]] | None = None,
+        hooks: HookRegistry | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
@@ -239,6 +254,8 @@ class ProactiveExecutionLoop:
                 from the database. When provided, called at the start of each cycle
                 so the loop can react to external status changes (e.g. pause-via-DB).
                 When None, the loop reads employee.status directly (suitable for tests).
+            hooks: Optional hook registry for lifecycle event callbacks.
+                When None, a default empty registry is created.
 
         Notes:
             Initializes internal timing/state (cycle interval, error backoff, counters, and last-run timestamps) and logs startup metadata including whether a capability registry is present.
@@ -251,6 +268,7 @@ class ProactiveExecutionLoop:
         self.capability_registry = capability_registry
         self.llm_service = llm_service
         self._status_checker = status_checker
+        self._hooks = hooks or HookRegistry()
 
         # Configuration
         self.config = config or LoopConfig()
@@ -352,62 +370,13 @@ class ProactiveExecutionLoop:
                     extra={"employee_id": str(self.employee.id)},
                 )
 
-                # ============ PERCEIVE ============
-                # Gather observations from environment
-                perception_result = await self.perceive_environment()
-
-                logger.info(
-                    f"Perception complete: {len(perception_result.observations)} observations",
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "observations": len(perception_result.observations),
-                        "opportunities": perception_result.opportunities_detected,
-                        "problems": perception_result.problems_detected,
-                    },
+                await self._hooks.emit(
+                    HOOK_CYCLE_START,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
                 )
 
-                # ============ UPDATE BELIEFS ============
-                # Process observations into world model updates
-                changed_beliefs = await self.beliefs.update_beliefs(perception_result.observations)
-
-                logger.info(
-                    f"Beliefs updated: {len(changed_beliefs)} changes",
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "changed_beliefs": len(changed_beliefs),
-                    },
-                )
-
-                # ============ STRATEGIC REASONING ============
-                # Deep planning when needed (expensive operation)
-                if self.should_run_strategic_planning(changed_beliefs):
-                    await self.strategic_planning_cycle()
-                    self.last_strategic_planning = datetime.now(UTC)
-
-                # ============ GOAL MANAGEMENT ============
-                # Update goal progress based on current beliefs
-                active_goals = await self.goals.get_active_goals()
-                for goal in active_goals:
-                    progress = self._evaluate_goal_progress_from_beliefs(
-                        goal=goal,
-                        changed_beliefs=changed_beliefs,
-                    )
-                    if progress:
-                        await self.goals.update_goal_progress(goal.id, progress)
-
-                logger.debug(
-                    f"Goal progress updated for {len(active_goals)} active goals",
-                    extra={"employee_id": str(self.employee.id)},
-                )
-
-                # ============ INTENTION EXECUTION ============
-                # Execute highest priority work
-                result = await self.execute_intentions()
-
-                # ============ LEARNING ============
-                # Reflect on outcomes and learn
-                if result:
-                    await self.reflection_cycle(result)
+                await self._execute_bdi_phases()
 
                 # ============ DEEP REFLECTION ============
                 # Periodic deep reflection (less frequent)
@@ -430,6 +399,14 @@ class ProactiveExecutionLoop:
                     },
                 )
 
+                await self._hooks.emit(
+                    HOOK_CYCLE_END,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                    duration_seconds=cycle_duration,
+                    success=True,
+                )
+
                 # ============ SLEEP ============
                 # Wait before next cycle (check is_running flag during sleep for prompt shutdown)
                 if not self.is_running:
@@ -448,6 +425,22 @@ class ProactiveExecutionLoop:
                         "error": str(e),
                     },
                 )
+
+                try:
+                    cycle_duration = time.time() - cycle_start
+                    await self._hooks.emit(
+                        HOOK_CYCLE_END,
+                        employee_id=self.employee.id,
+                        cycle_count=self.cycle_count,
+                        duration_seconds=cycle_duration,
+                        success=False,
+                    )
+                except Exception:
+                    logger.error(
+                        "Failed to emit cycle_end hook in error handler",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
 
                 # TODO: Add metrics for errors
                 # metrics.increment("proactive_loop.errors")
@@ -487,63 +480,87 @@ class ProactiveExecutionLoop:
             await asyncio.sleep(chunk)
             remaining -= chunk
 
-    async def _run_cycle(self) -> IntentionResult | None:
-        """
-        Execute a single BDI reasoning cycle.
+    async def _execute_bdi_phases(self) -> IntentionResult | None:
+        """Execute the core BDI phases with hook emissions.
 
-        This is the core of the proactive loop, extracted for use by
-        DigitalEmployee.run_once() for testing and manual control.
+        Performs perception, belief updates, strategic planning,
+        goal management, intention execution, and reflection.
+        Emits hooks at each phase boundary.
 
-        The cycle performs:
-        1. PERCEIVE: Gather observations from environment
-        2. UPDATE BELIEFS: Process observations into world model updates
-        3. STRATEGIC REASONING: Form/abandon goals, generate strategies (when needed)
-        4. GOAL MANAGEMENT: Update goal progress
-        5. INTENTION EXECUTION: Execute highest priority work
-        6. LEARNING: Reflect on outcomes and learn
+        Does not emit HOOK_CYCLE_START or HOOK_CYCLE_END — callers
+        are responsible for those.
 
         Returns:
-            IntentionResult if work was done, None if no work to do or cycle
-            completed without intention execution.
+            IntentionResult if work was done, None otherwise.
 
         Raises:
-            Exception: If any phase fails critically (logged but not suppressed
-                      to allow caller to handle).
+            Exception: Propagated from any phase failure.
         """
-        cycle_start = time.time()
-        self.cycle_count += 1
-
-        logger.debug(
-            f"Single cycle {self.cycle_count} starting",
-            extra={"employee_id": str(self.employee.id)},
-        )
+        employee_id = self.employee.id
 
         # ============ PERCEIVE ============
+        await self._hooks.emit(
+            HOOK_BEFORE_PERCEPTION,
+            employee_id=employee_id,
+            cycle_count=self.cycle_count,
+        )
+
         perception_result = await self.perceive_environment()
 
-        logger.debug(
+        await self._hooks.emit(
+            HOOK_AFTER_PERCEPTION,
+            employee_id=employee_id,
+            cycle_count=self.cycle_count,
+            perception_result=perception_result,
+        )
+
+        logger.info(
             f"Perception complete: {len(perception_result.observations)} observations",
             extra={
-                "employee_id": str(self.employee.id),
+                "employee_id": str(employee_id),
                 "observations": len(perception_result.observations),
+                "opportunities": perception_result.opportunities_detected,
+                "problems": perception_result.problems_detected,
             },
         )
 
         # ============ UPDATE BELIEFS ============
+        await self._hooks.emit(
+            HOOK_BEFORE_BELIEF_UPDATE,
+            employee_id=employee_id,
+            observations=perception_result.observations,
+        )
+
         changed_beliefs = await self.beliefs.update_beliefs(perception_result.observations)
 
-        logger.debug(
+        await self._hooks.emit(
+            HOOK_AFTER_BELIEF_UPDATE,
+            employee_id=employee_id,
+            changed_beliefs=changed_beliefs,
+        )
+
+        logger.info(
             f"Beliefs updated: {len(changed_beliefs)} changes",
             extra={
-                "employee_id": str(self.employee.id),
+                "employee_id": str(employee_id),
                 "changed_beliefs": len(changed_beliefs),
             },
         )
 
         # ============ STRATEGIC REASONING ============
         if self.should_run_strategic_planning(changed_beliefs):
+            await self._hooks.emit(
+                HOOK_BEFORE_STRATEGIC_PLANNING,
+                employee_id=employee_id,
+            )
+
             await self.strategic_planning_cycle()
             self.last_strategic_planning = datetime.now(UTC)
+
+            await self._hooks.emit(
+                HOOK_AFTER_STRATEGIC_PLANNING,
+                employee_id=employee_id,
+            )
 
         # ============ GOAL MANAGEMENT ============
         active_goals = await self.goals.get_active_goals()
@@ -557,29 +574,105 @@ class ProactiveExecutionLoop:
 
         logger.debug(
             f"Goal progress updated for {len(active_goals)} active goals",
-            extra={"employee_id": str(self.employee.id)},
+            extra={"employee_id": str(employee_id)},
         )
 
         # ============ INTENTION EXECUTION ============
+        await self._hooks.emit(
+            HOOK_BEFORE_INTENTION_EXECUTION,
+            employee_id=employee_id,
+        )
+
         result = await self.execute_intentions()
+
+        await self._hooks.emit(
+            HOOK_AFTER_INTENTION_EXECUTION,
+            employee_id=employee_id,
+            result=result,
+        )
 
         # ============ LEARNING ============
         if result:
             await self.reflection_cycle(result)
 
-        # ============ METRICS ============
-        cycle_duration = time.time() - cycle_start
-
-        logger.debug(
-            f"Single cycle {self.cycle_count} complete",
-            extra={
-                "employee_id": str(self.employee.id),
-                "duration_seconds": cycle_duration,
-                "had_work": result is not None,
-            },
-        )
+            await self._hooks.emit(
+                HOOK_AFTER_REFLECTION,
+                employee_id=employee_id,
+                result=result,
+            )
 
         return result
+
+    async def _run_cycle(self) -> IntentionResult | None:
+        """
+        Execute a single BDI reasoning cycle.
+
+        This is the core of the proactive loop, extracted for use by
+        DigitalEmployee.run_once() for testing and manual control.
+        Lifecycle hooks are emitted at each phase boundary.
+
+        Returns:
+            IntentionResult if work was done, None if no work to do or cycle
+            completed without intention execution.
+
+        Raises:
+            Exception: If any phase fails critically (logged but not suppressed
+                      to allow caller to handle). HOOK_CYCLE_END with
+                      success=False is emitted before re-raising.
+        """
+        cycle_start = time.time()
+        self.cycle_count += 1
+
+        logger.debug(
+            f"Single cycle {self.cycle_count} starting",
+            extra={"employee_id": str(self.employee.id)},
+        )
+
+        try:
+            await self._hooks.emit(
+                HOOK_CYCLE_START,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
+            )
+
+            result = await self._execute_bdi_phases()
+
+            cycle_duration = time.time() - cycle_start
+            logger.debug(
+                f"Single cycle {self.cycle_count} complete",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "duration_seconds": cycle_duration,
+                    "had_work": result is not None,
+                },
+            )
+
+            await self._hooks.emit(
+                HOOK_CYCLE_END,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
+                duration_seconds=cycle_duration,
+                success=True,
+            )
+
+        except Exception:
+            try:
+                await self._hooks.emit(
+                    HOOK_CYCLE_END,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                    duration_seconds=time.time() - cycle_start,
+                    success=False,
+                )
+            except Exception:
+                logger.error(
+                    "Failed to emit cycle_end hook during error handling",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+            raise
+        else:
+            return result
 
     # ========================================================================
     # Phase 1: Perception
