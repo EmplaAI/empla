@@ -305,15 +305,30 @@ class ComputeCapability(BaseCapability):
             )
 
         if operation == "execute_script":
+            raw_timeout = params.get("timeout_seconds")
+            if raw_timeout is not None:
+                try:
+                    raw_timeout = int(raw_timeout)
+                except (TypeError, ValueError):
+                    return ActionResult(
+                        success=False,
+                        error=f"timeout_seconds must be an integer, got: {type(raw_timeout).__name__}",
+                    )
             return await self._execute_script(
                 params["code"],
-                timeout_seconds=params.get("timeout_seconds"),
+                timeout_seconds=raw_timeout,
             )
 
         if operation == "execute_file":
+            raw_args = params.get("args")
+            if raw_args is not None and not isinstance(raw_args, list):
+                return ActionResult(
+                    success=False,
+                    error=f"args must be a list of strings, got: {type(raw_args).__name__}",
+                )
             return await self._execute_file(
                 params["script_path"],
-                args=params.get("args"),
+                args=[str(a) for a in raw_args] if raw_args else None,
             )
 
         if operation == "install_package":
@@ -366,6 +381,8 @@ class ComputeCapability(BaseCapability):
                 wall_clock_timeout=timeout,
                 cwd=str(ws_root),
             )
+        except RuntimeError as e:
+            return ActionResult(success=False, error=str(e))
         finally:
 
             def _cleanup() -> None:
@@ -446,11 +463,14 @@ class ComputeCapability(BaseCapability):
         if args:
             cmd.extend(args)
 
-        result = await self._run_subprocess(
-            cmd,
-            wall_clock_timeout=self.config.max_execution_seconds,
-            cwd=str(ws_root),
-        )
+        try:
+            result = await self._run_subprocess(
+                cmd,
+                wall_clock_timeout=self.config.max_execution_seconds,
+                cwd=str(ws_root),
+            )
+        except RuntimeError as e:
+            return ActionResult(success=False, error=str(e))
 
         logger.info(
             "File executed",
@@ -512,11 +532,14 @@ class ComputeCapability(BaseCapability):
         pkg_spec = f"{package}=={version}" if version else package
         cmd = [self.config.python_path, "-m", "pip", "install", "--user", pkg_spec]
 
-        result = await self._run_subprocess(
-            cmd,
-            wall_clock_timeout=self.config.max_execution_seconds,
-            cwd=None,
-        )
+        try:
+            result = await self._run_subprocess(
+                cmd,
+                wall_clock_timeout=self.config.max_execution_seconds,
+                cwd=None,
+            )
+        except RuntimeError as e:
+            return ActionResult(success=False, error=str(e))
 
         logger.info(
             "Package install attempted",

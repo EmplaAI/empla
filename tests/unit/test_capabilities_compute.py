@@ -7,6 +7,7 @@ Script execution tests use the real Python interpreter via subprocess.
 
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
@@ -35,8 +36,8 @@ def make_capability(
     *,
     tenant_id: UUID | None = None,
     employee_id: UUID | None = None,
-    config_overrides: dict | None = None,
-) -> tuple[ComputeCapability, dict]:
+    config_overrides: dict[str, Any] | None = None,
+) -> tuple[ComputeCapability, dict[str, UUID]]:
     """Create a ComputeCapability pointed at tmp_path."""
     tid = tenant_id or uuid4()
     eid = employee_id or uuid4()
@@ -51,7 +52,7 @@ def make_capability(
     return cap, {"tenant_id": tid, "employee_id": eid}
 
 
-def workspace_root(tmp_path: Path, tenant_id, employee_id) -> Path:
+def workspace_root(tmp_path: Path, tenant_id: UUID, employee_id: UUID) -> Path:
     return tmp_path / str(tenant_id) / str(employee_id)
 
 
@@ -727,6 +728,64 @@ class TestParameterValidation:
         result = await cap._execute_action_impl(action)
         assert result.success is False
         assert "Unknown operation" in result.error
+
+    @pytest.mark.asyncio
+    async def test_timeout_seconds_invalid_type(self, tmp_path):
+        cap, _ = make_capability(tmp_path)
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="execute_script",
+            parameters={"code": "print(1)", "timeout_seconds": "not-a-number"},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "timeout_seconds" in result.error
+
+    @pytest.mark.asyncio
+    async def test_timeout_seconds_numeric_string_accepted(self, tmp_path):
+        cap, _ = make_capability(tmp_path)
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="execute_script",
+            parameters={"code": "print(1)", "timeout_seconds": "5"},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_args_invalid_type(self, tmp_path):
+        cap, ids = make_capability(tmp_path)
+        await cap.initialize()
+        root = workspace_root(tmp_path, ids["tenant_id"], ids["employee_id"])
+        (root / "test.py").write_text("print('ok')")
+
+        action = Action(
+            capability="compute",
+            operation="execute_file",
+            parameters={"script_path": "test.py", "args": "not-a-list"},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "args must be a list" in result.error
+
+    @pytest.mark.asyncio
+    async def test_subprocess_startup_failure(self, tmp_path):
+        """RuntimeError from _run_subprocess returns ActionResult, not exception."""
+        cap, _ = make_capability(tmp_path, config_overrides={"python_path": "/nonexistent/python"})
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="execute_script",
+            parameters={"code": "print(1)"},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "not found" in result.error.lower() or "Failed" in result.error
 
 
 # =========================================================================
