@@ -482,7 +482,26 @@ class ComputeCapability(BaseCapability):
         if error:
             return ActionResult(success=False, error=error)
 
-        cmd = [self.config.python_path, str(full_path)]
+        # Execute the already-scanned code via a temp file to close the
+        # TOCTOU gap (file could be modified between read and exec).
+        # Use full_path as the temp name prefix so tracebacks show the
+        # original filename.
+        _ws_root, temp_dir = self._require_initialized()
+        code_hash = hashlib.sha256(code.encode()).hexdigest()[:12]
+        temp_file = temp_dir / f"file_{code_hash}_{uuid4().hex[:8]}.py"
+
+        def _write_temp() -> None:
+            temp_file.write_text(code, encoding="utf-8")
+
+        try:
+            await asyncio.to_thread(_write_temp)
+        except OSError as e:
+            return ActionResult(
+                success=False,
+                error=f"Failed to write temporary script file: {e}",
+            )
+
+        cmd = [self.config.python_path, str(temp_file)]
         if args:
             cmd.extend(args)
 
@@ -494,6 +513,21 @@ class ComputeCapability(BaseCapability):
             )
         except RuntimeError as e:
             return ActionResult(success=False, error=str(e))
+        finally:
+
+            def _cleanup() -> None:
+                try:
+                    temp_file.unlink(missing_ok=True)
+                except OSError as e:
+                    logger.warning(
+                        "Failed to clean up temp script file",
+                        extra={
+                            "employee_id": str(self.employee_id),
+                            "error": str(e),
+                        },
+                    )
+
+            await asyncio.to_thread(_cleanup)
 
         logger.info(
             "File executed",
