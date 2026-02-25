@@ -801,6 +801,62 @@ class TestParameterValidation:
         assert "args must be a list" in result.error
 
     @pytest.mark.asyncio
+    async def test_code_must_be_string(self, tmp_path):
+        cap, _ = make_capability(tmp_path)
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="execute_script",
+            parameters={"code": 123},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "'code' must be a string" in result.error
+
+    @pytest.mark.asyncio
+    async def test_script_path_must_be_string(self, tmp_path):
+        cap, _ = make_capability(tmp_path)
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="execute_file",
+            parameters={"script_path": ["not", "a", "string"]},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "'script_path' must be a string" in result.error
+
+    @pytest.mark.asyncio
+    async def test_package_must_be_string(self, tmp_path):
+        cap, _ = make_capability(tmp_path)
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="install_package",
+            parameters={"package": ["numpy"]},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "'package' must be a string" in result.error
+
+    @pytest.mark.asyncio
+    async def test_version_must_be_string(self, tmp_path):
+        cap, _ = make_capability(tmp_path)
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="install_package",
+            parameters={"package": "numpy", "version": 2},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "'version' must be a string" in result.error
+
+    @pytest.mark.asyncio
     async def test_subprocess_startup_failure(self, tmp_path):
         """RuntimeError from _run_subprocess returns ActionResult, not exception."""
         cap, _ = make_capability(tmp_path, config_overrides={"python_path": "/nonexistent/python"})

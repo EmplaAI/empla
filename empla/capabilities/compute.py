@@ -305,6 +305,12 @@ class ComputeCapability(BaseCapability):
             )
 
         if operation == "execute_script":
+            code = params["code"]
+            if not isinstance(code, str):
+                return ActionResult(
+                    success=False,
+                    error=f"'code' must be a string, got: {type(code).__name__}",
+                )
             raw_timeout = params.get("timeout_seconds")
             if raw_timeout is not None:
                 try:
@@ -319,12 +325,15 @@ class ComputeCapability(BaseCapability):
                         success=False,
                         error=f"timeout_seconds must be a positive integer, got: {raw_timeout}",
                     )
-            return await self._execute_script(
-                params["code"],
-                timeout_seconds=raw_timeout,
-            )
+            return await self._execute_script(code, timeout_seconds=raw_timeout)
 
         if operation == "execute_file":
+            script_path = params["script_path"]
+            if not isinstance(script_path, str):
+                return ActionResult(
+                    success=False,
+                    error=f"'script_path' must be a string, got: {type(script_path).__name__}",
+                )
             raw_args = params.get("args")
             if raw_args is not None and not isinstance(raw_args, list):
                 return ActionResult(
@@ -332,15 +341,24 @@ class ComputeCapability(BaseCapability):
                     error=f"args must be a list of strings, got: {type(raw_args).__name__}",
                 )
             return await self._execute_file(
-                params["script_path"],
+                script_path,
                 args=[str(a) for a in raw_args] if raw_args else None,
             )
 
         if operation == "install_package":
-            return await self._install_package(
-                params["package"],
-                version=params.get("version"),
-            )
+            package = params["package"]
+            if not isinstance(package, str):
+                return ActionResult(
+                    success=False,
+                    error=f"'package' must be a string, got: {type(package).__name__}",
+                )
+            version = params.get("version")
+            if version is not None and not isinstance(version, str):
+                return ActionResult(
+                    success=False,
+                    error=f"'version' must be a string, got: {type(version).__name__}",
+                )
+            return await self._install_package(package, version=version)
 
         return ActionResult(
             success=False, error=f"Unknown operation: {operation}"
