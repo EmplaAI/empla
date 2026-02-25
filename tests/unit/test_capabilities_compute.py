@@ -41,7 +41,7 @@ def make_capability(
     """Create a ComputeCapability pointed at tmp_path."""
     tid = tenant_id or uuid4()
     eid = employee_id or uuid4()
-    cfg_kwargs: dict = {
+    cfg_kwargs: dict[str, Any] = {
         "workspace_base_path": str(tmp_path),
         "python_path": sys.executable,
     }
@@ -757,6 +757,34 @@ class TestParameterValidation:
         assert result.success is True
 
     @pytest.mark.asyncio
+    async def test_timeout_seconds_negative_rejected(self, tmp_path):
+        cap, _ = make_capability(tmp_path)
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="execute_script",
+            parameters={"code": "print(1)", "timeout_seconds": -1},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "positive" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_timeout_seconds_zero_rejected(self, tmp_path):
+        cap, _ = make_capability(tmp_path)
+        await cap.initialize()
+
+        action = Action(
+            capability="compute",
+            operation="execute_script",
+            parameters={"code": "print(1)", "timeout_seconds": 0},
+        )
+        result = await cap._execute_action_impl(action)
+        assert result.success is False
+        assert "positive" in result.error.lower()
+
+    @pytest.mark.asyncio
     async def test_args_invalid_type(self, tmp_path):
         cap, ids = make_capability(tmp_path)
         await cap.initialize()
@@ -993,8 +1021,7 @@ class TestEdgeCases:
         assert result.success is False
         assert "Cannot read" in result.error
 
-    @pytest.mark.asyncio
-    async def test_subprocess_result_named_tuple(self):
+    def test_subprocess_result_named_tuple(self):
         """SubprocessResult fields are accessible by name and index."""
         r = SubprocessResult(stdout="out", stderr="err", exit_code=0, duration_ms=100.0)
         assert r.stdout == "out"

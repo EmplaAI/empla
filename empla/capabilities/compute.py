@@ -314,6 +314,11 @@ class ComputeCapability(BaseCapability):
                         success=False,
                         error=f"timeout_seconds must be an integer, got: {type(raw_timeout).__name__}",
                     )
+                if raw_timeout <= 0:
+                    return ActionResult(
+                        success=False,
+                        error=f"timeout_seconds must be a positive integer, got: {raw_timeout}",
+                    )
             return await self._execute_script(
                 params["code"],
                 timeout_seconds=raw_timeout,
