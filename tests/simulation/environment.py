@@ -402,6 +402,43 @@ class SimulatedWorkspaceSystem:
         return sum(len(c.encode("utf-8")) for c in self.files.values())
 
 
+class SimulatedComputeSystem:
+    """In-memory simulated compute for compute capability."""
+
+    def __init__(self):
+        self.executions: list[dict[str, Any]] = []
+        self.installed_packages: dict[str, str] = {}
+        self._canned_results: dict[str, dict[str, Any]] = {}
+
+    def set_canned_result(self, code_prefix: str, result: dict[str, Any]) -> None:
+        """Set a canned result for scripts starting with a given prefix."""
+        self._canned_results[code_prefix] = result
+
+    def execute_script(self, code: str) -> dict[str, Any]:
+        """Simulate script execution, return canned or default result."""
+        self.executions.append({"type": "script", "code": code})
+        for prefix, result in self._canned_results.items():
+            if code.startswith(prefix):
+                return result
+        return {"stdout": "", "stderr": "", "exit_code": 0}
+
+    def execute_file(self, script_path: str, args: list[str] | None = None) -> dict[str, Any]:
+        """Simulate file execution."""
+        self.executions.append({"type": "file", "script_path": script_path, "args": args or []})
+        return {"stdout": "", "stderr": "", "exit_code": 0}
+
+    def install_package(self, package: str, version: str | None = None) -> dict[str, Any]:
+        """Simulate package installation."""
+        pkg_spec = f"{package}=={version}" if version else package
+        self.installed_packages[package] = version or "latest"
+        self.executions.append({"type": "install", "package": pkg_spec})
+        return {"stdout": f"Successfully installed {pkg_spec}", "stderr": "", "exit_code": 0}
+
+    @property
+    def execution_count(self) -> int:
+        return len(self.executions)
+
+
 class SimulatedEnvironment:
     """
     Complete simulated environment for E2E testing.
@@ -436,6 +473,7 @@ class SimulatedEnvironment:
         self.calendar = SimulatedCalendarSystem()
         self.crm = SimulatedCRMSystem()
         self.workspace = SimulatedWorkspaceSystem()
+        self.compute = SimulatedComputeSystem()
         self.metrics = SimulatedMetricsSystem()
 
     def reset(self) -> None:
@@ -465,6 +503,10 @@ class SimulatedEnvironment:
             "workspace": {
                 "total_files": self.workspace.total_files,
                 "total_size_bytes": self.workspace.total_size_bytes,
+            },
+            "compute": {
+                "execution_count": self.compute.execution_count,
+                "installed_packages": len(self.compute.installed_packages),
             },
             "metrics": {
                 "goals_created": self.metrics.goals_created,

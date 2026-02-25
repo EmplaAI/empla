@@ -19,6 +19,7 @@ from empla.core.loop.models import Observation
 __all__ = [
     "CAPABILITY_BROWSER",
     "CAPABILITY_CALENDAR",
+    "CAPABILITY_COMPUTE",
     "CAPABILITY_COMPUTER_USE",
     "CAPABILITY_CRM",
     "CAPABILITY_DOCUMENT",
@@ -51,6 +52,7 @@ CAPABILITY_CRM: CapabilityType = "crm"
 CAPABILITY_VOICE: CapabilityType = "voice"
 CAPABILITY_COMPUTER_USE: CapabilityType = "computer_use"
 CAPABILITY_WORKSPACE: CapabilityType = "workspace"
+CAPABILITY_COMPUTE: CapabilityType = "compute"
 
 
 class CapabilityConfig(BaseModel):

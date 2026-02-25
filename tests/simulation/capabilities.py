@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 from empla.capabilities.base import (
     CAPABILITY_CALENDAR,
+    CAPABILITY_COMPUTE,
     CAPABILITY_CRM,
     CAPABILITY_EMAIL,
     CAPABILITY_WORKSPACE,
@@ -914,6 +915,69 @@ class SimulatedWorkspaceCapability(BaseCapability):
         return ActionResult(success=False, error=f"Unknown operation: {operation}")
 
 
+class SimulatedComputeCapability(BaseCapability):
+    """
+    Simulated compute capability that uses in-memory tracking.
+
+    Delegates script execution to SimulatedComputeSystem instead of real
+    subprocess execution.
+    """
+
+    def __init__(
+        self,
+        tenant_id: UUID,
+        employee_id: UUID,
+        config: CapabilityConfig,
+        environment: SimulatedEnvironment,
+    ):
+        super().__init__(tenant_id, employee_id, config)
+        self.environment = environment
+
+    @property
+    def capability_type(self) -> str:
+        return CAPABILITY_COMPUTE
+
+    async def initialize(self) -> None:
+        self._initialized = True
+        logger.info(f"Simulated compute capability initialized for employee {self.employee_id}")
+
+    async def perceive(self) -> list[Observation]:
+        if not self._initialized:
+            return []
+        return []
+
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        operation = action.operation
+        params = action.parameters
+        cs = self.environment.compute
+
+        if operation == "execute_script":
+            result = cs.execute_script(params["code"])
+            return ActionResult(
+                success=result["exit_code"] == 0,
+                output=result,
+                error=result["stderr"] if result["exit_code"] != 0 else None,
+            )
+
+        if operation == "execute_file":
+            result = cs.execute_file(params["script_path"], params.get("args"))
+            return ActionResult(
+                success=result["exit_code"] == 0,
+                output=result,
+                error=result["stderr"] if result["exit_code"] != 0 else None,
+            )
+
+        if operation == "install_package":
+            result = cs.install_package(params["package"], params.get("version"))
+            return ActionResult(
+                success=result["exit_code"] == 0,
+                output=result,
+                error=result["stderr"] if result["exit_code"] != 0 else None,
+            )
+
+        return ActionResult(success=False, error=f"Unknown operation: {operation}")
+
+
 def get_simulated_capabilities(
     tenant_id: UUID,
     employee_id: UUID,
@@ -938,6 +1002,7 @@ def get_simulated_capabilities(
             CAPABILITY_CALENDAR,
             CAPABILITY_CRM,
             CAPABILITY_WORKSPACE,
+            CAPABILITY_COMPUTE,
         ]
 
     capabilities = {}
@@ -968,6 +1033,14 @@ def get_simulated_capabilities(
 
     if CAPABILITY_WORKSPACE in enabled_capabilities:
         capabilities[CAPABILITY_WORKSPACE] = SimulatedWorkspaceCapability(
+            tenant_id=tenant_id,
+            employee_id=employee_id,
+            config=CapabilityConfig(),
+            environment=environment,
+        )
+
+    if CAPABILITY_COMPUTE in enabled_capabilities:
+        capabilities[CAPABILITY_COMPUTE] = SimulatedComputeCapability(
             tenant_id=tenant_id,
             employee_id=employee_id,
             config=CapabilityConfig(),
