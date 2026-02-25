@@ -53,15 +53,10 @@ from empla.capabilities.base import (
     Observation,
 )
 from empla.capabilities.compute import ComputeCapability, ComputeConfig
-from empla.capabilities.email import (
-    Email,
-    EmailCapability,
-    EmailConfig,
-    EmailPriority,
-    EmailProvider,
-)
+from empla.capabilities.email import EmailCapability, EmailConfig
 from empla.capabilities.registry import CapabilityRegistry
 from empla.capabilities.workspace import WorkspaceCapability, WorkspaceConfig
+from empla.integrations.email.types import Email, EmailPriority, EmailProvider
 
 __all__ = [
     "CAPABILITY_BROWSER",
