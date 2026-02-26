@@ -5,6 +5,7 @@ Central registry for managing capability lifecycle and routing.
 """
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from empla.capabilities.base import (
@@ -371,6 +372,66 @@ class CapabilityRegistry:
                 },
             )
             return ActionResult(success=False, error=f"{type(e).__name__}: {e}")
+
+    def get_all_tool_schemas(self, employee_id: UUID) -> list[dict[str, Any]]:
+        """Collect tool schemas from all enabled capabilities for an employee.
+
+        Args:
+            employee_id: Employee to collect schemas for
+
+        Returns:
+            List of tool schemas for LLM function calling
+        """
+        if employee_id not in self._instances:
+            return []
+
+        schemas: list[dict[str, Any]] = []
+        for cap_type, capability in self._instances[employee_id].items():
+            try:
+                schemas.extend(capability.get_tool_schemas())
+            except Exception:
+                logger.error(
+                    f"Failed to get tool schemas from {cap_type}",
+                    exc_info=True,
+                    extra={
+                        "employee_id": str(employee_id),
+                        "capability_type": cap_type,
+                    },
+                )
+        return schemas
+
+    async def execute_tool_call(
+        self, employee_id: UUID, tool_name: str, arguments: dict[str, Any]
+    ) -> ActionResult:
+        """Execute an LLM tool call by routing to the appropriate capability.
+
+        Tool names use dotted format: "email.send_email" -> capability="email", operation="send_email"
+
+        Args:
+            employee_id: Employee executing the tool call
+            tool_name: Dotted tool name (e.g., "email.send_email")
+            arguments: Tool call arguments
+
+        Returns:
+            ActionResult from capability execution
+        """
+        parts = tool_name.split(".", 1)
+        if len(parts) == 2:
+            capability_type, operation = parts
+        else:
+            logger.warning(
+                f"Tool name '{tool_name}' does not use dotted format "
+                f"(expected 'capability.operation')",
+                extra={"employee_id": str(employee_id), "tool_name": tool_name},
+            )
+            capability_type, operation = tool_name, tool_name
+
+        action = Action(
+            capability=capability_type,
+            operation=operation,
+            parameters=arguments,
+        )
+        return await self.execute_action(employee_id, action)
 
     def health_check(self, employee_id: UUID) -> dict[str, bool]:
         """

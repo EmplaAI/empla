@@ -259,6 +259,95 @@ class WorkspaceCapability(BaseCapability):
             return "Pattern cannot contain '..'"
         return None
 
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        """Return tool schemas for workspace operations."""
+        return [
+            {
+                "name": "workspace.read_file",
+                "description": "Read the contents of a file in the workspace",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative path to the file",
+                        },
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "workspace.write_file",
+                "description": "Write content to a file in the workspace",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Relative path for the file"},
+                        "content": {"type": "string", "description": "File content to write"},
+                    },
+                    "required": ["path", "content"],
+                },
+            },
+            {
+                "name": "workspace.list_directory",
+                "description": "List files and directories in the workspace",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative directory path (empty for root)",
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Glob pattern to filter results",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "workspace.delete_file",
+                "description": "Delete a file from the workspace",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative path to the file to delete",
+                        },
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "workspace.search_files",
+                "description": "Search file contents by text query",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Text to search for"},
+                        "path": {
+                            "type": "string",
+                            "description": "Subdirectory to search in (optional)",
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Glob pattern to filter files (optional)",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "workspace.get_workspace_status",
+                "description": "Get workspace usage summary (file count, size, recent changes)",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        ]
+
     # ------------------------------------------------------------------
     # Perception
     # ------------------------------------------------------------------

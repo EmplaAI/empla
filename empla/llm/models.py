@@ -7,7 +7,7 @@ This module defines common data models used across all LLM providers.
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class LLMProvider(str, Enum):
@@ -32,11 +32,44 @@ class LLMModel(BaseModel):
     output_cost_per_1m: float
 
 
+class ToolCall(BaseModel):
+    """A tool call from the LLM."""
+
+    id: str
+    """Provider-assigned ID"""
+
+    name: str
+    """Tool name (e.g., "email.send")"""
+
+    arguments: dict[str, Any]
+    """Parsed arguments"""
+
+
 class Message(BaseModel):
     """Chat message."""
 
-    role: Literal["system", "user", "assistant"]
+    role: Literal["system", "user", "assistant", "tool"]
     content: str
+
+    tool_calls: list[ToolCall] | None = None
+    """For assistant messages: tool calls the LLM wants to make"""
+
+    tool_call_id: str | None = None
+    """For tool messages: ID of the tool call this result is for"""
+
+    @model_validator(mode="after")
+    def validate_role_field_consistency(self) -> "Message":
+        if self.role == "tool" and not self.tool_call_id:
+            raise ValueError("tool messages must have tool_call_id")
+        if self.role == "tool" and self.tool_calls:
+            raise ValueError("tool messages cannot have tool_calls")
+        if self.role in ("system", "user") and self.tool_calls is not None:
+            raise ValueError(f"{self.role} messages cannot have tool_calls")
+        if self.role in ("system", "user") and self.tool_call_id is not None:
+            raise ValueError(f"{self.role} messages cannot have tool_call_id")
+        if self.role == "assistant" and self.tool_call_id is not None:
+            raise ValueError("assistant messages cannot have tool_call_id")
+        return self
 
 
 class LLMRequest(BaseModel):
@@ -49,6 +82,10 @@ class LLMRequest(BaseModel):
 
     # Structured output (optional)
     response_format: type[BaseModel] | None = None
+
+    # Function calling (optional)
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | None = None  # "auto", "required", "none"
 
     class Config:
         arbitrary_types_allowed = True
@@ -82,10 +119,13 @@ class LLMResponse(BaseModel):
     content: str
     model: str
     usage: TokenUsage
-    finish_reason: str
+    finish_reason: str  # "end_turn" | "tool_use" | "stop"
 
     # For structured outputs
     structured_output: Any | None = None
+
+    # For function calling
+    tool_calls: list[ToolCall] | None = None
 
     class Config:
         arbitrary_types_allowed = True

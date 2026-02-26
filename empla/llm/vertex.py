@@ -98,6 +98,13 @@ class VertexAIProvider(LLMProviderBase):
             finish_reason=response.candidates[0].finish_reason.name,
         )
 
+    async def generate_with_tools(self, request: LLMRequest) -> LLMResponse:
+        """Generate with tools — not yet implemented for Vertex AI."""
+        raise NotImplementedError(
+            "Vertex AI tool calling is not yet implemented. "
+            "Use Anthropic or OpenAI provider for function calling."
+        )
+
     async def generate_structured(
         self, request: LLMRequest, response_format: type[BaseModel]
     ) -> tuple[LLMResponse, BaseModel]:

@@ -64,6 +64,21 @@ class LLMProviderBase(ABC):
         """
 
     @abstractmethod
+    async def generate_with_tools(self, request: LLMRequest) -> LLMResponse:
+        """
+        Generate completion with function calling / tool use support.
+
+        The request must have `tools` set. The response may contain `tool_calls`
+        if the LLM decides to call tools (finish_reason will be "tool_use").
+
+        Args:
+            request: LLM request with tools and optional tool_choice
+
+        Returns:
+            LLM response, potentially with tool_calls populated
+        """
+
+    @abstractmethod
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings.

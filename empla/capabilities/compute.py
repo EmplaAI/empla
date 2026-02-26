@@ -22,7 +22,7 @@ import re
 import sys
 from pathlib import Path
 from time import time
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from uuid import UUID, uuid4
 
 from pydantic import Field, field_validator
@@ -284,6 +284,60 @@ class ComputeCapability(BaseCapability):
                 ),
             },
         )
+
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        """Return tool schemas for compute operations."""
+        return [
+            {
+                "name": "compute.execute_script",
+                "description": "Execute inline Python code in a sandboxed subprocess",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string", "description": "Python code to execute"},
+                        "timeout_seconds": {
+                            "type": "integer",
+                            "description": "Execution timeout in seconds (optional)",
+                        },
+                    },
+                    "required": ["code"],
+                },
+            },
+            {
+                "name": "compute.execute_file",
+                "description": "Execute a .py file from the workspace",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "script_path": {
+                            "type": "string",
+                            "description": "Relative path to .py file in workspace",
+                        },
+                        "args": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Command-line arguments for the script",
+                        },
+                    },
+                    "required": ["script_path"],
+                },
+            },
+            {
+                "name": "compute.install_package",
+                "description": "Install a pip package for use in scripts",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "package": {"type": "string", "description": "Package name to install"},
+                        "version": {
+                            "type": "string",
+                            "description": "Version constraint (optional)",
+                        },
+                    },
+                    "required": ["package"],
+                },
+            },
+        ]
 
     async def perceive(self) -> list[Observation]:
         """No background jobs in subprocess mode — always returns empty list."""

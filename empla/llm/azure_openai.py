@@ -14,7 +14,7 @@ from openai import AsyncAzureOpenAI
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 
-from empla.llm.models import LLMRequest, LLMResponse, TokenUsage
+from empla.llm.models import LLMRequest, LLMResponse, TokenUsage, ToolCall
 from empla.llm.provider import LLMProviderBase
 
 
@@ -105,6 +105,102 @@ class AzureOpenAIProvider(LLMProviderBase):
                 total_tokens=usage.total_tokens if usage else 0,
             ),
             finish_reason=choice.finish_reason or "stop",
+        )
+
+    async def generate_with_tools(self, request: LLMRequest) -> LLMResponse:
+        """Generate completion with tool calling via Azure OpenAI tools parameter."""
+        messages: list[dict[str, Any]] = []
+
+        for msg in request.messages:
+            if msg.role == "tool":
+                messages.append(
+                    {
+                        "role": "tool",
+                        "content": msg.content,
+                        "tool_call_id": msg.tool_call_id,
+                    }
+                )
+            elif msg.role == "assistant" and msg.tool_calls:
+                oai_tool_calls = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments),
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ]
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": msg.content or None,
+                        "tool_calls": oai_tool_calls,
+                    }
+                )
+            else:
+                messages.append({"role": msg.role, "content": msg.content})
+
+        oai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("input_schema", {"type": "object", "properties": {}}),
+                },
+            }
+            for tool in request.tools or []
+        ]
+
+        kwargs: dict[str, Any] = {
+            "model": self.deployment_name,
+            "messages": messages,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "tools": oai_tools,
+        }
+        if request.tool_choice:
+            kwargs["tool_choice"] = request.tool_choice
+
+        response = await self.client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+
+        if not response.choices:
+            raise ValueError(
+                f"Azure OpenAI returned empty choices list (model={response.model}). "
+                "This may indicate content filtering or a provider-side issue."
+            )
+        choice = response.choices[0]
+        usage = response.usage
+
+        tool_calls: list[ToolCall] = []
+        if choice.message.tool_calls:
+            for tc in choice.message.tool_calls:
+                try:
+                    parsed_args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"LLM returned malformed JSON for tool call '{tc.function.name}': {e}"
+                    ) from e
+                tool_calls.append(
+                    ToolCall(
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=parsed_args,
+                    )
+                )
+
+        return LLMResponse(
+            content=choice.message.content or "",
+            model=response.model,
+            usage=TokenUsage(
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+                total_tokens=usage.total_tokens if usage else 0,
+            ),
+            finish_reason=choice.finish_reason or "stop",
+            tool_calls=tool_calls if tool_calls else None,
         )
 
     async def generate_structured(

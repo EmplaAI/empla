@@ -770,3 +770,169 @@ async def test_registry_execute_action_catches_exception():
     assert result.success is False
     assert "RuntimeError" in result.error
     assert "connection lost" in result.error
+
+
+# ============================================================================
+# Tests for get_all_tool_schemas()
+# ============================================================================
+
+
+class ToolSchemaCapability(BaseCapability):
+    """Capability with tool schemas for testing."""
+
+    @property
+    def capability_type(self) -> str:
+        return CAPABILITY_EMAIL
+
+    async def initialize(self) -> None:
+        self._initialized = True
+
+    async def perceive(self) -> list[Observation]:
+        return []
+
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        if action.operation == "send_email":
+            return ActionResult(success=True, output={"sent": True})
+        return ActionResult(success=False, error="Unknown operation")
+
+    def get_tool_schemas(self) -> list[dict]:
+        return [
+            {
+                "name": "email.send_email",
+                "description": "Send email",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "to": {"type": "array", "items": {"type": "string"}},
+                        "subject": {"type": "string"},
+                    },
+                    "required": ["to", "subject"],
+                },
+            }
+        ]
+
+
+class NoToolSchemaCapability(BaseCapability):
+    """Capability with no tool schemas (default)."""
+
+    @property
+    def capability_type(self) -> str:
+        return CAPABILITY_CALENDAR
+
+    async def initialize(self) -> None:
+        self._initialized = True
+
+    async def perceive(self) -> list[Observation]:
+        return []
+
+    async def _execute_action_impl(self, action: Action) -> ActionResult:
+        return ActionResult(success=True)
+
+
+@pytest.mark.asyncio
+async def test_get_all_tool_schemas_with_tools():
+    """Test collecting tool schemas from capabilities."""
+    registry = CapabilityRegistry()
+    registry.register(CAPABILITY_EMAIL, ToolSchemaCapability)
+
+    employee_id = uuid4()
+    await registry.enable_for_employee(
+        employee_id=employee_id,
+        tenant_id=uuid4(),
+        capability_type=CAPABILITY_EMAIL,
+        config=CapabilityConfig(),
+    )
+
+    schemas = registry.get_all_tool_schemas(employee_id)
+    assert len(schemas) == 1
+    assert schemas[0]["name"] == "email.send_email"
+
+
+@pytest.mark.asyncio
+async def test_get_all_tool_schemas_mixed():
+    """Test collecting schemas when some capabilities have tools and some don't."""
+    registry = CapabilityRegistry()
+    registry.register(CAPABILITY_EMAIL, ToolSchemaCapability)
+    registry.register(CAPABILITY_CALENDAR, NoToolSchemaCapability)
+
+    employee_id = uuid4()
+    tenant_id = uuid4()
+    config = CapabilityConfig()
+
+    await registry.enable_for_employee(
+        employee_id=employee_id,
+        tenant_id=tenant_id,
+        capability_type=CAPABILITY_EMAIL,
+        config=config,
+    )
+    await registry.enable_for_employee(
+        employee_id=employee_id,
+        tenant_id=tenant_id,
+        capability_type=CAPABILITY_CALENDAR,
+        config=config,
+    )
+
+    schemas = registry.get_all_tool_schemas(employee_id)
+    # Only email has schemas
+    assert len(schemas) == 1
+    assert schemas[0]["name"] == "email.send_email"
+
+
+def test_get_all_tool_schemas_no_employee():
+    """Test get_all_tool_schemas for unknown employee returns empty."""
+    registry = CapabilityRegistry()
+    assert registry.get_all_tool_schemas(uuid4()) == []
+
+
+# ============================================================================
+# Tests for execute_tool_call()
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_dotted_name():
+    """Test execute_tool_call parses dotted tool names."""
+    registry = CapabilityRegistry()
+    registry.register(CAPABILITY_EMAIL, ToolSchemaCapability)
+
+    employee_id = uuid4()
+    await registry.enable_for_employee(
+        employee_id=employee_id,
+        tenant_id=uuid4(),
+        capability_type=CAPABILITY_EMAIL,
+        config=CapabilityConfig(),
+    )
+
+    result = await registry.execute_tool_call(employee_id, "email.send_email", {"to": ["a@b.com"]})
+    assert result.success is True
+    assert result.output["sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_unknown_capability():
+    """Test execute_tool_call with unknown capability returns failure."""
+    registry = CapabilityRegistry()
+
+    result = await registry.execute_tool_call(uuid4(), "nonexistent.do_thing", {"arg": "val"})
+    assert result.success is False
+    assert "Unknown capability type" in result.error
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_single_name():
+    """Test execute_tool_call with non-dotted name (fallback parsing)."""
+    registry = CapabilityRegistry()
+    registry.register(CAPABILITY_EMAIL, ToolSchemaCapability)
+
+    employee_id = uuid4()
+    await registry.enable_for_employee(
+        employee_id=employee_id,
+        tenant_id=uuid4(),
+        capability_type=CAPABILITY_EMAIL,
+        config=CapabilityConfig(),
+    )
+
+    # Non-dotted name: capability=send_email, operation=send_email
+    # This won't find "send_email" as a capability type
+    result = await registry.execute_tool_call(employee_id, "send_email", {})
+    assert result.success is False  # No capability named "send_email"
