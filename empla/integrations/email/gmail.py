@@ -187,9 +187,11 @@ class GmailEmailAdapter(EmailAdapter):
             else datetime.now(UTC)
         )
 
+        from email.utils import getaddresses
+
         from_addr = headers.get("from", "")
-        to_addrs = [addr.strip() for addr in headers.get("to", "").split(",") if addr.strip()]
-        cc_addrs = [addr.strip() for addr in headers.get("cc", "").split(",") if addr.strip()]
+        to_addrs = [addr for _, addr in getaddresses([headers.get("to", "")]) if addr]
+        cc_addrs = [addr for _, addr in getaddresses([headers.get("cc", "")]) if addr]
 
         return Email(
             id=message_id,

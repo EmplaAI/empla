@@ -137,8 +137,12 @@ class EmailCapability(BaseCapability):
             )
 
         email_address = getattr(self.config, "email_address", None)
-        if not email_address or not str(email_address).strip():
-            raise ValueError("email_address is required in EmailConfig but was missing or blank")
+        if not isinstance(email_address, str):
+            raise TypeError(
+                f"EmailConfig.email_address must be a string, got {type(email_address).__name__}"
+            )
+        if not email_address.strip():
+            raise ValueError("EmailConfig.email_address is required and cannot be blank")
 
         provider_value = (
             self.config.provider.value
