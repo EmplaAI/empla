@@ -409,6 +409,30 @@ async def test_email_action_send_with_signature():
 
 
 @pytest.mark.asyncio
+async def test_email_action_send_with_attachments():
+    """Test sending email with attachments is rejected."""
+    capability = _make_gmail_capability()
+    mock_adapter = await _init_with_mock_adapter(capability)
+
+    action = Action(
+        capability="email",
+        operation="send_email",
+        parameters={
+            "to": ["recipient@example.com"],
+            "subject": "Test with attachment",
+            "body": "See attached.",
+            "attachments": [{"filename": "file.txt", "content": "data"}],
+        },
+    )
+
+    result = await capability.execute_action(action)
+
+    assert result.success is False
+    assert "not yet supported" in result.error
+    mock_adapter.send.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_email_action_reply():
     """Test replying to email action"""
     capability = _make_gmail_capability()

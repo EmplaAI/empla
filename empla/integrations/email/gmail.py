@@ -52,6 +52,9 @@ class GmailEmailAdapter(EmailAdapter):
 
     async def initialize(self, credentials: dict[str, Any]) -> None:
         """Initialize Gmail API service from OAuth credentials."""
+        if not isinstance(credentials, dict):
+            raise TypeError("credentials must be a dict")
+
         # Validate required credential fields
         if not credentials.get("access_token"):
             raise ValueError("credentials must include a non-empty 'access_token'")

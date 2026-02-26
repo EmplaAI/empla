@@ -216,7 +216,6 @@ module = [
 ]
 disallow_untyped_defs = false
 warn_return_any = false
-ignore_errors = true
 
 # ==========================================
 # Pytest Configuration (Testing)

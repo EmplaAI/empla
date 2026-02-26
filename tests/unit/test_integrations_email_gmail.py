@@ -139,6 +139,12 @@ class TestGmailInitialize:
         with pytest.raises(ValueError, match="access_token"):
             await adapter.initialize({})
 
+    @pytest.mark.asyncio
+    async def test_credentials_not_a_dict(self, adapter: GmailEmailAdapter):
+        """Initialize raises TypeError when credentials is not a dict."""
+        with pytest.raises(TypeError, match="credentials must be a dict"):
+            await adapter.initialize("not-a-dict")  # type: ignore[arg-type]
+
 
 # ---------------------------------------------------------------------------
 # TestGmailFetchEmails
@@ -268,6 +274,17 @@ class TestGmailFetchEmails:
         """Returns empty list when client is None."""
         emails = await adapter.fetch_emails()
         assert emails == []
+
+    @pytest.mark.asyncio
+    async def test_to_thread_timeout_propagates(self, initialized_adapter: GmailEmailAdapter):
+        """Timeout from _run_in_thread propagates to caller."""
+        with patch(
+            "empla.integrations.email.gmail.asyncio.to_thread",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError(),
+        ):
+            with pytest.raises(TimeoutError):
+                await initialized_adapter.fetch_emails()
 
 
 # ---------------------------------------------------------------------------

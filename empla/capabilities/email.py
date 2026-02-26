@@ -136,7 +136,10 @@ class EmailCapability(BaseCapability):
                 "or provide credentials in config."
             )
 
-        email_address = getattr(self.config, "email_address", "unknown")
+        email_address = getattr(self.config, "email_address", None)
+        if not email_address or not str(email_address).strip():
+            raise ValueError("email_address is required in EmailConfig but was missing or blank")
+
         provider_value = (
             self.config.provider.value
             if isinstance(self.config.provider, EmailProvider)

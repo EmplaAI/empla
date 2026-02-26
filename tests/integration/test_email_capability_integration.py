@@ -225,7 +225,7 @@ async def test_email_capability_health_check():
 
 @pytest.mark.asyncio
 async def test_multiple_providers():
-    """Test EmailCapability with different providers (both use mock adapter)"""
+    """Test EmailCapability with multiple Gmail configurations using the mock adapter."""
     registry = CapabilityRegistry()
     registry.register(CAPABILITY_EMAIL, EmailCapability)
 
