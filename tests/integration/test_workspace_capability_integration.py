@@ -4,6 +4,7 @@ Integration tests for WorkspaceCapability with CapabilityRegistry.
 Follows the same pattern as test_email_capability_integration.py.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -175,16 +176,25 @@ async def test_workspace_and_email_coexist(tmp_path):
         config=WorkspaceConfig(base_path=str(tmp_path)),
     )
 
-    await registry.enable_for_employee(
-        employee_id=employee_id,
-        tenant_id=tenant_id,
-        capability_type=CAPABILITY_EMAIL,
-        config=EmailConfig(
-            provider=EmailProvider.MICROSOFT_GRAPH,
-            email_address="emp@company.com",
-            credentials={},
-        ),
-    )
+    mock_adapter = MagicMock()
+    mock_adapter.initialize = AsyncMock()
+    mock_adapter.fetch_emails = AsyncMock(return_value=[])
+    mock_adapter.shutdown = AsyncMock()
+
+    with patch(
+        "empla.integrations.email.factory.create_email_adapter",
+        return_value=mock_adapter,
+    ):
+        await registry.enable_for_employee(
+            employee_id=employee_id,
+            tenant_id=tenant_id,
+            capability_type=CAPABILITY_EMAIL,
+            config=EmailConfig(
+                provider=EmailProvider.GMAIL,
+                email_address="emp@company.com",
+                credentials={"access_token": "tok", "refresh_token": "ref"},
+            ),
+        )
 
     health = registry.health_check(employee_id)
     assert health[CAPABILITY_WORKSPACE] is True
