@@ -432,7 +432,7 @@ async def test_service_generate_with_tools_fallback(mock_config, mock_tool_respo
 
         call_count = 0
 
-        def create_provider(*args, **kwargs):
+        def create_provider(*_args, **_kwargs):
             nonlocal call_count
             call_count += 1
             return primary if call_count == 1 else fallback
