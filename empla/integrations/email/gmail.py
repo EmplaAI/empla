@@ -9,6 +9,7 @@ import base64
 import logging
 from datetime import UTC, datetime
 from email.mime.text import MIMEText
+from email.utils import getaddresses
 from typing import Any
 
 from empla.integrations.base import AdapterResult
@@ -187,8 +188,6 @@ class GmailEmailAdapter(EmailAdapter):
             else datetime.now(UTC)
         )
 
-        from email.utils import getaddresses
-
         from_addr = headers.get("from", "")
         to_addrs = [addr for _, addr in getaddresses([headers.get("to", "")]) if addr]
         cc_addrs = [addr for _, addr in getaddresses([headers.get("cc", "")]) if addr]
@@ -204,6 +203,7 @@ class GmailEmailAdapter(EmailAdapter):
             html_body=html_body,
             timestamp=timestamp,
             attachments=[],
+            message_id_header=headers.get("message-id"),
             in_reply_to=headers.get("in-reply-to"),
             labels=msg.get("labelIds", []),
             is_read="UNREAD" not in msg.get("labelIds", []),
@@ -265,11 +265,12 @@ class GmailEmailAdapter(EmailAdapter):
             message["from"] = self._email_address
             message["subject"] = (
                 f"Re: {original.subject}"
-                if not original.subject.startswith("Re:")
+                if not original.subject.lower().startswith("re:")
                 else original.subject
             )
-            message["In-Reply-To"] = message_id
-            message["References"] = message_id
+            rfc5322_id = original.message_id_header or message_id
+            message["In-Reply-To"] = rfc5322_id
+            message["References"] = rfc5322_id
             if cc:
                 message["cc"] = ", ".join(cc)
 
@@ -324,7 +325,7 @@ class GmailEmailAdapter(EmailAdapter):
             message["from"] = self._email_address
             message["subject"] = (
                 f"Fwd: {original.subject}"
-                if not original.subject.startswith("Fwd:")
+                if not original.subject.lower().startswith("fwd:")
                 else original.subject
             )
 

@@ -150,8 +150,9 @@ class EmailCapability(BaseCapability):
             else str(self.config.provider)
         )
 
-        self._adapter = create_email_adapter(provider_value, email_address)
-        await self._adapter.initialize(credentials)
+        adapter = create_email_adapter(provider_value, email_address)
+        await adapter.initialize(credentials)
+        self._adapter = adapter
         self._initialized = True
 
         log_pii = getattr(self.config, "log_pii", False)

@@ -50,6 +50,7 @@ class Email(BaseModel):
     html_body: str | None  # HTML version
     timestamp: datetime
     attachments: list[Attachment] = []
+    message_id_header: str | None = None  # RFC5322 Message-ID header
     in_reply_to: str | None = None
     labels: list[str] = []
     is_read: bool = False
