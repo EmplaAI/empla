@@ -15,6 +15,7 @@ from empla.capabilities.base import (
 )
 from empla.capabilities.email import EmailCapability, EmailConfig
 from empla.integrations.base import AdapterResult
+from empla.integrations.email.factory import UnknownEmailProviderError
 from empla.integrations.email.types import Email, EmailPriority, EmailProvider
 
 # Test EmailConfig
@@ -166,7 +167,7 @@ async def test_email_capability_invalid_provider():
 
     capability = EmailCapability(tenant_id, employee_id, config)
 
-    with pytest.raises((ValueError, NotImplementedError)):
+    with pytest.raises((UnknownEmailProviderError, NotImplementedError)):
         await capability.initialize()
 
 

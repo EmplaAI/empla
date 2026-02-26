@@ -18,7 +18,7 @@ from empla.capabilities import (
 from empla.integrations.base import AdapterResult
 
 
-def _mock_adapter():
+def _mock_adapter() -> MagicMock:
     """Create a mock email adapter for integration tests."""
     adapter = MagicMock()
     adapter.initialize = AsyncMock()
@@ -249,7 +249,7 @@ async def test_multiple_providers():
 
     with patch(
         "empla.integrations.email.factory.create_email_adapter",
-        return_value=_mock_adapter(),
+        side_effect=lambda *_a, **_kw: _mock_adapter(),
     ):
         await registry.enable_for_employee(
             employee_id=employee1_id,

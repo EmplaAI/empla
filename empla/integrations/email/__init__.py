@@ -7,15 +7,17 @@ live in types.py and are importable from both layers.
 """
 
 from empla.integrations.email.base import EmailAdapter
-from empla.integrations.email.factory import create_email_adapter
+from empla.integrations.email.factory import UnknownEmailProviderError, create_email_adapter
 from empla.integrations.email.gmail import GmailEmailAdapter
-from empla.integrations.email.types import Email, EmailPriority, EmailProvider
+from empla.integrations.email.types import Attachment, Email, EmailPriority, EmailProvider
 
 __all__ = [
+    "Attachment",
     "Email",
     "EmailAdapter",
     "EmailPriority",
     "EmailProvider",
     "GmailEmailAdapter",
+    "UnknownEmailProviderError",
     "create_email_adapter",
 ]

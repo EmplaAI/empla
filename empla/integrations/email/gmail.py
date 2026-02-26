@@ -17,6 +17,21 @@ from empla.integrations.email.types import Email
 
 logger = logging.getLogger(__name__)
 
+# Timeout for individual Gmail API calls (seconds).
+# asyncio.wait_for cancels the coroutine on timeout; the underlying thread
+# may still complete, but the caller is unblocked.
+_API_TIMEOUT_SECONDS = 30
+
+
+def _pad_base64url(data: str) -> str:
+    """Add padding to base64url-encoded string if missing.
+
+    Gmail API returns base64url without padding.  Python's
+    ``base64.urlsafe_b64decode`` may fail on certain inputs when
+    padding is absent, so we normalise here.
+    """
+    return data + "=" * (-len(data) % 4)
+
 
 class GmailEmailAdapter(EmailAdapter):
     """Gmail API adapter.
@@ -28,28 +43,43 @@ class GmailEmailAdapter(EmailAdapter):
         self._email_address = email_address
         self._client: Any = None
 
+    async def _run_in_thread(self, func: Any) -> Any:
+        """Run *func* in a thread with a timeout guard."""
+        return await asyncio.wait_for(
+            asyncio.to_thread(func),
+            timeout=_API_TIMEOUT_SECONDS,
+        )
+
     async def initialize(self, credentials: dict[str, Any]) -> None:
         """Initialize Gmail API service from OAuth credentials."""
+        # Validate required credential fields
+        if not credentials.get("access_token"):
+            raise ValueError("credentials must include a non-empty 'access_token'")
+        if not credentials.get("refresh_token"):
+            raise ValueError("credentials must include a non-empty 'refresh_token'")
+
         try:
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
 
             creds = Credentials(
-                token=credentials.get("access_token"),
-                refresh_token=credentials.get("refresh_token"),
+                token=credentials["access_token"],
+                refresh_token=credentials["refresh_token"],
                 token_uri="https://oauth2.googleapis.com/token",
             )
 
             def _build_service() -> Any:
                 return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
-            self._client = await asyncio.to_thread(_build_service)
+            self._client = await self._run_in_thread(_build_service)
 
         except ImportError as e:
             raise RuntimeError(
                 "Gmail dependencies not installed. "
                 "Run: pip install google-api-python-client google-auth"
             ) from e
+        except ValueError:
+            raise
         except Exception as e:
             raise RuntimeError(f"Gmail initialization failed: {e}") from e
 
@@ -87,7 +117,7 @@ class GmailEmailAdapter(EmailAdapter):
                 kwargs["q"] = q
             return self._client.users().messages().list(**kwargs).execute()
 
-        result = await asyncio.to_thread(_list_messages)
+        result = await self._run_in_thread(_list_messages)
         messages = result.get("messages", [])
 
         if not messages:
@@ -122,7 +152,7 @@ class GmailEmailAdapter(EmailAdapter):
                 .execute()
             )
 
-        msg = await asyncio.to_thread(_get_message)
+        msg = await self._run_in_thread(_get_message)
 
         headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
 
@@ -135,13 +165,15 @@ class GmailEmailAdapter(EmailAdapter):
                 mime_type = part.get("mimeType", "")
                 data = part.get("body", {}).get("data", "")
                 if data:
-                    decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+                    decoded = base64.urlsafe_b64decode(_pad_base64url(data)).decode(
+                        "utf-8", errors="replace"
+                    )
                     if mime_type == "text/plain":
                         body = decoded
                     elif mime_type == "text/html":
                         html_body = decoded
         elif "body" in payload and payload["body"].get("data"):
-            body = base64.urlsafe_b64decode(payload["body"]["data"]).decode(
+            body = base64.urlsafe_b64decode(_pad_base64url(payload["body"]["data"])).decode(
                 "utf-8", errors="replace"
             )
 
@@ -199,7 +231,7 @@ class GmailEmailAdapter(EmailAdapter):
                     self._client.users().messages().send(userId="me", body={"raw": raw}).execute()
                 )
 
-            result = await asyncio.to_thread(_send)
+            result = await self._run_in_thread(_send)
             message_id = result.get("id", "")
 
             return AdapterResult(success=True, data={"message_id": message_id})
@@ -242,11 +274,14 @@ class GmailEmailAdapter(EmailAdapter):
                 return (
                     self._client.users()
                     .messages()
-                    .send(userId="me", body={"raw": raw, "threadId": original.thread_id})
+                    .send(
+                        userId="me",
+                        body={"raw": raw, "threadId": original.thread_id},
+                    )
                     .execute()
                 )
 
-            result = await asyncio.to_thread(_send)
+            result = await self._run_in_thread(_send)
             reply_id = result.get("id", "")
 
             return AdapterResult(success=True, data={"message_id": reply_id})
@@ -295,7 +330,7 @@ class GmailEmailAdapter(EmailAdapter):
                     self._client.users().messages().send(userId="me", body={"raw": raw}).execute()
                 )
 
-            result = await asyncio.to_thread(_send)
+            result = await self._run_in_thread(_send)
             fwd_id = result.get("id", "")
 
             return AdapterResult(success=True, data={"message_id": fwd_id})
@@ -323,7 +358,7 @@ class GmailEmailAdapter(EmailAdapter):
                     .execute()
                 )
 
-            await asyncio.to_thread(_modify)
+            await self._run_in_thread(_modify)
             return AdapterResult(success=True)
 
         except Exception as e:
@@ -349,7 +384,7 @@ class GmailEmailAdapter(EmailAdapter):
                     .execute()
                 )
 
-            await asyncio.to_thread(_modify)
+            await self._run_in_thread(_modify)
             return AdapterResult(success=True)
 
         except Exception as e:

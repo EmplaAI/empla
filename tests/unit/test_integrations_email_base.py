@@ -6,7 +6,10 @@ import pytest
 
 from empla.integrations.base import AdapterResult
 from empla.integrations.email.base import EmailAdapter
-from empla.integrations.email.factory import create_email_adapter
+from empla.integrations.email.factory import (
+    UnknownEmailProviderError,
+    create_email_adapter,
+)
 from empla.integrations.email.gmail import GmailEmailAdapter
 
 
@@ -24,9 +27,21 @@ def test_create_email_adapter_microsoft_graph_not_implemented():
 
 
 def test_create_email_adapter_unknown_provider():
-    """Factory raises ValueError for unknown providers."""
-    with pytest.raises(ValueError, match="Unknown email provider"):
+    """Factory raises UnknownEmailProviderError for unknown providers."""
+    with pytest.raises(UnknownEmailProviderError, match="Unknown email provider"):
         create_email_adapter("unknown_provider", "test@example.com")
+
+
+def test_create_email_adapter_empty_email_address():
+    """Factory raises ValueError for empty email address."""
+    with pytest.raises(ValueError, match="email_address must be a non-empty string"):
+        create_email_adapter("gmail", "")
+
+
+def test_create_email_adapter_whitespace_email_address():
+    """Factory raises ValueError for whitespace-only email address."""
+    with pytest.raises(ValueError, match="email_address must be a non-empty string"):
+        create_email_adapter("gmail", "   ")
 
 
 def test_email_adapter_abc_not_instantiable():

@@ -212,6 +212,7 @@ module = [
     "empla.llm.azure_openai",
     "empla.llm.vertex",
     "empla.capabilities.email",
+    "empla.integrations.email.gmail",
 ]
 disallow_untyped_defs = false
 warn_return_any = false

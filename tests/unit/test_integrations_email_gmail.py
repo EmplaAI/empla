@@ -121,6 +121,24 @@ class TestGmailInitialize:
             with pytest.raises(RuntimeError, match="Gmail initialization failed"):
                 await adapter.initialize({"access_token": "t", "refresh_token": "r"})
 
+    @pytest.mark.asyncio
+    async def test_missing_access_token(self, adapter: GmailEmailAdapter):
+        """Initialize raises ValueError when access_token is missing."""
+        with pytest.raises(ValueError, match="access_token"):
+            await adapter.initialize({"refresh_token": "r"})
+
+    @pytest.mark.asyncio
+    async def test_missing_refresh_token(self, adapter: GmailEmailAdapter):
+        """Initialize raises ValueError when refresh_token is missing."""
+        with pytest.raises(ValueError, match="refresh_token"):
+            await adapter.initialize({"access_token": "t"})
+
+    @pytest.mark.asyncio
+    async def test_empty_credentials(self, adapter: GmailEmailAdapter):
+        """Initialize raises ValueError when credentials dict is empty."""
+        with pytest.raises(ValueError, match="access_token"):
+            await adapter.initialize({})
+
 
 # ---------------------------------------------------------------------------
 # TestGmailFetchEmails

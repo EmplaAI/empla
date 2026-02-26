@@ -446,10 +446,18 @@ class EmailCapability(BaseCapability):
 
     async def shutdown(self) -> None:
         """Shut down the email adapter and release resources."""
-        if self._adapter:
-            await self._adapter.shutdown()
+        try:
+            if self._adapter:
+                await self._adapter.shutdown()
+        except Exception:
+            logger.warning(
+                "Error during email adapter shutdown",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id)},
+            )
+        finally:
             self._adapter = None
-        self._initialized = False
+            self._initialized = False
 
     async def _execute_action_impl(self, action: Action) -> ActionResult:
         """
@@ -507,6 +515,12 @@ class EmailCapability(BaseCapability):
         """Send new email via adapter."""
         if not self._adapter:
             return ActionResult(success=False, error="Email adapter not initialized")
+
+        if attachments:
+            return ActionResult(
+                success=False,
+                error="Attachments are not yet supported by the email adapter",
+            )
 
         # Add signature if configured
         if self.config.signature:

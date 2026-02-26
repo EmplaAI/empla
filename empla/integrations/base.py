@@ -10,8 +10,12 @@ from typing import Any
 class AdapterResult:
     """Result from an adapter operation.
 
-    Lightweight dataclass (not Pydantic) - adapters don't need validation
-    overhead. Layer 1 capabilities convert this to ActionResult with metadata.
+    Uses a plain dataclass rather than Pydantic: adapter results are internal
+    return values that don't cross API boundaries, so validation overhead is
+    unnecessary.  Layer 1 capabilities convert this to ActionResult with
+    metadata before returning to callers.
+
+    See PR #40 for the adapter-layer extraction that introduced this type.
     """
 
     success: bool
