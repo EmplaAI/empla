@@ -1345,7 +1345,18 @@ Analyze this situation and provide recommendations."""
         """
         # Try agentic execution if LLM service and capability registry are available
         if self.llm_service and self.capability_registry:
-            tool_schemas = self.capability_registry.get_all_tool_schemas(self.employee.id)
+            try:
+                tool_schemas = self.capability_registry.get_all_tool_schemas(self.employee.id)
+            except Exception:
+                logger.error(
+                    "Failed to collect tool schemas, falling back to rigid execution",
+                    exc_info=True,
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "intention_id": str(intention.id),
+                    },
+                )
+                tool_schemas = []
             if tool_schemas:
                 logger.info(
                     "Using agentic execution with %d tool schemas",
@@ -1592,6 +1603,13 @@ Analyze this situation and provide recommendations."""
 
             # If no tool calls, LLM is done
             if not response.tool_calls:
+                if not response.content or not response.content.strip():
+                    return {
+                        "success": False,
+                        "error": "Empty assistant response",
+                        "tool_calls_made": len(tool_calls_made),
+                        "agentic": True,
+                    }
                 return {
                     "success": True,
                     "message": response.content,

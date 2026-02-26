@@ -297,7 +297,8 @@ class ComputeCapability(BaseCapability):
                         "code": {"type": "string", "description": "Python code to execute"},
                         "timeout_seconds": {
                             "type": "integer",
-                            "description": "Execution timeout in seconds (optional)",
+                            "description": "Execution timeout in seconds, must be positive (optional)",
+                            "minimum": 1,
                         },
                     },
                     "required": ["code"],

@@ -265,7 +265,7 @@ async def test_anthropic_tool_result_message_conversion():
     ]
 
     request = LLMRequest(messages=messages, tools=SAMPLE_TOOLS)
-    response = await provider.generate_with_tools(request)
+    await provider.generate_with_tools(request)
 
     # Verify the API was called with correct message format
     call_kwargs = provider.client.messages.create.call_args[1]
@@ -450,7 +450,7 @@ async def test_service_generate_with_tools_fallback(mock_config, mock_tool_respo
 
 
 @pytest.mark.asyncio
-async def test_service_generate_with_tools_no_fallback_raises(mock_config):
+async def test_service_generate_with_tools_no_fallback_raises():
     """Test LLMService.generate_with_tools raises when no fallback."""
     no_fallback_config = LLMConfig(
         primary_model="claude-sonnet-4",

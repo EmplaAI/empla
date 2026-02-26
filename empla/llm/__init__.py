@@ -311,8 +311,8 @@ class LLMService:
             # Provider doesn't support tool calling — don't mask with fallback
             raise
 
-        except Exception as e:
-            logger.error(f"Primary provider failed for generate_with_tools: {e}")
+        except Exception:
+            logger.error("Primary provider failed for generate_with_tools", exc_info=True)
 
             if self.fallback:
                 logger.info("Falling back to secondary provider for generate_with_tools")

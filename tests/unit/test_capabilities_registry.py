@@ -3,6 +3,7 @@ Unit tests for CapabilityRegistry.
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -795,7 +796,7 @@ class ToolSchemaCapability(BaseCapability):
             return ActionResult(success=True, output={"sent": True})
         return ActionResult(success=False, error="Unknown operation")
 
-    def get_tool_schemas(self) -> list[dict]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": "email.send_email",

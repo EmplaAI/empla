@@ -339,6 +339,24 @@ class WorkspaceCapability(BaseCapability):
                 },
             },
             {
+                "name": "workspace.move_file",
+                "description": "Move or rename a file within the workspace",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "from": {
+                            "type": "string",
+                            "description": "Source file path (relative to workspace root)",
+                        },
+                        "to": {
+                            "type": "string",
+                            "description": "Destination file path (relative to workspace root)",
+                        },
+                    },
+                    "required": ["from", "to"],
+                },
+            },
+            {
                 "name": "workspace.get_workspace_status",
                 "description": "Get workspace usage summary (file count, size, recent changes)",
                 "input_schema": {

@@ -61,7 +61,7 @@ class Message(BaseModel):
     def validate_role_field_consistency(self) -> "Message":
         if self.role == "tool" and not self.tool_call_id:
             raise ValueError("tool messages must have tool_call_id")
-        if self.role == "tool" and self.tool_calls:
+        if self.role == "tool" and self.tool_calls is not None:
             raise ValueError("tool messages cannot have tool_calls")
         if self.role in ("system", "user") and self.tool_calls is not None:
             raise ValueError(f"{self.role} messages cannot have tool_calls")
@@ -85,7 +85,7 @@ class LLMRequest(BaseModel):
 
     # Function calling (optional)
     tools: list[dict[str, Any]] | None = None
-    tool_choice: str | None = None  # "auto", "required", "none"
+    tool_choice: Literal["auto", "required", "none"] | None = None
 
     class Config:
         arbitrary_types_allowed = True
