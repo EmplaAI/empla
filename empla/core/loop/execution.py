@@ -195,6 +195,31 @@ class MemorySystemProtocol(Protocol):
         ...
 
 
+class ToolSourceProtocol(Protocol):
+    """Protocol for tool sources (CapabilityRegistry or ToolRouter).
+
+    Defines the interface the agentic loop uses for tool discovery and execution.
+    """
+
+    def get_all_tool_schemas(self, employee_id: Any) -> list[dict[str, Any]]:
+        """Get all available tool schemas for the employee."""
+        ...
+
+    async def execute_tool_call(
+        self, employee_id: Any, tool_name: str, arguments: dict[str, Any]
+    ) -> Any:
+        """Execute a tool call and return an ActionResult."""
+        ...
+
+    async def perceive_all(self, employee_id: Any) -> list[Any]:
+        """Gather observations from the environment."""
+        ...
+
+    def get_enabled_capabilities(self, employee_id: Any) -> list[str]:
+        """List enabled capabilities for the employee."""
+        ...
+
+
 # ============================================================================
 # Proactive Execution Loop
 # ============================================================================
@@ -233,12 +258,12 @@ class ProactiveExecutionLoop:
         goals: GoalSystemProtocol,
         intentions: IntentionStackProtocol,
         memory: MemorySystemProtocol,
-        capability_registry: Any | None = None,  # CapabilityRegistry from empla.capabilities
-        llm_service: "LLMService | None" = None,  # LLM service for reasoning
+        capability_registry: ToolSourceProtocol | None = None,
+        llm_service: "LLMService | None" = None,
         config: LoopConfig | None = None,
         status_checker: Callable[[Employee], Awaitable[None]] | None = None,
         hooks: HookRegistry | None = None,
-        tool_router: Any | None = None,  # ToolRouter from empla.core.tools
+        tool_router: ToolSourceProtocol | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
@@ -249,7 +274,7 @@ class ProactiveExecutionLoop:
             goals: Goal system responsible for providing and updating active goals.
             intentions: Intention stack managing selection, start, completion, and failure of intentions.
             memory: Memory system used for recording and retrieving episodic/semantic/procedural data.
-            capability_registry: Optional capability registry used to perceive the environment and enumerate enabled capabilities.
+            capability_registry: Optional tool source for perception and tool execution.
             llm_service: Optional LLM service for strategic reasoning and plan generation.
             config: Optional loop configuration object; when omitted defaults are applied (e.g., cycle and error backoff intervals).
             status_checker: Optional async callback that refreshes employee.status
@@ -258,8 +283,8 @@ class ProactiveExecutionLoop:
                 When None, the loop reads employee.status directly (suitable for tests).
             hooks: Optional hook registry for lifecycle event callbacks.
                 When None, a default empty registry is created.
-            tool_router: Optional ToolRouter that unifies capabilities + standalone tools.
-                When provided, used for get_all_tool_schemas/execute_tool_call instead
+            tool_router: Optional unified tool source that combines capabilities + standalone tools.
+                When provided, used for tool discovery and execution instead
                 of capability_registry directly.
 
         Notes:
@@ -1633,6 +1658,17 @@ Analyze this situation and provide recommendations."""
 
             # Execute each tool call via tool_router (preferred) or capability_registry
             tool_executor = self.tool_router or self.capability_registry
+            if tool_executor is None:
+                logger.error(
+                    "No tool executor available — cannot execute tool calls",
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                return {
+                    "success": False,
+                    "error": "No tool executor configured",
+                    "tool_calls_made": [],
+                    "agentic": True,
+                }
             for tool_call in response.tool_calls:
                 try:
                     result = await tool_executor.execute_tool_call(

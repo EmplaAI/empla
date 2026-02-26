@@ -23,7 +23,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,7 +37,9 @@ class MCPServerConfig(BaseModel):
     """Configuration for connecting to an MCP server."""
 
     name: str = Field(..., description="Server name used as tool prefix (e.g., 'salesforce')")
-    transport: str = Field(..., description="Transport type: 'stdio' or 'http'")
+    transport: Literal["stdio", "http"] = Field(
+        ..., description="Transport type: 'stdio' or 'http'"
+    )
     command: list[str] | None = Field(
         default=None,
         description="Command for stdio transport (e.g., ['python', 'server.py'])",
@@ -115,10 +117,6 @@ class MCPBridge:
             ValueError: If transport config is invalid
             ConnectionError: If connection to server fails
         """
-        # Validate transport before importing mcp
-        if config.transport not in ("stdio", "http"):
-            raise ValueError(f"Unknown transport '{config.transport}'. Use 'stdio' or 'http'.")
-
         if config.name in self._connections:
             logger.warning(f"Already connected to MCP server: {config.name}")
             return list(self._connections[config.name].get("tool_names", []))
@@ -141,9 +139,11 @@ class MCPBridge:
             env=config.env or None,
         )
 
-        # Create transport and session
-        read_stream, write_stream = await stdio_client(server_params).__aenter__()
-        session = await ClientSession(read_stream, write_stream).__aenter__()
+        # Create transport and session — store CMs for cleanup in disconnect()
+        transport_cm = stdio_client(server_params)
+        read_stream, write_stream = await transport_cm.__aenter__()
+        session_cm = ClientSession(read_stream, write_stream)
+        session = await session_cm.__aenter__()
         await session.initialize()
 
         # Discover and register tools
@@ -151,6 +151,8 @@ class MCPBridge:
 
         self._connections[config.name] = {
             "session": session,
+            "session_cm": session_cm,
+            "transport_cm": transport_cm,
             "tool_names": tool_names,
             "config": config,
         }
@@ -180,14 +182,19 @@ class MCPBridge:
         if not config.url:
             raise ValueError("http transport requires 'url' in config")
 
-        read_stream, write_stream, _ = await streamablehttp_client(config.url).__aenter__()
-        session = await ClientSession(read_stream, write_stream).__aenter__()
+        # Store CMs for cleanup in disconnect()
+        transport_cm = streamablehttp_client(config.url)
+        read_stream, write_stream, _ = await transport_cm.__aenter__()
+        session_cm = ClientSession(read_stream, write_stream)
+        session = await session_cm.__aenter__()
         await session.initialize()
 
         tool_names = await self._register_server_tools(config.name, session)
 
         self._connections[config.name] = {
             "session": session,
+            "session_cm": session_cm,
+            "transport_cm": transport_cm,
             "tool_names": tool_names,
             "config": config,
         }
@@ -262,14 +269,24 @@ class MCPBridge:
         for tool_name in conn.get("tool_names", []):
             self._tool_registry.unregister_tool(tool_name)
 
-        # Close session
-        session = conn.get("session")
-        if session:
+        # Close session CM, then transport CM (reverse order of creation)
+        session_cm = conn.get("session_cm")
+        if session_cm:
             try:
-                await session.__aexit__(None, None, None)
+                await session_cm.__aexit__(None, None, None)
             except Exception:
                 logger.warning(
                     f"Error closing MCP session for {server_name}",
+                    exc_info=True,
+                )
+
+        transport_cm = conn.get("transport_cm")
+        if transport_cm:
+            try:
+                await transport_cm.__aexit__(None, None, None)
+            except Exception:
+                logger.warning(
+                    f"Error closing MCP transport for {server_name}",
                     exc_info=True,
                 )
 

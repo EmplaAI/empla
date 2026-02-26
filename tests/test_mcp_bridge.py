@@ -50,6 +50,17 @@ class TestMCPServerConfig:
         )
         assert config.env == {"API_KEY": "secret123"}
 
+    def test_invalid_transport_rejected(self):
+        """Literal['stdio', 'http'] should reject invalid transports."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            MCPServerConfig(
+                name="bad",
+                transport="websocket",
+                url="ws://localhost:8000",
+            )
+
 
 # ============================================================================
 # MCPBridge basic tests
@@ -72,13 +83,14 @@ class TestMCPBridge:
         assert bridge.connected_servers == []
 
     async def test_connect_invalid_transport(self, bridge):
-        config = MCPServerConfig(
-            name="bad",
-            transport="websocket",
-            url="ws://localhost:8000",
-        )
-        with pytest.raises(ValueError, match="Unknown transport"):
-            await bridge.connect(config)
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            MCPServerConfig(
+                name="bad",
+                transport="websocket",
+                url="ws://localhost:8000",
+            )
 
     async def test_connect_stdio_missing_command(self, bridge):
         config = MCPServerConfig(

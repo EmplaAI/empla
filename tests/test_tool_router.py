@@ -182,6 +182,26 @@ class TestExecuteToolCall:
         result = await router.execute_tool_call(employee_id, "nonexistent.tool", {})
         assert result.success is False
 
+    async def test_tool_with_no_implementation(self, router, tool_registry, employee_id):
+        """Tool exists in registry but implementation is missing."""
+        t = Tool(
+            name="orphan_tool",
+            description="Tool with no impl",
+            parameters_schema={"type": "object", "properties": {}},
+        )
+
+        class DummyImpl:
+            async def _execute(self, params):
+                return None
+
+        # Register, then remove the implementation manually
+        tool_registry.register_tool(t, DummyImpl())
+        del tool_registry._implementations[t.tool_id]
+
+        result = await router.execute_tool_call(employee_id, "orphan_tool", {})
+        assert result.success is False
+        assert "no implementation" in result.error
+
 
 # ============================================================================
 # Perception delegation tests
@@ -233,8 +253,8 @@ class TestToolRouterMisc:
     def test_default_tool_registry(self, capability_registry):
         # Should create default ToolRegistry if none provided
         router = ToolRouter(capability_registry)
-        assert router.tool_registry is not None
-        assert len(router.tool_registry) == 0
+        assert router._tool_registry is not None
+        assert len(router._tool_registry) == 0
 
     def test_get_enabled_capabilities(self, router, employee_id):
         caps = router.get_enabled_capabilities(employee_id)

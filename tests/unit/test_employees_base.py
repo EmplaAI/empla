@@ -431,3 +431,29 @@ class TestDigitalEmployeeHooks:
         employee.hooks.register("employee_start", handler)
 
         assert employee.hooks.has_handlers("employee_start")
+
+
+class TestDigitalEmployeeToolRegistry:
+    """Tests for tool_registry property."""
+
+    def test_tool_registry_before_start_raises(self):
+        """Accessing tool_registry before start() should raise."""
+        config = EmployeeConfig(
+            name="Test",
+            role="custom",
+            email="test@test.com",
+        )
+        employee = ConcreteEmployee(config)
+        with pytest.raises(EmployeeNotStartedError, match="tool_registry"):
+            _ = employee.tool_registry
+
+    def test_tool_registry_initialized_to_none(self):
+        """_tool_registry should be None before start."""
+        config = EmployeeConfig(
+            name="Test",
+            role="custom",
+            email="test@test.com",
+        )
+        employee = ConcreteEmployee(config)
+        assert employee._tool_registry is None
+        assert employee._tool_router is None

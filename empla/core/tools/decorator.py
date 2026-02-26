@@ -47,16 +47,13 @@ def _python_type_to_json_schema(annotation: Any) -> dict[str, Any]:
         return {"type": "string"}
 
     # typing.Union / typing.Optional
-    try:
-        import typing
+    import typing
 
-        if origin is typing.Union:
-            non_none = [a for a in args if a is not type(None)]
-            if len(non_none) == 1:
-                return _python_type_to_json_schema(non_none[0])
-            return {"type": "string"}
-    except Exception:
-        pass
+    if origin is typing.Union:
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1:
+            return _python_type_to_json_schema(non_none[0])
+        return {"type": "string"}
 
     # list[X]
     if origin is list:

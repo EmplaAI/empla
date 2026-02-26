@@ -28,9 +28,11 @@ class ToolRouter:
     Unified interface that merges tools from CapabilityRegistry (heavyweight
     capabilities) and ToolRegistry (lightweight @tool functions + MCP tools).
 
-    Provides the same two methods the agentic loop calls:
+    Provides the same interface the agentic loop calls:
     - get_all_tool_schemas(employee_id) -> list[dict]
     - execute_tool_call(employee_id, tool_name, arguments) -> ActionResult
+    - perceive_all(employee_id) -> list[Observation]
+    - get_enabled_capabilities(employee_id) -> list[str]
 
     Example:
         >>> router = ToolRouter(capability_registry, tool_registry)
@@ -43,8 +45,8 @@ class ToolRouter:
         capability_registry: CapabilityRegistry,
         tool_registry: ToolRegistry | None = None,
     ) -> None:
-        self.capability_registry = capability_registry
-        self.tool_registry = tool_registry if tool_registry is not None else ToolRegistry()
+        self._capability_registry = capability_registry
+        self._tool_registry = tool_registry if tool_registry is not None else ToolRegistry()
 
     def get_all_tool_schemas(self, employee_id: UUID) -> list[dict[str, Any]]:
         """Merge schemas from capabilities + standalone tools.
@@ -56,10 +58,10 @@ class ToolRouter:
             Combined list of tool schemas for LLM function calling
         """
         # Capability tools (email.send_email, workspace.read_file, etc.)
-        schemas = self.capability_registry.get_all_tool_schemas(employee_id)
+        schemas = self._capability_registry.get_all_tool_schemas(employee_id)
 
         # Standalone tools (web_search, enrich_company, MCP tools, etc.)
-        schemas.extend(self.tool_registry.get_all_tool_schemas())
+        schemas.extend(self._tool_registry.get_all_tool_schemas())
 
         return schemas
 
@@ -80,9 +82,9 @@ class ToolRouter:
             ActionResult from execution
         """
         # Check standalone tool registry first
-        tool = self.tool_registry.get_tool_by_name(tool_name)
+        tool = self._tool_registry.get_tool_by_name(tool_name)
         if tool is not None:
-            impl = self.tool_registry.get_implementation(tool.tool_id)
+            impl = self._tool_registry.get_implementation(tool.tool_id)
             if impl is not None:
                 return await self._execute_standalone_tool(tool_name, impl, arguments)
 
@@ -96,7 +98,7 @@ class ToolRouter:
             )
 
         # Fall back to capability registry (dotted names like "email.send_email")
-        return await self.capability_registry.execute_tool_call(employee_id, tool_name, arguments)
+        return await self._capability_registry.execute_tool_call(employee_id, tool_name, arguments)
 
     async def _execute_standalone_tool(
         self, tool_name: str, impl: ToolImplementation, arguments: dict[str, Any]
@@ -108,6 +110,7 @@ class ToolRouter:
         except Exception as e:
             logger.error(
                 f"Standalone tool '{tool_name}' failed: {e}",
+                exc_info=True,
                 extra={"tool_name": tool_name},
             )
             return ActionResult(
@@ -120,13 +123,13 @@ class ToolRouter:
 
         Standalone tools don't perceive — only capabilities do.
         """
-        return await self.capability_registry.perceive_all(employee_id)
+        return await self._capability_registry.perceive_all(employee_id)
 
     def get_enabled_capabilities(self, employee_id: UUID) -> list[str]:
         """Delegate to capability registry."""
-        return self.capability_registry.get_enabled_capabilities(employee_id)
+        return self._capability_registry.get_enabled_capabilities(employee_id)
 
     def __repr__(self) -> str:
-        cap_count = len(self.capability_registry.get_registered_types())
-        tool_count = len(self.tool_registry)
+        cap_count = len(self._capability_registry.get_registered_types())
+        tool_count = len(self._tool_registry)
         return f"ToolRouter(capabilities={cap_count}, standalone_tools={tool_count})"
