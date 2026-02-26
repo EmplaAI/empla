@@ -291,6 +291,48 @@ class ToolRegistry:
 
         return available_tools
 
+    def unregister_tool(self, name: str) -> bool:
+        """
+        Unregister a tool by name.
+
+        Args:
+            name: Tool name to remove
+
+        Returns:
+            True if tool was removed, False if not found
+        """
+        tool_id = self._name_to_id.get(name)
+        if tool_id is None:
+            return False
+
+        del self._tools[tool_id]
+        del self._implementations[tool_id]
+        del self._name_to_id[name]
+
+        logger.info(f"Unregistered tool: {name}", extra={"tool_id": str(tool_id)})
+        return True
+
+    def get_all_tool_schemas(self) -> list[dict[str, Any]]:
+        """
+        Get tool schemas for all registered tools.
+
+        Returns schemas in the same format as CapabilityRegistry.get_all_tool_schemas()
+        for compatibility with the agentic execution loop.
+
+        Returns:
+            List of tool schema dicts with name, description, input_schema
+        """
+        schemas: list[dict[str, Any]] = []
+        for tool in self._tools.values():
+            schemas.append(
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.parameters_schema,
+                }
+            )
+        return schemas
+
     def clear(self) -> None:
         """
         Clear all registered tools and capabilities.
