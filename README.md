@@ -561,6 +561,89 @@ python sales_ae.py
 
 ---
 
+## 🛠️ Developer Setup
+
+### Prerequisites
+- [Anaconda](https://www.anaconda.com/download) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
+- Python 3.11+
+
+### Environment Setup
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/yourusername/empla.git
+   cd empla
+   ```
+
+2. **Create the conda environment:**
+   ```bash
+   conda env create -f environment.yml
+   ```
+
+3. **Activate the environment:**
+   ```bash
+   conda activate empla
+   ```
+
+4. **Verify installation:**
+   ```bash
+   python --version
+   pytest --version
+   ```
+
+### Running Tests
+
+Run all tests:
+```bash
+pytest
+```
+
+Run tests with coverage:
+```bash
+pytest --cov=empla --cov-report=html
+```
+
+Run specific test file:
+```bash
+pytest tests/test_filename.py
+```
+
+Run tests with verbose output:
+```bash
+pytest -v
+```
+
+### Updating Dependencies
+
+If you add new dependencies to `environment.yml`:
+```bash
+conda env update -f environment.yml --prune
+```
+
+### Development Workflow
+
+```bash
+# Create a feature branch
+git checkout -b feature/your-feature-name
+
+# Make your changes and run tests
+pytest
+
+# Commit and push
+git add .
+git commit -m "Your commit message"
+git push origin feature/your-feature-name
+```
+
+### Deactivating the Environment
+
+When done working:
+```bash
+conda deactivate
+```
+
+---
+
 ## 🤝 Contributing
 
 We're building production-ready digital employees AND the platform to create custom ones - **we'd love your help!**
