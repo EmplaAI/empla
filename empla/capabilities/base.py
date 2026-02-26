@@ -422,6 +422,16 @@ class BaseCapability(ABC):
         # Let employee decide whether to retry at higher level
         return False
 
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        """Return tool schemas for LLM function calling.
+
+        Override in subclasses to expose operations as tools.
+        Default returns empty list (capability has no LLM-callable tools).
+
+        Each schema: {"name": str, "description": str, "input_schema": dict}
+        """
+        return []
+
     async def shutdown(self) -> None:
         """
         Perform an orderly shutdown of the capability, releasing resources and flushing any in-memory state.

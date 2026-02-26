@@ -5,6 +5,7 @@ The main continuous autonomous operation loop.
 """
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -1332,12 +1333,46 @@ Analyze this situation and provide recommendations."""
         """
         Execute the steps in an intention's plan.
 
+        Prefers agentic execution (LLM-driven tool calling) when both the LLM
+        service and tool schemas are available. Falls back to rigid step-by-step
+        execution otherwise.
+
         Args:
             intention: The intention to execute
 
         Returns:
             Execution result with success status and outputs
         """
+        # Try agentic execution if LLM service and capability registry are available
+        if self.llm_service and self.capability_registry:
+            try:
+                tool_schemas = self.capability_registry.get_all_tool_schemas(self.employee.id)
+            except Exception:
+                logger.error(
+                    "Failed to collect tool schemas, falling back to rigid execution",
+                    exc_info=True,
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "intention_id": str(intention.id),
+                    },
+                )
+                tool_schemas = []
+            if tool_schemas:
+                logger.info(
+                    "Using agentic execution with %d tool schemas",
+                    len(tool_schemas),
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "intention_id": str(intention.id),
+                        "tool_count": len(tool_schemas),
+                    },
+                )
+                return await self._execute_intention_with_tools(intention, tool_schemas)
+            logger.debug(
+                "No tool schemas available, using rigid plan execution",
+                extra={"employee_id": str(self.employee.id)},
+            )
+
         plan = getattr(intention, "plan", {}) or {}
         steps = plan.get("steps", [])
 
@@ -1511,6 +1546,170 @@ Analyze this situation and provide recommendations."""
                 pass
 
         return None
+
+    # ========================================================================
+    # Phase 3b: Agentic Execution (LLM-driven tool calling)
+    # ========================================================================
+
+    async def _execute_intention_with_tools(
+        self, intention: Any, tool_schemas: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Execute intention using LLM function calling.
+
+        The LLM receives the intention description and available tools,
+        then drives execution by making tool calls. It can adapt based
+        on results, chain multiple calls, and decide when it's done.
+
+        Args:
+            intention: The intention to execute
+            tool_schemas: Tool schemas from capabilities
+
+        Returns:
+            Execution result dict
+        """
+        from empla.llm.models import Message
+
+        messages = [
+            Message(role="system", content=self._build_execution_system_prompt()),
+            Message(role="user", content=self._build_intention_prompt(intention)),
+        ]
+
+        max_iterations = 10
+        tool_calls_made: list[dict[str, Any]] = []
+
+        for iteration in range(max_iterations):
+            try:
+                response = await self.llm_service.generate_with_tools(
+                    messages=messages,
+                    tools=tool_schemas,
+                    tool_choice="auto",
+                    temperature=0.2,
+                )
+            except Exception as e:
+                logger.error(
+                    f"LLM generate_with_tools failed during agentic execution: {e}",
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "intention_id": str(intention.id),
+                        "iteration": iteration,
+                    },
+                )
+                return {
+                    "success": False,
+                    "error": f"LLM call failed: {e}",
+                    "tool_calls_made": len(tool_calls_made),
+                    "agentic": True,
+                }
+
+            # If no tool calls, LLM is done
+            if not response.tool_calls:
+                if not response.content or not response.content.strip():
+                    return {
+                        "success": False,
+                        "error": "Empty assistant response",
+                        "tool_calls_made": len(tool_calls_made),
+                        "agentic": True,
+                    }
+                return {
+                    "success": True,
+                    "message": response.content,
+                    "tool_calls_made": len(tool_calls_made),
+                    "agentic": True,
+                }
+
+            # Add assistant message with tool calls to conversation
+            assistant_msg = Message(
+                role="assistant",
+                content=response.content or "",
+                tool_calls=response.tool_calls,
+            )
+            messages.append(assistant_msg)
+
+            # Execute each tool call
+            for tool_call in response.tool_calls:
+                try:
+                    result = await self.capability_registry.execute_tool_call(
+                        self.employee.id,
+                        tool_call.name,
+                        tool_call.arguments,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Tool call {tool_call.name} raised exception: {e}",
+                        extra={
+                            "employee_id": str(self.employee.id),
+                            "tool_name": tool_call.name,
+                        },
+                    )
+                    result_content = json.dumps(
+                        {"success": False, "error": f"{type(e).__name__}: {e}"}
+                    )
+                    tool_calls_made.append({"tool": tool_call.name, "success": False})
+                    messages.append(
+                        Message(role="tool", content=result_content, tool_call_id=tool_call.id)
+                    )
+                    continue
+
+                tool_calls_made.append({"tool": tool_call.name, "success": result.success})
+
+                result_content = json.dumps(
+                    {
+                        "success": result.success,
+                        "output": result.output,
+                        "error": result.error,
+                    },
+                    default=str,
+                )
+                messages.append(
+                    Message(role="tool", content=result_content, tool_call_id=tool_call.id)
+                )
+
+                logger.debug(
+                    f"Tool call {tool_call.name}: {'success' if result.success else 'failed'}",
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "tool_name": tool_call.name,
+                        "success": result.success,
+                        "iteration": iteration,
+                    },
+                )
+
+        # Max iterations reached — incomplete execution
+        logger.warning(
+            "Agentic execution reached max iterations without completing",
+            extra={
+                "employee_id": str(self.employee.id),
+                "intention_id": str(intention.id),
+                "max_iterations": max_iterations,
+                "tool_calls_made": len(tool_calls_made),
+            },
+        )
+        return {
+            "success": False,
+            "error": f"Agentic execution exhausted iteration budget (max_iterations={max_iterations})",
+            "tool_calls_made": len(tool_calls_made),
+            "agentic": True,
+        }
+
+    def _build_execution_system_prompt(self) -> str:
+        """Build system prompt for agentic execution."""
+        return (
+            "You are executing a task for a digital employee. "
+            "Use the available tools to accomplish the intention. "
+            "Call tools as needed, adapt based on results, and stop when done. "
+            "Be efficient — don't make unnecessary tool calls."
+        )
+
+    def _build_intention_prompt(self, intention: Any) -> str:
+        """Build user prompt from intention context."""
+        parts = [f"Execute this intention: {intention.description}"]
+        context = getattr(intention, "context", None)
+        if context and isinstance(context, dict):
+            if "reasoning" in context:
+                parts.append(f"Reasoning: {context['reasoning']}")
+            if "success_criteria" in context:
+                parts.append(f"Success criteria: {context['success_criteria']}")
+        return "\n".join(parts)
 
     # ========================================================================
     # Phase 4: Learning & Reflection

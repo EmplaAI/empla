@@ -39,7 +39,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from empla.llm.config import MODELS, LLMConfig
-from empla.llm.models import LLMRequest, LLMResponse, Message
+from empla.llm.models import LLMRequest, LLMResponse, Message, ToolCall
 from empla.llm.provider import LLMProviderBase, LLMProviderFactory
 
 logger = logging.getLogger(__name__)
@@ -273,6 +273,54 @@ class LLMService:
                 return response, parsed
             raise
 
+    async def generate_with_tools(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]],
+        tool_choice: str = "auto",
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+    ) -> LLMResponse:
+        """
+        Generate with function calling. Returns response that may contain tool_calls.
+
+        Args:
+            messages: Conversation messages (including tool results)
+            tools: Tool schemas for function calling
+            tool_choice: "auto", "required", or "none"
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+
+        Returns:
+            LLM response, potentially with tool_calls
+        """
+        request = LLMRequest(
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+        try:
+            response = await self.primary.generate_with_tools(request)
+            self._track_cost(response, is_primary=True)
+            return response
+
+        except NotImplementedError:
+            # Provider doesn't support tool calling — don't mask with fallback
+            raise
+
+        except Exception:
+            logger.error("Primary provider failed for generate_with_tools", exc_info=True)
+
+            if self.fallback:
+                logger.info("Falling back to secondary provider for generate_with_tools")
+                response = await self.fallback.generate_with_tools(request)
+                self._track_cost(response, is_primary=False)
+                return response
+            raise
+
     async def stream(
         self,
         prompt: str,
@@ -440,4 +488,5 @@ __all__ = [
     "LLMConfig",
     "LLMProviderFactory",
     "LLMService",
+    "ToolCall",
 ]

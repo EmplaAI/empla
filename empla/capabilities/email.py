@@ -452,6 +452,98 @@ class EmailCapability(BaseCapability):
             return email.split("@")[1]
         return "[redacted]"
 
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        """Return tool schemas for email operations."""
+        return [
+            {
+                "name": "email.send_email",
+                "description": "Send a new email to one or more recipients",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "to": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Recipient email addresses",
+                        },
+                        "subject": {"type": "string", "description": "Email subject line"},
+                        "body": {"type": "string", "description": "Email body text"},
+                        "cc": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "CC recipients",
+                        },
+                    },
+                    "required": ["to", "subject", "body"],
+                },
+            },
+            {
+                "name": "email.reply_to_email",
+                "description": "Reply to an existing email thread",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "email_id": {
+                            "type": "string",
+                            "description": "ID of the email to reply to",
+                        },
+                        "body": {"type": "string", "description": "Reply body text"},
+                        "cc": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "CC recipients",
+                        },
+                    },
+                    "required": ["email_id", "body"],
+                },
+            },
+            {
+                "name": "email.forward_email",
+                "description": "Forward an email to other recipients",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "email_id": {
+                            "type": "string",
+                            "description": "ID of the email to forward",
+                        },
+                        "to": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Recipient email addresses",
+                        },
+                        "comment": {
+                            "type": "string",
+                            "description": "Optional comment to include",
+                        },
+                    },
+                    "required": ["email_id", "to"],
+                },
+            },
+            {
+                "name": "email.mark_read",
+                "description": "Mark an email as read",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "email_id": {"type": "string", "description": "ID of the email to mark"},
+                    },
+                    "required": ["email_id"],
+                },
+            },
+            {
+                "name": "email.archive",
+                "description": "Archive an email",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "email_id": {"type": "string", "description": "ID of the email to archive"},
+                    },
+                    "required": ["email_id"],
+                },
+            },
+        ]
+
     async def shutdown(self) -> None:
         """Shut down the email adapter and release resources."""
         try:

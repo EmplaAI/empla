@@ -11,7 +11,7 @@ from typing import Any
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
-from empla.llm.models import LLMRequest, LLMResponse, Message, TokenUsage
+from empla.llm.models import LLMRequest, LLMResponse, Message, TokenUsage, ToolCall
 from empla.llm.provider import LLMProviderBase
 
 
@@ -61,6 +61,110 @@ class AnthropicProvider(LLMProviderBase):
                 total_tokens=response.usage.input_tokens + response.usage.output_tokens,
             ),
             finish_reason=response.stop_reason,
+        )
+
+    async def generate_with_tools(self, request: LLMRequest) -> LLMResponse:
+        """Generate completion with tool calling via Anthropic tools parameter."""
+        system_message = None
+        messages: list[dict[str, Any]] = []
+
+        for msg in request.messages:
+            if msg.role == "system":
+                system_message = msg.content
+            elif msg.role == "tool":
+                # Anthropic expects tool results as user messages with tool_result content blocks
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": msg.tool_call_id,
+                                "content": msg.content,
+                            }
+                        ],
+                    }
+                )
+            elif msg.role == "assistant" and msg.tool_calls:
+                # Reconstruct assistant message with tool_use content blocks
+                content_blocks: list[dict[str, Any]] = []
+                if msg.content:
+                    content_blocks.append({"type": "text", "text": msg.content})
+                for tc in msg.tool_calls:
+                    content_blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "input": tc.arguments,
+                        }
+                    )
+                messages.append({"role": "assistant", "content": content_blocks})
+            else:
+                messages.append({"role": msg.role, "content": msg.content})
+
+        # Build Anthropic tools parameter
+        anthropic_tools = []
+        for tool in request.tools or []:
+            anthropic_tools.append(
+                {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "input_schema": tool.get("input_schema", {"type": "object", "properties": {}}),
+                }
+            )
+
+        # Map tool_choice
+        tool_choice_param: dict[str, str] | None = None
+        if request.tool_choice == "required":
+            tool_choice_param = {"type": "any"}
+        elif request.tool_choice == "none":
+            # Anthropic has no "none" tool_choice — omit tools entirely to prevent tool use
+            anthropic_tools = []
+        elif request.tool_choice == "auto":
+            tool_choice_param = {"type": "auto"}
+
+        kwargs: dict[str, Any] = {
+            "model": self.model_id,
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "messages": messages,
+        }
+        if anthropic_tools:
+            kwargs["tools"] = anthropic_tools
+        if system_message:
+            kwargs["system"] = system_message
+        if tool_choice_param:
+            kwargs["tool_choice"] = tool_choice_param
+
+        response = await self.client.messages.create(**kwargs)
+
+        # Parse response content blocks
+        text_content = ""
+        tool_calls: list[ToolCall] = []
+
+        for block in response.content:
+            if block.type == "text":
+                text_content += block.text
+            elif block.type == "tool_use":
+                tool_calls.append(
+                    ToolCall(
+                        id=block.id,
+                        name=block.name,
+                        arguments=block.input,  # type: ignore[arg-type]
+                    )
+                )
+
+        return LLMResponse(
+            content=text_content,
+            model=response.model,
+            usage=TokenUsage(
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+            ),
+            finish_reason=response.stop_reason or "end_turn",
+            tool_calls=tool_calls if tool_calls else None,
         )
 
     async def generate_structured(
