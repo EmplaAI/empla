@@ -139,7 +139,7 @@ async def run_employee(
             goals=goal_configs,
             llm=LLMSettings(**(db_config.get("llm") or {})),
             loop=LoopSettings(**(db_config.get("loop") or {})),
-            metadata=db_config.get("metadata", {}),
+            metadata=db_config.get("metadata") or {},
         )
     except (ValidationError, TypeError, KeyError) as e:
         logger.error(

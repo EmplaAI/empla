@@ -1553,6 +1553,9 @@ Analyze this situation and provide recommendations."""
         step_index: int,
     ) -> dict[str, Any]:
         """Execute a plan step through the tool router."""
+        assert self.tool_router is not None, (
+            "_execute_step_via_tool_router called without tool_router"
+        )
         try:
             action_result = await self.tool_router.execute_tool_call(
                 self.employee.id, action_name, parameters
