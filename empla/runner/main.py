@@ -133,7 +133,7 @@ async def run_employee(
                 priority=g.priority,
                 target=g.target,
             )
-            for g in db_employee.goals
+            for g in (db_employee.goals or [])
             if g.status in ("active", "in_progress")
         ]
 

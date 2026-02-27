@@ -1476,13 +1476,16 @@ Analyze this situation and provide recommendations."""
             )
             if not result.get("skipped"):
                 return result
-            # Capability was skipped (no matching capability) — fall through to tool_router
+            # Capability was skipped — try tool_router for standalone tools
+            if self.tool_router:
+                return await self._execute_step_via_tool_router(action_name, parameters, step_index)
+            return result  # No tool_router either — return the skipped result as-is
 
-        # Fall back to tool_router (wraps its own capability registry + standalone tools)
+        # No capability registry — try tool_router directly
         if self.tool_router:
             return await self._execute_step_via_tool_router(action_name, parameters, step_index)
 
-        # No execution source available — simulate success
+        # No execution source available
         logger.debug("No capability registry or tool router, simulating step success")
         return {
             "success": True,
