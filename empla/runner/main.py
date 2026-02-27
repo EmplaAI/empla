@@ -12,6 +12,7 @@ Runs a single digital employee as a persistent process:
 
 import asyncio
 import contextlib
+import json
 import logging
 import signal
 import sys
@@ -117,6 +118,13 @@ async def run_employee(
     # Build full config from DB record (personality, goals, llm, loop)
     try:
         db_config = db_employee.config or {}
+        if isinstance(db_config, str):
+            try:
+                db_config = json.loads(db_config)
+            except (json.JSONDecodeError, TypeError):
+                db_config = {}
+        if not isinstance(db_config, dict):
+            db_config = {}
 
         goal_configs = [
             GoalConfig(
@@ -135,7 +143,9 @@ async def run_employee(
             email=db_employee.email,
             tenant_id=db_employee.tenant_id,
             capabilities=db_employee.capabilities,
-            personality=Personality(**db_employee.personality) if db_employee.personality else None,
+            personality=Personality(**db_employee.personality)
+            if db_employee.personality is not None
+            else None,
             goals=goal_configs,
             llm=LLMSettings(**(db_config.get("llm") or {})),
             loop=LoopSettings(**(db_config.get("loop") or {})),

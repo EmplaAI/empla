@@ -1471,9 +1471,12 @@ Analyze this situation and provide recommendations."""
 
         # Try direct capability registry first
         if self.capability_registry:
-            return await self._execute_step_via_capability(
+            result = await self._execute_step_via_capability(
                 action_name, parameters, required_capabilities, step_index
             )
+            if not result.get("skipped"):
+                return result
+            # Capability was skipped (no matching capability) — fall through to tool_router
 
         # Fall back to tool_router (wraps its own capability registry + standalone tools)
         if self.tool_router:
