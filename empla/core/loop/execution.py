@@ -11,6 +11,7 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -201,21 +202,21 @@ class ToolSourceProtocol(Protocol):
     Defines the interface the agentic loop uses for tool discovery and execution.
     """
 
-    def get_all_tool_schemas(self, employee_id: Any) -> list[dict[str, Any]]:
+    def get_all_tool_schemas(self, employee_id: UUID) -> list[dict[str, Any]]:
         """Get all available tool schemas for the employee."""
         ...
 
     async def execute_tool_call(
-        self, employee_id: Any, tool_name: str, arguments: dict[str, Any]
+        self, employee_id: UUID, tool_name: str, arguments: dict[str, Any]
     ) -> Any:
         """Execute a tool call and return an ActionResult."""
         ...
 
-    async def perceive_all(self, employee_id: Any) -> list[Any]:
+    async def perceive_all(self, employee_id: UUID) -> list[Any]:
         """Gather observations from the environment."""
         ...
 
-    def get_enabled_capabilities(self, employee_id: Any) -> list[str]:
+    def get_enabled_capabilities(self, employee_id: UUID) -> list[str]:
         """List enabled capabilities for the employee."""
         ...
 

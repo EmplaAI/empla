@@ -251,6 +251,9 @@ class MCPBridge:
     async def _register_server_tools(self, server_name: str, session: Any) -> list[str]:
         """Discover tools from MCP server and register them.
 
+        Registration is atomic: if any unexpected error occurs mid-loop,
+        all tools registered so far are rolled back.
+
         Args:
             server_name: Name prefix for tools
             session: MCP ClientSession
@@ -261,34 +264,40 @@ class MCPBridge:
         tools_result = await session.list_tools()
         registered_names: list[str] = []
 
-        for mcp_tool in tools_result.tools:
-            prefixed_name = f"{server_name}.{mcp_tool.name}"
+        try:
+            for mcp_tool in tools_result.tools:
+                prefixed_name = f"{server_name}.{mcp_tool.name}"
 
-            # Build Tool model from MCP tool definition
-            input_schema = {}
-            if hasattr(mcp_tool, "inputSchema") and mcp_tool.inputSchema:
-                input_schema = mcp_tool.inputSchema
-            elif hasattr(mcp_tool, "input_schema") and mcp_tool.input_schema:
-                input_schema = mcp_tool.input_schema
+                # Build Tool model from MCP tool definition
+                input_schema = {}
+                if hasattr(mcp_tool, "inputSchema") and mcp_tool.inputSchema:
+                    input_schema = mcp_tool.inputSchema
+                elif hasattr(mcp_tool, "input_schema") and mcp_tool.input_schema:
+                    input_schema = mcp_tool.input_schema
 
-            tool = Tool(
-                name=prefixed_name,
-                description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
-                parameters_schema=input_schema,
-                category="mcp",
-                tags=["mcp", server_name],
-            )
-
-            impl = _MCPToolImplementation(session, mcp_tool.name)
-
-            try:
-                self._tool_registry.register_tool(tool, impl)
-                registered_names.append(prefixed_name)
-            except ValueError:
-                logger.warning(
-                    f"Tool '{prefixed_name}' already registered, skipping",
-                    extra={"server_name": server_name, "tool_name": mcp_tool.name},
+                tool = Tool(
+                    name=prefixed_name,
+                    description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
+                    parameters_schema=input_schema,
+                    category="mcp",
+                    tags=["mcp", server_name],
                 )
+
+                impl = _MCPToolImplementation(session, mcp_tool.name)
+
+                try:
+                    self._tool_registry.register_tool(tool, impl)
+                    registered_names.append(prefixed_name)
+                except ValueError:
+                    logger.warning(
+                        f"Tool '{prefixed_name}' already registered, skipping",
+                        extra={"server_name": server_name, "tool_name": mcp_tool.name},
+                    )
+        except Exception:
+            # Rollback: remove any tools we already registered
+            for name in registered_names:
+                self._tool_registry.unregister_tool(name)
+            raise
 
         return registered_names
 
