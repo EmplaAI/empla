@@ -39,6 +39,8 @@ from empla.core.memory import (
     SemanticMemorySystem,
     WorkingMemory,
 )
+from empla.core.tools import ToolRegistry
+from empla.core.tools.router import ToolRouter
 from empla.employees.config import EmployeeConfig, GoalConfig
 from empla.employees.exceptions import (
     EmployeeConfigError,
@@ -149,6 +151,8 @@ class DigitalEmployee(ABC):
         self._intentions: IntentionStack | None = None
         self._memory: MemorySystem | None = None
         self._capabilities: CapabilityRegistry | None = None
+        self._tool_registry: ToolRegistry | None = None
+        self._tool_router: ToolRouter | None = None
         self._loop: ProactiveExecutionLoop | None = None
         self._db_employee: EmployeeModel | None = None
 
@@ -274,6 +278,19 @@ class DigitalEmployee(ABC):
                 f"Cannot access capabilities on {self.name}: call start() first"
             )
         return self._capabilities
+
+    @property
+    def tool_registry(self) -> ToolRegistry:
+        """Tool registry for standalone @tool functions.
+
+        Available after start() — register tools here in on_start()
+        to make them available to the agentic execution loop.
+        """
+        if self._tool_registry is None:
+            raise EmployeeNotStartedError(
+                f"Cannot access tool_registry on {self.name}: call start() first"
+            )
+        return self._tool_registry
 
     @property
     def hooks(self) -> HookRegistry:
@@ -784,6 +801,10 @@ class DigitalEmployee(ABC):
         assert self._memory is not None, "MemorySystem not initialized"
         assert self._capabilities is not None, "CapabilityRegistry not initialized"
 
+        # Create ToolRouter to unify capabilities + standalone tools
+        self._tool_registry = ToolRegistry()
+        self._tool_router = ToolRouter(self._capabilities, self._tool_registry)
+
         loop_config = LoopConfig(
             cycle_interval_seconds=self.config.loop.cycle_interval_seconds,
             strategic_planning_interval_hours=self.config.loop.strategic_planning_interval_hours,
@@ -800,9 +821,10 @@ class DigitalEmployee(ABC):
             config=loop_config,
             status_checker=status_checker,
             hooks=self._hooks,
+            tool_router=self._tool_router,
         )
 
-        logger.debug("Initialized proactive loop")
+        logger.debug("Initialized proactive loop with ToolRouter")
 
     async def _run_loop(self) -> None:
         """Run the proactive loop."""

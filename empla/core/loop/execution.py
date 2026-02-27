@@ -11,6 +11,7 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -195,6 +196,31 @@ class MemorySystemProtocol(Protocol):
         ...
 
 
+class ToolSourceProtocol(Protocol):
+    """Protocol for tool sources (CapabilityRegistry or ToolRouter).
+
+    Defines the interface the agentic loop uses for tool discovery and execution.
+    """
+
+    def get_all_tool_schemas(self, employee_id: UUID) -> list[dict[str, Any]]:
+        """Get all available tool schemas for the employee."""
+        ...
+
+    async def execute_tool_call(
+        self, employee_id: UUID, tool_name: str, arguments: dict[str, Any]
+    ) -> Any:
+        """Execute a tool call and return an ActionResult."""
+        ...
+
+    async def perceive_all(self, employee_id: UUID) -> list[Any]:
+        """Gather observations from the environment."""
+        ...
+
+    def get_enabled_capabilities(self, employee_id: UUID) -> list[str]:
+        """List enabled capabilities for the employee."""
+        ...
+
+
 # ============================================================================
 # Proactive Execution Loop
 # ============================================================================
@@ -233,11 +259,12 @@ class ProactiveExecutionLoop:
         goals: GoalSystemProtocol,
         intentions: IntentionStackProtocol,
         memory: MemorySystemProtocol,
-        capability_registry: Any | None = None,  # CapabilityRegistry from empla.capabilities
-        llm_service: "LLMService | None" = None,  # LLM service for reasoning
+        capability_registry: ToolSourceProtocol | None = None,
+        llm_service: "LLMService | None" = None,
         config: LoopConfig | None = None,
         status_checker: Callable[[Employee], Awaitable[None]] | None = None,
         hooks: HookRegistry | None = None,
+        tool_router: ToolSourceProtocol | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
@@ -248,7 +275,7 @@ class ProactiveExecutionLoop:
             goals: Goal system responsible for providing and updating active goals.
             intentions: Intention stack managing selection, start, completion, and failure of intentions.
             memory: Memory system used for recording and retrieving episodic/semantic/procedural data.
-            capability_registry: Optional capability registry used to perceive the environment and enumerate enabled capabilities.
+            capability_registry: Optional tool source for perception and tool execution.
             llm_service: Optional LLM service for strategic reasoning and plan generation.
             config: Optional loop configuration object; when omitted defaults are applied (e.g., cycle and error backoff intervals).
             status_checker: Optional async callback that refreshes employee.status
@@ -257,6 +284,9 @@ class ProactiveExecutionLoop:
                 When None, the loop reads employee.status directly (suitable for tests).
             hooks: Optional hook registry for lifecycle event callbacks.
                 When None, a default empty registry is created.
+            tool_router: Optional unified tool source that combines capabilities + standalone tools.
+                When provided, used for tool discovery and execution instead
+                of capability_registry directly.
 
         Notes:
             Initializes internal timing/state (cycle interval, error backoff, counters, and last-run timestamps) and logs startup metadata including whether a capability registry is present.
@@ -267,6 +297,7 @@ class ProactiveExecutionLoop:
         self.intentions = intentions
         self.memory = memory
         self.capability_registry = capability_registry
+        self.tool_router = tool_router
         self.llm_service = llm_service
         self._status_checker = status_checker
         self._hooks = hooks or HookRegistry()
@@ -288,6 +319,7 @@ class ProactiveExecutionLoop:
                 "employee_id": str(employee.id),
                 "cycle_interval": self.cycle_interval,
                 "has_capability_registry": capability_registry is not None,
+                "has_tool_router": tool_router is not None,
                 "has_llm_service": llm_service is not None,
                 "config": self.config.model_dump(),
             },
@@ -698,17 +730,16 @@ class ProactiveExecutionLoop:
         observations: list[Observation] = []
         sources_checked: list[str] = []
 
-        # Use capability registry for perception if available
-        if self.capability_registry is not None:
+        # Use tool_router (preferred) or capability_registry for perception
+        perception_source = self.tool_router or self.capability_registry
+        if perception_source is not None:
             try:
                 # Get observations from all enabled capabilities
                 # Capabilities now return unified Observation objects directly
-                observations = await self.capability_registry.perceive_all(self.employee.id)
+                observations = await perception_source.perceive_all(self.employee.id)
 
                 # Track which capabilities were checked
-                sources_checked = self.capability_registry.get_enabled_capabilities(
-                    self.employee.id
-                )
+                sources_checked = perception_source.get_enabled_capabilities(self.employee.id)
 
                 logger.debug(
                     f"Capability perception: {len(observations)} observations",
@@ -1343,10 +1374,11 @@ Analyze this situation and provide recommendations."""
         Returns:
             Execution result with success status and outputs
         """
-        # Try agentic execution if LLM service and capability registry are available
-        if self.llm_service and self.capability_registry:
+        # Try agentic execution if LLM service and tool source are available
+        tool_source = self.tool_router or self.capability_registry
+        if self.llm_service and tool_source:
             try:
-                tool_schemas = self.capability_registry.get_all_tool_schemas(self.employee.id)
+                tool_schemas = tool_source.get_all_tool_schemas(self.employee.id)
             except Exception:
                 logger.error(
                     "Failed to collect tool schemas, falling back to rigid execution",
@@ -1625,10 +1657,22 @@ Analyze this situation and provide recommendations."""
             )
             messages.append(assistant_msg)
 
-            # Execute each tool call
+            # Execute each tool call via tool_router (preferred) or capability_registry
+            tool_executor = self.tool_router or self.capability_registry
+            if tool_executor is None:
+                logger.error(
+                    "No tool executor available — cannot execute tool calls",
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                return {
+                    "success": False,
+                    "error": "No tool executor configured",
+                    "tool_calls_made": 0,
+                    "agentic": True,
+                }
             for tool_call in response.tool_calls:
                 try:
-                    result = await self.capability_registry.execute_tool_call(
+                    result = await tool_executor.execute_tool_call(
                         self.employee.id,
                         tool_call.name,
                         tool_call.arguments,

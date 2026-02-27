@@ -515,3 +515,93 @@ def test_registry_contains():
 
     assert "test_tool" in registry
     assert "nonexistent_tool" not in registry
+
+
+# ============================================================================
+# ToolRegistry.unregister_tool tests
+# ============================================================================
+
+
+def test_unregister_tool_removes_from_registry():
+    """Test that unregister_tool removes the tool completely."""
+    registry = ToolRegistry()
+    tool = Tool(name="removable", description="Removable tool", parameters_schema={})
+    registry.register_tool(tool, SuccessfulTool())
+
+    assert "removable" in registry
+    assert len(registry) == 1
+
+    result = registry.unregister_tool("removable")
+    assert result is True
+    assert "removable" not in registry
+    assert len(registry) == 0
+    assert registry.get_tool_by_name("removable") is None
+    assert registry.get_implementation(tool.tool_id) is None
+
+
+def test_unregister_tool_nonexistent():
+    """Test that unregistering a non-existent tool returns False."""
+    registry = ToolRegistry()
+    result = registry.unregister_tool("does_not_exist")
+    assert result is False
+
+
+def test_unregister_tool_leaves_others():
+    """Test that unregistering one tool doesn't affect others."""
+    registry = ToolRegistry()
+    tool_a = Tool(name="tool_a", description="A", parameters_schema={})
+    tool_b = Tool(name="tool_b", description="B", parameters_schema={})
+    registry.register_tool(tool_a, SuccessfulTool())
+    registry.register_tool(tool_b, SuccessfulTool())
+
+    assert len(registry) == 2
+
+    registry.unregister_tool("tool_a")
+    assert len(registry) == 1
+    assert "tool_a" not in registry
+    assert "tool_b" in registry
+
+
+def test_unregister_then_reregister():
+    """Test that a tool can be re-registered after unregistration."""
+    registry = ToolRegistry()
+    tool = Tool(name="reusable", description="Reusable", parameters_schema={})
+    registry.register_tool(tool, SuccessfulTool())
+
+    registry.unregister_tool("reusable")
+    assert "reusable" not in registry
+
+    # Re-register with same name but new Tool instance
+    tool2 = Tool(name="reusable", description="Reusable v2", parameters_schema={})
+    registry.register_tool(tool2, SuccessfulTool())
+    assert "reusable" in registry
+    assert registry.get_tool_by_name("reusable").description == "Reusable v2"
+
+
+# ============================================================================
+# ToolRegistry.get_all_tool_schemas tests
+# ============================================================================
+
+
+def test_get_all_tool_schemas_empty():
+    """Test get_all_tool_schemas with empty registry."""
+    registry = ToolRegistry()
+    schemas = registry.get_all_tool_schemas()
+    assert schemas == []
+
+
+def test_get_all_tool_schemas_returns_correct_format():
+    """Test get_all_tool_schemas returns dicts with name, description, input_schema."""
+    registry = ToolRegistry()
+    tool = Tool(
+        name="my_tool",
+        description="My tool description",
+        parameters_schema={"type": "object", "properties": {"x": {"type": "string"}}},
+    )
+    registry.register_tool(tool, SuccessfulTool())
+
+    schemas = registry.get_all_tool_schemas()
+    assert len(schemas) == 1
+    assert schemas[0]["name"] == "my_tool"
+    assert schemas[0]["description"] == "My tool description"
+    assert schemas[0]["input_schema"] == {"type": "object", "properties": {"x": {"type": "string"}}}

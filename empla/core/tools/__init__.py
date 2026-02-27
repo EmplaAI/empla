@@ -42,17 +42,23 @@ Example Usage:
 """
 
 from .base import Tool, ToolCapability, ToolExecutor, ToolImplementation, ToolResult
+from .decorator import collect_tools, tool
 from .executor import ToolExecutionEngine
+from .mcp_bridge import MCPBridge, MCPServerConfig
 from .registry import ToolRegistry
+from .router import ToolRouter
 
 __all__ = [
-    # Base types
+    "MCPBridge",
+    "MCPServerConfig",
     "Tool",
     "ToolCapability",
-    # Implementations
     "ToolExecutionEngine",
     "ToolExecutor",
     "ToolImplementation",
     "ToolRegistry",
     "ToolResult",
+    "ToolRouter",
+    "collect_tools",
+    "tool",
 ]
