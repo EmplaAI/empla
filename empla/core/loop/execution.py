@@ -1443,7 +1443,11 @@ Analyze this situation and provide recommendations."""
 
     async def _execute_plan_step(self, step: dict[str, Any], step_index: int) -> dict[str, Any]:
         """
-        Execute a single plan step via capability.
+        Execute a single plan step via capability or tool router.
+
+        Tries the direct capability_registry first, then falls back to
+        tool_router (which wraps its own capability registry + standalone tools).
+        Simulates success only when neither is available.
 
         Args:
             step: Step definition with action, parameters, etc.
@@ -1465,17 +1469,33 @@ Analyze this situation and provide recommendations."""
             },
         )
 
-        # If no capability registry, simulate success
-        if not self.capability_registry:
-            logger.debug("No capability registry, simulating step success")
-            return {
-                "success": True,
-                "simulated": True,
-                "action": action_name,
-                "step_index": step_index,
-            }
+        # Try direct capability registry first
+        if self.capability_registry:
+            return await self._execute_step_via_capability(
+                action_name, parameters, required_capabilities, step_index
+            )
 
-        # Find capability that can handle this action
+        # Fall back to tool_router (wraps its own capability registry + standalone tools)
+        if self.tool_router:
+            return await self._execute_step_via_tool_router(action_name, parameters, step_index)
+
+        # No execution source available — simulate success
+        logger.debug("No capability registry or tool router, simulating step success")
+        return {
+            "success": True,
+            "simulated": True,
+            "action": action_name,
+            "step_index": step_index,
+        }
+
+    async def _execute_step_via_capability(
+        self,
+        action_name: str,
+        parameters: dict[str, Any],
+        required_capabilities: list[str],
+        step_index: int,
+    ) -> dict[str, Any]:
+        """Execute a plan step through the direct capability registry."""
         capability = await self._find_capability_for_action(action_name, required_capabilities)
 
         if not capability:
@@ -1490,7 +1510,6 @@ Analyze this situation and provide recommendations."""
                 "step_index": step_index,
             }
 
-        # Create and execute action
         try:
             # Import here to avoid circular imports
             from empla.capabilities.base import Action
@@ -1517,6 +1536,38 @@ Analyze this situation and provide recommendations."""
         except Exception as e:
             logger.error(
                 f"Error executing step {step_index}: {e}",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return {
+                "success": False,
+                "error": str(e),
+                "action": action_name,
+                "step_index": step_index,
+            }
+
+    async def _execute_step_via_tool_router(
+        self,
+        action_name: str,
+        parameters: dict[str, Any],
+        step_index: int,
+    ) -> dict[str, Any]:
+        """Execute a plan step through the tool router."""
+        try:
+            action_result = await self.tool_router.execute_tool_call(
+                self.employee.id, action_name, parameters
+            )
+            return {
+                "success": action_result.success,
+                "output": action_result.output,
+                "error": action_result.error,
+                "action": action_name,
+                "step_index": step_index,
+                "metadata": action_result.metadata,
+            }
+        except Exception as e:
+            logger.error(
+                f"Error executing step {step_index} via tool router: {e}",
                 exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )

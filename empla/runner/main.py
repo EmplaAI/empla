@@ -137,8 +137,8 @@ async def run_employee(
             capabilities=db_employee.capabilities,
             personality=Personality(**db_employee.personality) if db_employee.personality else None,
             goals=goal_configs,
-            llm=LLMSettings(**(db_config.get("llm", {}))),
-            loop=LoopSettings(**(db_config.get("loop", {}))),
+            llm=LLMSettings(**(db_config.get("llm") or {})),
+            loop=LoopSettings(**(db_config.get("loop") or {})),
             metadata=db_config.get("metadata", {}),
         )
     except (ValidationError, TypeError, KeyError) as e:

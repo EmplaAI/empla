@@ -356,6 +356,17 @@ class TestResolveLLMConfig:
         config = resolve_llm_config(settings, tenant_settings=tenant, employee_llm=employee_llm)
         assert config.primary_model == "gpt-4o"
 
+    def test_tenant_invalid_types_ignored(self):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test"}, clear=False):
+            settings = EmplaSettings(_env_file=None)
+        # Non-string model, non-numeric temperature, non-int max_tokens
+        tenant = {"primary_model": 123, "temperature": "hot", "max_tokens": 3.5}
+        config = resolve_llm_config(settings, tenant_settings=tenant)
+        # Server defaults should be preserved when tenant values have wrong types
+        assert config.primary_model == "gemini-3-flash-preview"
+        assert config.temperature == 0.7
+        assert config.max_tokens == 4096
+
     def test_api_keys_always_from_server(self):
         env = {
             "ANTHROPIC_API_KEY": "sk-ant-test",
@@ -387,8 +398,7 @@ class TestSettingsSingleton:
         assert s1 is not s2
 
     def test_clear_cache_picks_up_new_env(self):
-        s1 = get_settings()
-        original_env = s1.env
+        get_settings()  # populate cache
 
         with patch.dict(os.environ, {"EMPLA_ENV": "test-isolation"}, clear=False):
             clear_settings_cache()

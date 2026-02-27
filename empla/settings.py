@@ -57,7 +57,8 @@ class EmplaSettings(BaseSettings):
     )
 
     # -- API Server ------------------------------------------------------------
-    api_host: str = "0.0.0.0"
+    # Defaults to loopback; set EMPLA_API_HOST=0.0.0.0 for production/container use.
+    api_host: str = "127.0.0.1"
     api_port: int = 8000
     cors_origins: list[str] = [
         "http://localhost:3000",
@@ -188,12 +189,15 @@ def resolve_llm_config(
 
     # Layer 2: tenant overrides (deferred -- just wire the shape)
     if tenant_settings:
-        primary_model = tenant_settings.get("primary_model", primary_model)
-        fallback_model = tenant_settings.get("fallback_model", fallback_model)
-        embedding_model = tenant_settings.get("embedding_model", embedding_model)
-        if "temperature" in tenant_settings:
-            temperature = tenant_settings["temperature"]
-        if "max_tokens" in tenant_settings:
+        if isinstance(tenant_settings.get("primary_model"), str):
+            primary_model = tenant_settings["primary_model"]
+        if isinstance(tenant_settings.get("fallback_model"), str):
+            fallback_model = tenant_settings["fallback_model"]
+        if isinstance(tenant_settings.get("embedding_model"), str):
+            embedding_model = tenant_settings["embedding_model"]
+        if isinstance(tenant_settings.get("temperature"), int | float):
+            temperature = float(tenant_settings["temperature"])
+        if isinstance(tenant_settings.get("max_tokens"), int):
             max_tokens = tenant_settings["max_tokens"]
 
     # Layer 3: employee overrides (only fields explicitly set by the employee)
