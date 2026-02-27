@@ -1666,7 +1666,7 @@ Analyze this situation and provide recommendations."""
                 return {
                     "success": False,
                     "error": "No tool executor configured",
-                    "tool_calls_made": [],
+                    "tool_calls_made": 0,
                     "agentic": True,
                 }
             for tool_call in response.tool_calls:

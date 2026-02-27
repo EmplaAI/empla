@@ -142,12 +142,31 @@ class MCPBridge:
         # Create transport and session — store CMs for cleanup in disconnect()
         transport_cm = stdio_client(server_params)
         read_stream, write_stream = await transport_cm.__aenter__()
-        session_cm = ClientSession(read_stream, write_stream)
-        session = await session_cm.__aenter__()
-        await session.initialize()
+        session_cm: ClientSession | None = None
+        try:
+            session_cm = ClientSession(read_stream, write_stream)
+            session = await session_cm.__aenter__()
+            await session.initialize()
 
-        # Discover and register tools
-        tool_names = await self._register_server_tools(config.name, session)
+            # Discover and register tools
+            tool_names = await self._register_server_tools(config.name, session)
+        except BaseException:
+            if session_cm is not None:
+                try:
+                    await session_cm.__aexit__(None, None, None)
+                except Exception:
+                    logger.warning(
+                        f"Error closing MCP session during failed connect to {config.name}",
+                        exc_info=True,
+                    )
+            try:
+                await transport_cm.__aexit__(None, None, None)
+            except Exception:
+                logger.warning(
+                    f"Error closing MCP transport during failed connect to {config.name}",
+                    exc_info=True,
+                )
+            raise
 
         self._connections[config.name] = {
             "session": session,
@@ -185,11 +204,30 @@ class MCPBridge:
         # Store CMs for cleanup in disconnect()
         transport_cm = streamablehttp_client(config.url)
         read_stream, write_stream, _ = await transport_cm.__aenter__()
-        session_cm = ClientSession(read_stream, write_stream)
-        session = await session_cm.__aenter__()
-        await session.initialize()
+        session_cm: ClientSession | None = None
+        try:
+            session_cm = ClientSession(read_stream, write_stream)
+            session = await session_cm.__aenter__()
+            await session.initialize()
 
-        tool_names = await self._register_server_tools(config.name, session)
+            tool_names = await self._register_server_tools(config.name, session)
+        except BaseException:
+            if session_cm is not None:
+                try:
+                    await session_cm.__aexit__(None, None, None)
+                except Exception:
+                    logger.warning(
+                        f"Error closing MCP session during failed connect to {config.name}",
+                        exc_info=True,
+                    )
+            try:
+                await transport_cm.__aexit__(None, None, None)
+            except Exception:
+                logger.warning(
+                    f"Error closing MCP transport during failed connect to {config.name}",
+                    exc_info=True,
+                )
+            raise
 
         self._connections[config.name] = {
             "session": session,

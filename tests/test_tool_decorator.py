@@ -3,6 +3,7 @@ Tests for empla.core.tools.decorator - @tool decorator and collect_tools.
 """
 
 import types
+from typing import Any
 
 import pytest
 
@@ -20,47 +21,45 @@ from empla.core.tools.decorator import (
 
 
 class TestPythonTypeToJsonSchema:
-    def test_str(self):
+    def test_str(self) -> None:
         assert _python_type_to_json_schema(str) == {"type": "string"}
 
-    def test_int(self):
+    def test_int(self) -> None:
         assert _python_type_to_json_schema(int) == {"type": "integer"}
 
-    def test_float(self):
+    def test_float(self) -> None:
         assert _python_type_to_json_schema(float) == {"type": "number"}
 
-    def test_bool(self):
+    def test_bool(self) -> None:
         assert _python_type_to_json_schema(bool) == {"type": "boolean"}
 
-    def test_list(self):
+    def test_list(self) -> None:
         assert _python_type_to_json_schema(list) == {"type": "array"}
 
-    def test_dict(self):
+    def test_dict(self) -> None:
         assert _python_type_to_json_schema(dict) == {"type": "object"}
 
-    def test_none_type(self):
+    def test_none_type(self) -> None:
         assert _python_type_to_json_schema(type(None)) == {"type": "null"}
 
-    def test_list_str(self):
+    def test_list_str(self) -> None:
         result = _python_type_to_json_schema(list[str])
         assert result == {"type": "array", "items": {"type": "string"}}
 
-    def test_list_int(self):
+    def test_list_int(self) -> None:
         result = _python_type_to_json_schema(list[int])
         assert result == {"type": "array", "items": {"type": "integer"}}
 
-    def test_dict_str_any(self):
-        from typing import Any
-
+    def test_dict_str_any(self) -> None:
         result = _python_type_to_json_schema(dict[str, Any])
         assert result == {"type": "object"}
 
-    def test_optional_str(self):
+    def test_optional_str(self) -> None:
         # Python 3.10+ union syntax
         result = _python_type_to_json_schema(str | None)
         assert result == {"type": "string"}
 
-    def test_empty_annotation(self):
+    def test_empty_annotation(self) -> None:
         import inspect
 
         result = _python_type_to_json_schema(inspect.Parameter.empty)
@@ -73,8 +72,8 @@ class TestPythonTypeToJsonSchema:
 
 
 class TestBuildParametersSchema:
-    def test_simple_function(self):
-        async def func(query: str, max_results: int = 10):
+    def test_simple_function(self) -> None:
+        async def func(query: str, max_results: int = 10) -> None:
             pass
 
         schema = _build_parameters_schema(func)
@@ -85,8 +84,8 @@ class TestBuildParametersSchema:
         assert schema["properties"]["max_results"] == {"type": "integer", "default": 10}
         assert schema["required"] == ["query"]
 
-    def test_no_params(self):
-        async def func():
+    def test_no_params(self) -> None:
+        async def func() -> None:
             pass
 
         schema = _build_parameters_schema(func)
@@ -94,30 +93,30 @@ class TestBuildParametersSchema:
         assert schema["properties"] == {}
         assert "required" not in schema
 
-    def test_all_required(self):
-        async def func(a: str, b: int, c: bool):
+    def test_all_required(self) -> None:
+        async def func(a: str, b: int, c: bool) -> None:
             pass
 
         schema = _build_parameters_schema(func)
         assert set(schema["required"]) == {"a", "b", "c"}
 
-    def test_all_optional(self):
-        async def func(a: str = "hello", b: int = 5):
+    def test_all_optional(self) -> None:
+        async def func(a: str = "hello", b: int = 5) -> None:
             pass
 
         schema = _build_parameters_schema(func)
         assert "required" not in schema
 
-    def test_mixed_params(self):
-        async def func(required_param: str, optional_param: int = 42):
+    def test_mixed_params(self) -> None:
+        async def func(required_param: str, optional_param: int = 42) -> None:
             pass
 
         schema = _build_parameters_schema(func)
         assert schema["required"] == ["required_param"]
         assert schema["properties"]["optional_param"]["default"] == 42
 
-    def test_list_param(self):
-        async def func(items: list[str]):
+    def test_list_param(self) -> None:
+        async def func(items: list[str]) -> None:
             pass
 
         schema = _build_parameters_schema(func)
@@ -133,7 +132,7 @@ class TestBuildParametersSchema:
 
 
 class TestToolDecorator:
-    def test_basic_decoration(self):
+    def test_basic_decoration(self) -> None:
         @tool(name="test_tool", description="A test tool")
         async def my_tool(query: str) -> str:
             return f"result: {query}"
@@ -144,7 +143,7 @@ class TestToolDecorator:
         assert meta["tool"].description == "A test tool"
         assert meta["implementation"] is not None
 
-    def test_default_name_from_function(self):
+    def test_default_name_from_function(self) -> None:
         @tool(description="Auto-named tool")
         async def auto_named_tool(x: int) -> int:
             return x * 2
@@ -152,7 +151,7 @@ class TestToolDecorator:
         meta = get_tool_meta(auto_named_tool)
         assert meta["tool"].name == "auto_named_tool"
 
-    def test_description_from_docstring(self):
+    def test_description_from_docstring(self) -> None:
         @tool()
         async def documented_tool(x: int) -> int:
             """This tool is documented."""
@@ -161,7 +160,7 @@ class TestToolDecorator:
         meta = get_tool_meta(documented_tool)
         assert meta["tool"].description == "This tool is documented."
 
-    def test_category_and_tags(self):
+    def test_category_and_tags(self) -> None:
         @tool(name="categorized", description="test", category="research", tags=["web", "search"])
         async def categorized(q: str) -> str:
             return q
@@ -170,7 +169,7 @@ class TestToolDecorator:
         assert meta["tool"].category == "research"
         assert meta["tool"].tags == ["web", "search"]
 
-    def test_schema_generation(self):
+    def test_schema_generation(self) -> None:
         @tool(name="search", description="Search something")
         async def search(query: str, limit: int = 10, exact: bool = False) -> list[dict]:
             return []
@@ -185,14 +184,14 @@ class TestToolDecorator:
         assert schema["properties"]["exact"]["default"] is False
         assert schema["required"] == ["query"]
 
-    def test_sync_function_raises(self):
+    def test_sync_function_raises(self) -> None:
         with pytest.raises(TypeError, match="async functions"):
 
             @tool(name="bad", description="sync")
             def sync_func(x: int) -> int:
                 return x
 
-    async def test_implementation_executes(self):
+    async def test_implementation_executes(self) -> None:
         @tool(name="adder", description="Add numbers")
         async def adder(a: int, b: int) -> int:
             return a + b
@@ -201,8 +200,8 @@ class TestToolDecorator:
         result = await meta["implementation"]._execute({"a": 3, "b": 7})
         assert result == 10
 
-    def test_no_meta_on_regular_function(self):
-        async def regular():
+    def test_no_meta_on_regular_function(self) -> None:
+        async def regular() -> None:
             pass
 
         assert get_tool_meta(regular) is None
@@ -214,7 +213,7 @@ class TestToolDecorator:
 
 
 class TestCollectTools:
-    def test_collect_from_module(self):
+    def test_collect_from_module(self) -> None:
         # Create a fake module with decorated functions
         mod = types.ModuleType("fake_tools")
 
@@ -226,7 +225,7 @@ class TestCollectTools:
         async def tool_b(y: int) -> int:
             return y
 
-        async def not_a_tool():
+        async def not_a_tool() -> None:
             pass
 
         mod.tool_a = tool_a
@@ -239,7 +238,7 @@ class TestCollectTools:
         names = {t["tool"].name for t in tools}
         assert names == {"tool_a", "tool_b"}
 
-    def test_collect_empty_module(self):
+    def test_collect_empty_module(self) -> None:
         mod = types.ModuleType("empty")
         tools = collect_tools(mod)
         assert tools == []
@@ -251,7 +250,7 @@ class TestCollectTools:
 
 
 class TestDecoratorWithRegistry:
-    async def test_register_and_execute(self):
+    async def test_register_and_execute(self) -> None:
         from empla.core.tools.registry import ToolRegistry
 
         @tool(name="multiply", description="Multiply two numbers")
