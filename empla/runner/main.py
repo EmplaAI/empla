@@ -121,9 +121,19 @@ async def run_employee(
         if isinstance(db_config, str):
             try:
                 db_config = json.loads(db_config)
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    "Malformed employee config (string, not JSON), using defaults: %s",
+                    exc,
+                    extra={"employee_id": str(employee_id)},
+                )
                 db_config = {}
         if not isinstance(db_config, dict):
+            logger.warning(
+                "Employee config is %s instead of dict, using defaults",
+                type(db_config).__name__,
+                extra={"employee_id": str(employee_id)},
+            )
             db_config = {}
 
         goal_configs = [
