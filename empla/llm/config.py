@@ -84,6 +84,10 @@ class LLMConfig(BaseModel):
     # Embedding model (use OpenAI for now)
     embedding_model: str = "text-embedding-3-large"
 
+    # Request defaults
+    temperature: float = 0.7
+    max_tokens: int = 4096
+
     # API keys (exclude from serialization for security)
     anthropic_api_key: str | None = Field(default=None, exclude=True)
     openai_api_key: str | None = Field(default=None, exclude=True)

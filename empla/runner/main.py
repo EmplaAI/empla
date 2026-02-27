@@ -12,15 +12,19 @@ Runs a single digital employee as a persistent process:
 
 import asyncio
 import contextlib
+import json
 import logging
 import signal
 import sys
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
 
-from empla.employees.config import EmployeeConfig
+from empla.employees.config import EmployeeConfig, GoalConfig, LLMSettings, LoopSettings
+from empla.employees.personality import Personality
 from empla.employees.registry import get_employee_class
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
@@ -86,10 +90,12 @@ async def run_employee(
     engine = get_engine()
     session_factory = get_sessionmaker(engine)
 
-    # Load employee from DB
+    # Load employee from DB (eagerly load goals)
     async with session_factory() as session:
         result = await session.execute(
-            select(EmployeeModel).where(
+            select(EmployeeModel)
+            .options(selectinload(EmployeeModel.goals))
+            .where(
                 EmployeeModel.id == employee_id,
                 EmployeeModel.tenant_id == tenant_id,
                 EmployeeModel.deleted_at.is_(None),
@@ -109,14 +115,67 @@ async def run_employee(
         await engine.dispose()
         sys.exit(1)
 
-    # Build config from DB record
-    config = EmployeeConfig(
-        name=db_employee.name,
-        role=db_employee.role,
-        email=db_employee.email,
-        tenant_id=db_employee.tenant_id,
-        capabilities=db_employee.capabilities,
-    )
+    # Build full config from DB record (personality, goals, llm, loop)
+    try:
+        db_config = db_employee.config or {}
+        if isinstance(db_config, str):
+            try:
+                db_config = json.loads(db_config)
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    "Malformed employee config (string, not JSON), using defaults: %s",
+                    exc,
+                    extra={"employee_id": str(employee_id)},
+                )
+                db_config = {}
+        if not isinstance(db_config, dict):
+            logger.warning(
+                "Employee config is %s instead of dict, using defaults",
+                type(db_config).__name__,
+                extra={"employee_id": str(employee_id)},
+            )
+            db_config = {}
+
+        goal_configs = [
+            GoalConfig(
+                goal_type=g.goal_type,
+                description=g.description,
+                priority=g.priority,
+                target=g.target,
+            )
+            for g in (db_employee.goals or [])
+            if g.status in ("active", "in_progress")
+        ]
+
+        config = EmployeeConfig(
+            name=db_employee.name,
+            role=db_employee.role,
+            email=db_employee.email,
+            tenant_id=db_employee.tenant_id,
+            capabilities=db_employee.capabilities,
+            personality=Personality(**db_employee.personality)
+            if db_employee.personality is not None
+            else None,
+            goals=goal_configs,
+            llm=LLMSettings(**(db_config.get("llm") or {})),
+            loop=LoopSettings(**(db_config.get("loop") or {})),
+            metadata=db_config.get("metadata") or {},
+        )
+    except (ValidationError, TypeError, KeyError) as e:
+        logger.error(
+            "Failed to build config for employee %s from DB data: %s. "
+            "Check the employee's personality, config.llm, and config.loop fields.",
+            employee_id,
+            e,
+            exc_info=True,
+            extra={"employee_id": str(employee_id), "tenant_id": str(tenant_id)},
+        )
+        try:
+            await _set_db_status(session_factory, employee_id, tenant_id, "stopped")
+        except Exception:
+            logger.error("Failed to set DB status after config error", exc_info=True)
+        await engine.dispose()
+        sys.exit(1)
 
     employee = employee_class(config)
 

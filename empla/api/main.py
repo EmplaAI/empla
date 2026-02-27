@@ -2,6 +2,7 @@
 empla.api.main - FastAPI Application Factory
 
 Creates and configures the FastAPI application for the empla dashboard API.
+Configuration is loaded from empla.settings (see .env.example).
 
 Usage:
     # Development
@@ -9,14 +10,9 @@ Usage:
 
     # Production
     uvicorn empla.api.main:app --host 0.0.0.0 --port 8000
-
-Environment Variables:
-    CORS_ORIGINS: Comma-separated list of allowed CORS origins
-                  Default: http://localhost:3000,http://localhost:5173
 """
 
 import logging
-import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -25,30 +21,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from empla.api.v1.router import api_router
 from empla.models.database import get_engine, get_sessionmaker
+from empla.settings import get_settings
 
 logger = logging.getLogger(__name__)
-
-# Default CORS origins for development
-DEFAULT_CORS_ORIGINS = [
-    "http://localhost:3000",  # React dev server
-    "http://localhost:5173",  # Vite dev server
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-]
-
-
-def get_cors_origins() -> list[str]:
-    """
-    Get CORS origins from environment or use defaults.
-
-    Set CORS_ORIGINS env var as comma-separated list for production.
-    """
-    env_origins = os.environ.get("CORS_ORIGINS", "")
-    if env_origins:
-        origins = [origin.strip() for origin in env_origins.split(",") if origin.strip()]
-        if origins:
-            return origins
-    return DEFAULT_CORS_ORIGINS
 
 
 @asynccontextmanager
@@ -60,7 +35,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     cleans up on shutdown.
     """
     # Startup
-    logger.info("Starting empla API server...")
+    settings = get_settings()
+    logger.info(
+        "Starting empla API server (env=%s, primary_model=%s, cors=%s)",
+        settings.env,
+        settings.llm_primary_model,
+        settings.cors_origins,
+    )
+
+    # Store settings on app state for access in endpoints
+    app.state.settings = settings
 
     # Create database engine and session factory
     engine = get_engine()
@@ -94,12 +78,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Configure CORS - use env var CORS_ORIGINS for production
-    cors_origins = get_cors_origins()
-    logger.info(f"Configuring CORS for origins: {cors_origins}")
+    # Configure CORS from centralized settings
+    # Note: get_settings() is cached, so this shares the same instance as lifespan().
+    # Middleware must be registered at app creation time (before ASGI lifecycle).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins,
+        allow_origins=get_settings().cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
