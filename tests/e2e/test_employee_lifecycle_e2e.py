@@ -569,6 +569,8 @@ class TestErrorScenarios:
         """Verify employee handles missing API keys gracefully."""
         import os
 
+        from empla.settings import clear_settings_cache
+
         # Save and remove ALL LLM API keys (Anthropic, OpenAI, Vertex, Azure)
         saved_keys = {}
         llm_keys = [
@@ -583,6 +585,9 @@ class TestErrorScenarios:
             if key in os.environ:
                 del os.environ[key]
 
+        # Clear settings cache so it re-reads env without the keys
+        clear_settings_cache()
+
         try:
             employee = SalesAE(sales_ae_config)
 
@@ -591,10 +596,11 @@ class TestErrorScenarios:
                 await employee.start(run_loop=False)
 
         finally:
-            # Restore API keys
+            # Restore API keys and reset cache
             for key, value in saved_keys.items():
                 if value is not None:
                     os.environ[key] = value
+            clear_settings_cache()
 
     @requires_llm
     @pytest.mark.asyncio

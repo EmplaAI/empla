@@ -19,7 +19,6 @@ Example:
 
 import asyncio
 import logging
-import os
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -48,7 +47,7 @@ from empla.employees.exceptions import (
     EmployeeStartupError,
 )
 from empla.employees.personality import Personality
-from empla.llm import LLMConfig, LLMService
+from empla.llm import LLMService
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
 
@@ -553,15 +552,12 @@ class DigitalEmployee(ABC):
         Raises:
             EmployeeConfigError: If configuration is invalid
         """
+        from empla.settings import get_settings
+
         errors: list[str] = []
 
-        # Check LLM API keys - at least one provider must be configured
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        openai_key = os.getenv("OPENAI_API_KEY")
-        vertex_project = os.getenv("VERTEX_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
-        azure_key = os.getenv("AZURE_OPENAI_API_KEY")
-
-        if not any([anthropic_key, openai_key, vertex_project, azure_key]):
+        settings = get_settings()
+        if not settings.has_llm_credentials():
             errors.append(
                 "No LLM credentials found. Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, "
                 "VERTEX_PROJECT_ID (or GOOGLE_CLOUD_PROJECT), or AZURE_OPENAI_API_KEY"
@@ -657,38 +653,31 @@ class DigitalEmployee(ABC):
 
     async def _init_llm(self) -> None:
         """
-        Initialize LLM service.
+        Initialize LLM service using centralized settings.
+
+        Merges server-level settings with per-employee LLM overrides.
 
         Raises:
             EmployeeConfigError: If required API keys are missing
         """
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        openai_key = os.getenv("OPENAI_API_KEY")
-        vertex_project = os.getenv("VERTEX_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
-        azure_key = os.getenv("AZURE_OPENAI_API_KEY")
-        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        from empla.settings import get_settings, resolve_llm_config
+
+        settings = get_settings()
 
         # This should have been caught in _validate_config, but double-check
-        if not any([anthropic_key, openai_key, vertex_project, azure_key]):
+        if not settings.has_llm_credentials():
             raise EmployeeConfigError(
                 "No LLM credentials found. Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, "
                 "VERTEX_PROJECT_ID, or AZURE_OPENAI_API_KEY"
             )
 
-        llm_config = LLMConfig(
-            primary_model=self.config.llm.primary_model,
-            fallback_model=self.config.llm.fallback_model,
-            anthropic_api_key=anthropic_key or "",
-            openai_api_key=openai_key or "",
-            vertex_project_id=vertex_project,
-            azure_openai_api_key=azure_key,
-            azure_openai_endpoint=azure_endpoint,
-            azure_openai_deployment=azure_deployment,
+        llm_config = resolve_llm_config(
+            server_settings=settings,
+            employee_llm=self.config.llm,
         )
         self._llm = LLMService(llm_config)
 
-        logger.debug(f"Initialized LLM service with primary model: {self.config.llm.primary_model}")
+        logger.debug(f"Initialized LLM service with primary model: {llm_config.primary_model}")
 
     async def _init_bdi(self, session: AsyncSession) -> None:
         """Initialize BDI components."""

@@ -8,7 +8,6 @@ Provides database connection and session management:
 - init_db: Initialize database (create tables)
 """
 
-import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -24,11 +23,13 @@ from empla.models.base import Base
 
 def get_database_url() -> str:
     """
-    Get database URL from environment.
+    Get database URL from centralized settings.
 
     Defaults to local PostgreSQL if not set.
     """
-    return os.getenv("DATABASE_URL", "postgresql+asyncpg://localhost/empla_dev")
+    from empla.settings import get_settings
+
+    return get_settings().database_url
 
 
 def get_engine(database_url: str | None = None, echo: bool = False) -> AsyncEngine:
