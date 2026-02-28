@@ -19,6 +19,7 @@ Usage:
     ...     employees = await db.query(Employee).all()
 """
 
+from empla.models.activity import ActivityEventType, EmployeeActivity
 from empla.models.audit import AuditLog, Metric
 from empla.models.base import Base
 from empla.models.belief import Belief, BeliefHistory
@@ -42,6 +43,7 @@ from empla.models.memory import (
 from empla.models.tenant import Tenant, User
 
 __all__ = [
+    "ActivityEventType",
     "AuditLog",
     "Base",
     "Belief",
@@ -49,6 +51,7 @@ __all__ = [
     "CredentialStatus",
     "CredentialType",
     "Employee",
+    "EmployeeActivity",
     "EmployeeGoal",
     "EmployeeIntention",
     "EpisodicMemory",

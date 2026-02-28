@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import models to ensure they're registered with Base.metadata
 from empla.models import Base
+from empla.models.activity import EmployeeActivity  # noqa: F401
 from empla.models.audit import AuditLog, Metric  # noqa: F401
 from empla.models.belief import Belief, BeliefHistory  # noqa: F401
 from empla.models.employee import Employee, EmployeeGoal, EmployeeIntention  # noqa: F401
