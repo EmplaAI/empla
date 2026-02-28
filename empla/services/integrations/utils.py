@@ -74,12 +74,12 @@ async def get_effective_oauth_config(
         if isinstance(raw, str):
             try:
                 raw = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError:
                 raw = None
         if not raw or not isinstance(raw, dict):
-            raise ClientSecretNotConfiguredError(
-                integration.provider,
-                "integration.oauth_config is missing or malformed",
+            raise ValueError(
+                f"integration.oauth_config for provider {integration.provider!r} "
+                "is missing or malformed — expected a dict with client_id, redirect_uri, scopes"
             )
         return dict(raw)
 

@@ -245,7 +245,9 @@ async def list_providers(
         else:
             source = None
 
-        # Available only if the credential source is actually resolvable
+        # Available when credentials can actually be resolved:
+        #  - Tenant owns an integration with its own creds (not delegated to platform), OR
+        #  - A platform OAuth app exists for this provider
         available = (
             has_tenant and not (integration and integration.use_platform_credentials)
         ) or has_platform

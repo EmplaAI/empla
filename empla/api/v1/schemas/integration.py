@@ -6,6 +6,7 @@ Pydantic schemas for OAuth integration management.
 
 from datetime import datetime
 from typing import Any, Literal
+from urllib.parse import unquote
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
@@ -251,8 +252,9 @@ class ConnectRequest(BaseModel):
     def validate_redirect_path(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        if not v.startswith("/") or "//" in v:
-            raise ValueError("redirect_after must be a relative path starting with /")
+        decoded = unquote(v)
+        if not decoded.startswith("/") or "//" in decoded or ".." in decoded:
+            raise ValueError("redirect_after must be a safe relative path starting with /")
         return v
 
 
