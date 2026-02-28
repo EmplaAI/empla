@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 # Type aliases for constrained values
 IntegrationProviderType = Literal["google_workspace", "microsoft_graph"]
@@ -123,28 +123,6 @@ class AuthorizationUrlResponse(BaseModel):
     )
 
 
-class OAuthCallbackResponse(BaseModel):
-    """Schema for OAuth callback response."""
-
-    success: bool
-    redirect_uri: str = Field(
-        ...,
-        description="Where to redirect the user",
-    )
-    credential_id: UUID | None = Field(
-        default=None,
-        description="Created credential ID (if successful)",
-    )
-    employee_id: UUID | None = Field(
-        default=None,
-        description="Employee ID (if successful)",
-    )
-    error: str | None = Field(
-        default=None,
-        description="Error message (if failed)",
-    )
-
-
 class ServiceAccountSetup(BaseModel):
     """Schema for setting up service account credentials."""
 
@@ -217,3 +195,122 @@ class IntegrationUpdate(BaseModel):
         default=None,
         description="Updated OAuth scopes",
     )
+
+
+# =============================================================================
+# Provider catalog & connect flow schemas
+# =============================================================================
+
+
+CredentialSourceType = Literal["platform", "tenant"]
+
+
+class ProviderInfo(BaseModel):
+    """Provider availability info for the integrations page."""
+
+    provider: IntegrationProviderType
+    display_name: str
+    description: str
+    icon: str
+    available: bool = Field(description="True if platform or tenant credentials exist")
+    source: CredentialSourceType | None = Field(
+        default=None,
+        description="Credential source: 'platform', 'tenant', or null",
+    )
+    integration_id: UUID | None = Field(
+        default=None,
+        description="Existing integration ID (if tenant has one)",
+    )
+    connected_employees: int = Field(
+        default=0,
+        description="Number of employees with active credentials",
+    )
+
+
+class ProviderListResponse(BaseModel):
+    """Response for GET /providers."""
+
+    items: list[ProviderInfo]
+
+
+class ConnectRequest(BaseModel):
+    """Schema for the simplified connect flow."""
+
+    provider: IntegrationProviderType = Field(
+        ..., description="Provider key (e.g. google_workspace)"
+    )
+    employee_id: UUID = Field(..., description="Employee to authorize")
+    redirect_after: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Frontend path to redirect after OAuth",
+    )
+
+    @field_validator("redirect_after")
+    @classmethod
+    def validate_redirect_path(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not v.startswith("/") or "//" in v:
+            raise ValueError("redirect_after must be a relative path starting with /")
+        return v
+
+
+class ConnectResponse(BaseModel):
+    """Response for POST /connect."""
+
+    authorization_url: str
+    state: str
+    provider: IntegrationProviderType
+    employee_id: UUID
+    integration_id: UUID
+
+
+class CredentialListItem(BaseModel):
+    """Credential with provider context for the credentials table."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    integration_id: UUID
+    employee_id: UUID
+    provider: IntegrationProviderType
+    credential_type: str
+    status: CredentialStatusValue
+    issued_at: datetime | None = None
+    expires_at: datetime | None = None
+    last_refreshed_at: datetime | None = None
+    last_used_at: datetime | None = None
+    token_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CredentialListResponse(BaseModel):
+    """Response for GET /credentials."""
+
+    items: list[CredentialListItem]
+    total: int
+
+
+class PlatformOAuthAppCreate(BaseModel):
+    """Schema for registering a platform OAuth app (admin)."""
+
+    provider: IntegrationProviderType = Field(..., description="Provider key")
+    client_id: str = Field(..., min_length=1)
+    client_secret: SecretStr = Field(..., min_length=1)
+    redirect_uri: str = Field(..., min_length=1, max_length=500)
+    scopes: list[str] = Field(default_factory=list)
+
+
+class PlatformOAuthAppResponse(BaseModel):
+    """Response for platform OAuth app (never exposes secret)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    provider: IntegrationProviderType
+    client_id: str
+    redirect_uri: str
+    default_scopes: list[str]
+    status: Literal["active", "disabled"]
+    created_at: datetime
+    updated_at: datetime

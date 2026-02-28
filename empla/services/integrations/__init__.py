@@ -49,6 +49,7 @@ from empla.services.integrations.oauth_service import (
     OAuthService,
     TokenExchangeError,
 )
+from empla.services.integrations.platform_service import PlatformOAuthAppService
 from empla.services.integrations.token_manager import (
     DecryptionError,
     RefreshError,
@@ -59,6 +60,8 @@ from empla.services.integrations.token_manager import (
 )
 from empla.services.integrations.utils import (
     ClientSecretNotConfiguredError,
+    get_effective_client_secret,
+    get_effective_oauth_config,
     get_oauth_client_secret,
 )
 
@@ -77,12 +80,15 @@ __all__ = [
     "NoKeysConfiguredError",
     "OAuthError",
     "OAuthService",
+    "PlatformOAuthAppService",
     "RefreshError",
     "RevocationError",
     "TokenExchangeError",
     "TokenManager",
     "TokenManagerError",
     "generate_encryption_key",
+    "get_effective_client_secret",
+    "get_effective_oauth_config",
     "get_key_provider",
     "get_oauth_client_secret",
     "get_token_manager",

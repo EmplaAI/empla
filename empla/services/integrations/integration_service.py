@@ -107,46 +107,39 @@ class IntegrationService:
     async def create_integration(
         self,
         tenant_id: UUID,
-        provider: IntegrationProvider,
-        auth_type: IntegrationAuthType,
+        provider: IntegrationProvider | str,
+        auth_type: IntegrationAuthType | str,
         display_name: str,
         oauth_config: dict[str, Any],
         enabled_by: UUID,
+        *,
+        use_platform_credentials: bool = False,
     ) -> Integration:
         """
         Create a new integration for tenant.
 
         Args:
             tenant_id: Tenant ID
-            provider: Integration provider
-            auth_type: Authentication type
+            provider: Integration provider (enum or string value)
+            auth_type: Authentication type (enum or string value)
             display_name: Human-readable name
             oauth_config: OAuth configuration (client_id, redirect_uri, scopes)
             enabled_by: User creating the integration
+            use_platform_credentials: If True, use platform-level OAuth app credentials
 
         Returns:
             Created integration
-
-        Example:
-            >>> integration = await service.create_integration(
-            ...     tenant_id=tenant.id,
-            ...     provider=IntegrationProvider.GOOGLE_WORKSPACE,
-            ...     auth_type=IntegrationAuthType.USER_OAUTH,
-            ...     display_name="Google Workspace",
-            ...     oauth_config={
-            ...         "client_id": "...",
-            ...         "redirect_uri": "https://app.empla.ai/oauth/callback",
-            ...         "scopes": ["https://www.googleapis.com/auth/gmail.modify"],
-            ...     },
-            ...     enabled_by=user.id,
-            ... )
         """
+        provider_val = provider.value if isinstance(provider, IntegrationProvider) else provider
+        auth_type_val = auth_type.value if isinstance(auth_type, IntegrationAuthType) else auth_type
+
         integration = Integration(
             tenant_id=tenant_id,
-            provider=provider.value,
-            auth_type=auth_type.value,
+            provider=provider_val,
+            auth_type=auth_type_val,
             display_name=display_name,
             oauth_config=oauth_config,
+            use_platform_credentials=use_platform_credentials,
             status="active",
             enabled_by=enabled_by,
             enabled_at=datetime.now(UTC),
@@ -161,8 +154,8 @@ class IntegrationService:
             extra={
                 "integration_id": str(integration.id),
                 "tenant_id": str(tenant_id),
-                "provider": provider.value,
-                "auth_type": auth_type.value,
+                "provider": provider_val,
+                "auth_type": auth_type_val,
             },
         )
 
@@ -171,22 +164,23 @@ class IntegrationService:
     async def get_integration(
         self,
         tenant_id: UUID,
-        provider: IntegrationProvider,
+        provider: IntegrationProvider | str,
     ) -> Integration | None:
         """
         Get integration by tenant and provider.
 
         Args:
             tenant_id: Tenant ID
-            provider: Integration provider
+            provider: Integration provider (enum or string value)
 
         Returns:
             Integration or None if not found
         """
+        provider_val = provider.value if isinstance(provider, IntegrationProvider) else provider
         result = await self.session.execute(
             select(Integration).where(
                 Integration.tenant_id == tenant_id,
-                Integration.provider == provider.value,
+                Integration.provider == provider_val,
                 Integration.status == "active",
                 Integration.deleted_at.is_(None),
             )

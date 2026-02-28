@@ -19,3 +19,11 @@ export {
   useEmployees,
   useUpdateEmployee,
 } from './useEmployees';
+
+export {
+  integrationKeys,
+  useConnectProvider,
+  useCredentials,
+  useProviders,
+  useRevokeCredential,
+} from './useIntegrations';

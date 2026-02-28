@@ -67,6 +67,9 @@ class EmplaSettings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
+    # -- Frontend (for OAuth callback redirects) --------------------------------
+    frontend_base_url: str = "http://localhost:5173"
+
     # -- Logging ---------------------------------------------------------------
     log_level: str = "INFO"
 

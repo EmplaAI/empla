@@ -88,6 +88,12 @@ export {
   useEmployee,
   useEmployees,
   useUpdateEmployee,
+  // Integrations
+  integrationKeys,
+  useConnectProvider,
+  useCredentials,
+  useProviders,
+  useRevokeCredential,
 } from './hooks';
 
 // Components
@@ -124,6 +130,11 @@ export {
 export type {
   Activity,
   ActivitySummary,
+  ConnectRequest,
+  ConnectResponse,
+  CredentialSource,
+  CredentialStatus,
+  CredentialType,
   Employee,
   EmployeeCreate,
   EmployeeRole,
@@ -131,9 +142,12 @@ export type {
   EmployeeStatus,
   EmployeeUpdate,
   EmplaConfig,
+  IntegrationCredential,
+  IntegrationProvider,
   LifecycleStage,
   LoginResponse,
   PaginatedResponse,
+  ProviderInfo,
 } from './types';
 
 // API Client (for advanced usage)

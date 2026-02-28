@@ -2,16 +2,20 @@
 empla.api.v1.endpoints.integrations - Integration Management Endpoints
 
 REST API endpoints for OAuth integration management:
+- Provider catalog and simplified connect flow
 - Create/list/delete integrations (admin operations)
 - OAuth authorization flow (authorize, callback)
 - Service account setup
 - Credential status checking
+- Platform OAuth app management (admin)
 """
 
 import logging
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 
 from empla.api.deps import CurrentUser, DBSession, RequireAdmin
@@ -23,15 +27,23 @@ from empla.api.ratelimit import (
 from empla.api.v1.schemas.integration import (
     AuthorizationUrlRequest,
     AuthorizationUrlResponse,
+    ConnectRequest,
+    ConnectResponse,
+    CredentialListItem,
+    CredentialListResponse,
     CredentialResponse,
     CredentialStatusResponse,
     IntegrationCreate,
     IntegrationListResponse,
     IntegrationResponse,
     IntegrationUpdate,
-    OAuthCallbackResponse,
+    PlatformOAuthAppCreate,
+    PlatformOAuthAppResponse,
+    ProviderInfo,
+    ProviderListResponse,
     ServiceAccountSetup,
 )
+from empla.models.employee import Employee
 from empla.models.integration import (
     Integration,
     IntegrationAuthType,
@@ -39,13 +51,18 @@ from empla.models.integration import (
     IntegrationProvider,
 )
 from empla.services.integrations import (
+    ClientSecretNotConfiguredError,
+    DecryptionError,
     IntegrationService,
     InvalidStateError,
     OAuthService,
+    PlatformOAuthAppService,
     RevocationError,
     TokenExchangeError,
     get_token_manager,
 )
+from empla.services.integrations.catalog import PROVIDER_CATALOG
+from empla.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +79,12 @@ def _get_oauth_service(db: DBSession) -> OAuthService:
     """Get OAuth service instance."""
     token_manager = get_token_manager()
     return OAuthService(db, token_manager)
+
+
+def _get_platform_service(db: DBSession) -> PlatformOAuthAppService:
+    """Get platform OAuth app service instance."""
+    token_manager = get_token_manager()
+    return PlatformOAuthAppService(db, token_manager)
 
 
 @router.get("", response_model=IntegrationListResponse)
@@ -163,6 +186,388 @@ async def create_integration(
     )
 
     return IntegrationResponse.model_validate(integration)
+
+
+# =============================================================================
+# Static routes (MUST be registered before /{integration_id} dynamic route)
+# =============================================================================
+
+
+@router.get("/providers", response_model=ProviderListResponse)
+async def list_providers(
+    db: DBSession,
+    auth: CurrentUser,
+) -> ProviderListResponse:
+    """List available integration providers from the catalog.
+
+    Checks each provider's availability (platform app exists or tenant integration exists).
+    """
+    platform_svc = _get_platform_service(db)
+    platform_apps = await platform_svc.list_apps()
+    platform_providers = {app.provider for app in platform_apps}
+
+    # Get tenant integrations
+    result = await db.execute(
+        select(Integration).where(
+            Integration.tenant_id == auth.tenant_id,
+            Integration.deleted_at.is_(None),
+        )
+    )
+    tenant_integrations = {i.provider: i for i in result.scalars().all()}
+
+    items: list[ProviderInfo] = []
+    for provider_key, meta in PROVIDER_CATALOG.items():
+        integration = tenant_integrations.get(provider_key)
+        has_platform = provider_key in platform_providers
+        has_tenant = integration is not None
+
+        # Count connected employees
+        connected = 0
+        integration_id = None
+        if integration:
+            integration_id = integration.id
+            count_result = await db.execute(
+                select(func.count())
+                .select_from(IntegrationCredential)
+                .where(
+                    IntegrationCredential.integration_id == integration.id,
+                    IntegrationCredential.status == "active",
+                    IntegrationCredential.deleted_at.is_(None),
+                )
+            )
+            connected = count_result.scalar() or 0
+
+        if integration is not None and not integration.use_platform_credentials:
+            source = "tenant"
+        elif has_platform:
+            source = "platform"
+        else:
+            source = None
+
+        # Available only if the credential source is actually resolvable
+        available = (
+            has_tenant and not (integration and integration.use_platform_credentials)
+        ) or has_platform
+
+        items.append(
+            ProviderInfo(
+                provider=provider_key,
+                display_name=meta.display_name,
+                description=meta.description,
+                icon=meta.icon,
+                available=available,
+                source=source,
+                integration_id=integration_id,
+                connected_employees=connected,
+            )
+        )
+
+    return ProviderListResponse(items=items)
+
+
+@router.post("/connect", response_model=ConnectResponse)
+async def connect_provider(
+    db: DBSession,
+    auth: CurrentUser,
+    data: ConnectRequest,
+) -> ConnectResponse:
+    """Simplified connect flow for employees.
+
+    If the tenant already has an integration for the provider, uses it.
+    Otherwise, if a platform OAuth app exists, auto-creates a tenant
+    integration with ``use_platform_credentials=True``. Returns an
+    authorization URL for the OAuth consent screen.
+
+    Raises 404 if the employee is not found or terminated, 400 if no
+    credentials are available for the provider.
+    """
+    # Validate employee belongs to tenant and is not terminated
+    emp_result = await db.execute(
+        select(Employee).where(
+            Employee.id == data.employee_id,
+            Employee.tenant_id == auth.tenant_id,
+            Employee.status != "terminated",
+            Employee.deleted_at.is_(None),
+        )
+    )
+    if not emp_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+
+    service = _get_integration_service(db)
+    oauth_service = _get_oauth_service(db)
+    platform_svc = _get_platform_service(db)
+
+    # Check if Integration exists for tenant+provider
+    existing = await service.get_integration(auth.tenant_id, data.provider)
+
+    if existing:
+        integration = existing
+    else:
+        # Check if PlatformOAuthApp exists
+        platform_app = await platform_svc.get_app(data.provider)
+        if not platform_app:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"No credentials available for provider '{data.provider}'. "
+                "Ask your admin to configure an integration or contact the platform.",
+            )
+
+        # Auto-create Integration with use_platform_credentials=True
+        meta = PROVIDER_CATALOG.get(data.provider)
+        display_name = meta.display_name if meta else data.provider
+        integration = await service.create_integration(
+            tenant_id=auth.tenant_id,
+            provider=data.provider,
+            auth_type=IntegrationAuthType.USER_OAUTH,
+            display_name=display_name,
+            oauth_config={},  # platform creds used instead
+            enabled_by=auth.user_id,
+            use_platform_credentials=True,
+        )
+        logger.info(
+            "Auto-created integration with platform credentials",
+            extra={
+                "integration_id": str(integration.id),
+                "tenant_id": str(auth.tenant_id),
+                "provider": data.provider,
+            },
+        )
+
+    try:
+        auth_url, state_val = await oauth_service.generate_authorization_url(
+            integration=integration,
+            employee_id=data.employee_id,
+            user_id=auth.user_id,
+            redirect_after=data.redirect_after,
+        )
+    except ClientSecretNotConfiguredError as e:
+        logger.error(
+            "Connect failed: OAuth credentials not configured",
+            extra={"provider": data.provider, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OAuth credentials not configured for {data.provider}. "
+            "Contact your administrator.",
+        ) from e
+    except DecryptionError as e:
+        logger.exception("Connect failed: platform credential decryption error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Platform OAuth configuration error. Contact support.",
+        ) from e
+
+    return ConnectResponse(
+        authorization_url=auth_url,
+        state=state_val,
+        provider=data.provider,
+        employee_id=data.employee_id,
+        integration_id=integration.id,
+    )
+
+
+@router.get("/credentials", response_model=CredentialListResponse)
+async def list_credentials(
+    db: DBSession,
+    auth: CurrentUser,
+) -> CredentialListResponse:
+    """List all credentials for the current tenant across integrations."""
+    result = await db.execute(
+        select(IntegrationCredential, Integration.provider)
+        .join(Integration, IntegrationCredential.integration_id == Integration.id)
+        .where(
+            IntegrationCredential.tenant_id == auth.tenant_id,
+            IntegrationCredential.deleted_at.is_(None),
+        )
+        .order_by(IntegrationCredential.created_at.desc())
+    )
+
+    items: list[CredentialListItem] = []
+    for cred, provider in result.all():
+        item = CredentialListItem(
+            id=cred.id,
+            integration_id=cred.integration_id,
+            employee_id=cred.employee_id,
+            provider=provider,
+            credential_type=cred.credential_type,
+            status=cred.status,
+            issued_at=cred.issued_at,
+            expires_at=cred.expires_at,
+            last_refreshed_at=cred.last_refreshed_at,
+            last_used_at=cred.last_used_at,
+            token_metadata=cred.token_metadata or {},
+        )
+        items.append(item)
+
+    return CredentialListResponse(items=items, total=len(items))
+
+
+@router.get("/callback")
+async def oauth_callback(
+    request: Request,
+    db: DBSession,
+    state: str = Query(..., description="OAuth state parameter"),
+    code: str = Query(default=None, description="Authorization code"),
+    error: str = Query(default=None, description="OAuth error"),
+    error_description: str = Query(default=None, description="OAuth error description"),
+) -> RedirectResponse:
+    """Handle OAuth callback from provider.
+
+    Returns a 302 redirect to the frontend instead of JSON.
+    """
+    settings = get_settings()
+    base = settings.frontend_base_url.rstrip("/")
+
+    # Rate limit check
+    client_id = get_client_identifier(request)
+    if not oauth_callback_limiter.is_allowed(client_id):
+        reset_time = int(oauth_callback_limiter.get_reset_time(client_id))
+        raise RateLimitExceeded(
+            retry_after=reset_time,
+            detail="Too many OAuth callback requests. Please try again later.",
+        )
+
+    # Handle OAuth error from provider
+    if error:
+        logger.warning(
+            "OAuth error from provider",
+            extra={"error": error, "error_description": error_description},
+        )
+        return RedirectResponse(
+            url=f"{base}/integrations/callback?error=oauth_denied",
+            status_code=302,
+        )
+
+    if not code:
+        return RedirectResponse(
+            url=f"{base}/integrations/callback?error=missing_code",
+            status_code=302,
+        )
+
+    oauth_service = _get_oauth_service(db)
+
+    try:
+        credential, _redirect_uri = await oauth_service.handle_callback(
+            state=state,
+            code=code,
+        )
+
+        # Look up provider from the integration
+        integration = await db.get(Integration, credential.integration_id)
+        provider = integration.provider if integration else "unknown"
+
+        logger.info(
+            f"OAuth callback successful for employee {credential.employee_id}",
+            extra={
+                "credential_id": str(credential.id),
+                "employee_id": str(credential.employee_id),
+            },
+        )
+
+        params = urlencode(
+            {
+                "success": "true",
+                "provider": provider,
+                "employee_id": str(credential.employee_id),
+            }
+        )
+        return RedirectResponse(
+            url=f"{base}/integrations/callback?{params}",
+            status_code=302,
+        )
+
+    except InvalidStateError:
+        return RedirectResponse(
+            url=f"{base}/integrations/callback?error=invalid_state",
+            status_code=302,
+        )
+
+    except TokenExchangeError:
+        return RedirectResponse(
+            url=f"{base}/integrations/callback?error=token_exchange",
+            status_code=302,
+        )
+
+    except ClientSecretNotConfiguredError:
+        logger.error("OAuth callback failed: client secret not configured")
+        return RedirectResponse(
+            url=f"{base}/integrations/callback?error=config_missing",
+            status_code=302,
+        )
+
+    except DecryptionError:
+        logger.exception("OAuth callback failed: credential decryption error")
+        return RedirectResponse(
+            url=f"{base}/integrations/callback?error=internal",
+            status_code=302,
+        )
+
+    except Exception:
+        logger.exception("Unexpected error in OAuth callback")
+        return RedirectResponse(
+            url=f"{base}/integrations/callback?error=unknown",
+            status_code=302,
+        )
+
+
+# =============================================================================
+# Platform OAuth App Endpoints (admin)
+# =============================================================================
+
+
+@router.get("/platform-apps", response_model=list[PlatformOAuthAppResponse])
+async def list_platform_apps(
+    db: DBSession,
+    auth: RequireAdmin,  # noqa: ARG001 — enforces admin via DI
+) -> list[PlatformOAuthAppResponse]:
+    """List all platform OAuth apps (admin only)."""
+    svc = _get_platform_service(db)
+    apps = await svc.list_apps()
+    return [PlatformOAuthAppResponse.model_validate(app) for app in apps]
+
+
+@router.post(
+    "/platform-apps",
+    response_model=PlatformOAuthAppResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_platform_app(
+    db: DBSession,
+    auth: RequireAdmin,  # noqa: ARG001 — enforces admin via DI
+    data: PlatformOAuthAppCreate,
+) -> PlatformOAuthAppResponse:
+    """Register a platform OAuth app (admin only)."""
+    svc = _get_platform_service(db)
+
+    # Check for existing
+    existing = await svc.get_app(data.provider)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Platform OAuth app for '{data.provider}' already exists",
+        )
+
+    app = await svc.create_app(
+        provider=data.provider,
+        client_id=data.client_id,
+        client_secret=data.client_secret.get_secret_value(),
+        redirect_uri=data.redirect_uri,
+        scopes=data.scopes,
+    )
+
+    logger.info(
+        "Created platform OAuth app",
+        extra={"provider": data.provider, "app_id": str(app.id)},
+    )
+    return PlatformOAuthAppResponse.model_validate(app)
+
+
+# =============================================================================
+# Integration CRUD (dynamic routes below)
+# =============================================================================
 
 
 @router.get("/{integration_id}", response_model=IntegrationResponse)
@@ -430,13 +835,30 @@ async def get_authorization_url(
 
     oauth_service = _get_oauth_service(db)
 
-    auth_url, state = await oauth_service.generate_authorization_url(
-        integration=integration,
-        employee_id=data.employee_id,
-        user_id=auth.user_id,
-        redirect_after=data.redirect_after,
-        use_pkce=data.use_pkce,
-    )
+    try:
+        auth_url, state = await oauth_service.generate_authorization_url(
+            integration=integration,
+            employee_id=data.employee_id,
+            user_id=auth.user_id,
+            redirect_after=data.redirect_after,
+            use_pkce=data.use_pkce,
+        )
+    except ClientSecretNotConfiguredError as e:
+        logger.error(
+            "Authorization failed: OAuth credentials not configured",
+            extra={"provider": integration.provider, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OAuth credentials not configured for {integration.provider}. "
+            "Contact your administrator.",
+        ) from e
+    except DecryptionError as e:
+        logger.exception("Authorization failed: credential decryption error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Platform OAuth configuration error. Contact support.",
+        ) from e
 
     logger.info(
         f"Generated OAuth authorization URL for employee {data.employee_id}",
@@ -453,114 +875,6 @@ async def get_authorization_url(
         provider=integration.provider,
         employee_id=data.employee_id,
     )
-
-
-@router.get("/callback", response_model=OAuthCallbackResponse)
-async def oauth_callback(
-    request: Request,
-    db: DBSession,
-    state: str = Query(..., description="OAuth state parameter"),
-    code: str = Query(default=None, description="Authorization code"),
-    error: str = Query(default=None, description="OAuth error"),
-    error_description: str = Query(default=None, description="OAuth error description"),
-) -> OAuthCallbackResponse:
-    """
-    Handle OAuth callback from provider.
-
-    This endpoint is called by the OAuth provider after user consent.
-    It exchanges the authorization code for tokens and stores them.
-
-    Note: This endpoint doesn't require authentication because it's called
-    by the OAuth provider redirect. Security is provided by the state parameter.
-
-    Rate limited: 10 requests per minute per IP to prevent abuse.
-
-    Args:
-        state: OAuth state for CSRF protection
-        code: Authorization code (if successful)
-        error: OAuth error code (if failed)
-        error_description: OAuth error description
-
-    Returns:
-        Callback result with redirect URI
-
-    Raises:
-        RateLimitExceeded: If rate limit is exceeded (429 Too Many Requests)
-    """
-    # Rate limit check - prevent abuse of unauthenticated callback endpoint
-    client_id = get_client_identifier(request)
-    if not oauth_callback_limiter.is_allowed(client_id):
-        reset_time = int(oauth_callback_limiter.get_reset_time(client_id))
-        raise RateLimitExceeded(
-            retry_after=reset_time,
-            detail="Too many OAuth callback requests. Please try again later.",
-        )
-
-    # Handle OAuth error from provider
-    if error:
-        logger.warning(
-            f"OAuth error from provider: {error} - {error_description}",
-            extra={"error": error, "error_description": error_description},
-        )
-        return OAuthCallbackResponse(
-            success=False,
-            redirect_uri="/integrations?error=oauth_denied",
-            error=error_description or error,
-        )
-
-    if not code:
-        return OAuthCallbackResponse(
-            success=False,
-            redirect_uri="/integrations?error=missing_code",
-            error="Authorization code not provided",
-        )
-
-    oauth_service = _get_oauth_service(db)
-
-    try:
-        credential, redirect_uri = await oauth_service.handle_callback(
-            state=state,
-            code=code,
-        )
-
-        logger.info(
-            f"OAuth callback successful for employee {credential.employee_id}",
-            extra={
-                "credential_id": str(credential.id),
-                "employee_id": str(credential.employee_id),
-            },
-        )
-
-        return OAuthCallbackResponse(
-            success=True,
-            redirect_uri=redirect_uri,
-            credential_id=credential.id,
-            employee_id=credential.employee_id,
-        )
-
-    except InvalidStateError as e:
-        logger.warning(f"Invalid OAuth state: {e}")
-        return OAuthCallbackResponse(
-            success=False,
-            redirect_uri="/integrations?error=invalid_state",
-            error="Invalid or expired OAuth state",
-        )
-
-    except TokenExchangeError as e:
-        logger.error(f"Token exchange failed: {e}")
-        return OAuthCallbackResponse(
-            success=False,
-            redirect_uri="/integrations?error=token_exchange",
-            error=str(e),
-        )
-
-    except Exception as e:
-        logger.exception(f"Unexpected error in OAuth callback: {e}")
-        return OAuthCallbackResponse(
-            success=False,
-            redirect_uri="/integrations?error=unknown",
-            error="An unexpected error occurred",
-        )
 
 
 # =============================================================================

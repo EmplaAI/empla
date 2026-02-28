@@ -7,12 +7,20 @@
 import type {
   Activity,
   ActivitySummary,
+  ConnectRequest,
+  ConnectResponse,
+  CredentialSource,
+  CredentialStatus,
+  CredentialType,
   Employee,
   EmployeeCreate,
   EmployeeRuntimeStatus,
   EmployeeUpdate,
+  IntegrationCredential,
+  IntegrationProvider,
   LoginResponse,
   PaginatedResponse,
+  ProviderInfo,
 } from '../types';
 
 /**
@@ -537,6 +545,100 @@ export function createApiClient(config: ApiClientConfig) {
     };
   }
 
+  // =========================================================================
+  // Integration Endpoints
+  // =========================================================================
+
+  async function listProviders(): Promise<ProviderInfo[]> {
+    const response = await request<{
+      items: Array<{
+        provider: IntegrationProvider;
+        display_name: string;
+        description: string;
+        icon: string;
+        available: boolean;
+        source: CredentialSource | null;
+        integration_id: string | null;
+        connected_employees: number;
+      }>;
+    }>('/v1/integrations/providers');
+
+    return response.items.map((p) => ({
+      provider: p.provider,
+      displayName: p.display_name,
+      description: p.description,
+      icon: p.icon,
+      available: p.available,
+      source: p.source,
+      integrationId: p.integration_id,
+      connectedEmployees: p.connected_employees,
+    }));
+  }
+
+  async function connectProvider(data: ConnectRequest): Promise<ConnectResponse> {
+    const response = await request<{
+      authorization_url: string;
+      state: string;
+      provider: IntegrationProvider;
+      employee_id: string;
+      integration_id: string;
+    }>('/v1/integrations/connect', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: data.provider,
+        employee_id: data.employeeId,
+        redirect_after: data.redirectAfter,
+      }),
+    });
+
+    return {
+      authorizationUrl: response.authorization_url,
+      state: response.state,
+      provider: response.provider,
+      employeeId: response.employee_id,
+      integrationId: response.integration_id,
+    };
+  }
+
+  async function listCredentials(): Promise<IntegrationCredential[]> {
+    const response = await request<{
+      items: Array<{
+        id: string;
+        integration_id: string;
+        employee_id: string;
+        provider: IntegrationProvider;
+        credential_type: CredentialType;
+        status: CredentialStatus;
+        issued_at: string | null;
+        expires_at: string | null;
+        last_refreshed_at: string | null;
+        last_used_at: string | null;
+        token_metadata: Record<string, unknown>;
+      }>;
+    }>('/v1/integrations/credentials');
+
+    return response.items.map((c) => ({
+      id: c.id,
+      integrationId: c.integration_id,
+      employeeId: c.employee_id,
+      provider: c.provider,
+      credentialType: c.credential_type,
+      status: c.status,
+      issuedAt: c.issued_at,
+      expiresAt: c.expires_at,
+      lastRefreshedAt: c.last_refreshed_at,
+      lastUsedAt: c.last_used_at,
+      tokenMetadata: c.token_metadata,
+    }));
+  }
+
+  async function revokeCredential(integrationId: string, employeeId: string): Promise<void> {
+    await request<void>(
+      `/v1/integrations/${integrationId}/employees/${employeeId}/credential`,
+      { method: 'DELETE' }
+    );
+  }
+
   return {
     setAuthToken,
     login,
@@ -553,6 +655,10 @@ export function createApiClient(config: ApiClientConfig) {
     listActivities,
     getRecentActivities,
     getActivitySummary,
+    listProviders,
+    connectProvider,
+    listCredentials,
+    revokeCredential,
   };
 }
 
