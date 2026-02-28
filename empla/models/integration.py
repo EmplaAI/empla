@@ -14,8 +14,10 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+from uuid import uuid4 as _uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -25,9 +27,10 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from empla.models.base import TenantScopedModel
+from empla.models.base import Base, TenantScopedModel, TimestampedModel
 
 if TYPE_CHECKING:
     from empla.models.employee import Employee
@@ -89,7 +92,9 @@ class Integration(TenantScopedModel):
     Tenant-level integration configuration for external providers.
 
     Stores OAuth app configuration (client_id, redirect URIs, scopes) but NOT
-    secrets. Client secrets are stored in environment variables or secrets manager.
+    secrets. Client secrets are resolved from environment variables (tenant
+    credentials) or from encrypted ``PlatformOAuthApp`` rows when
+    ``use_platform_credentials`` is True.
 
     Example:
         >>> integration = Integration(
@@ -132,6 +137,14 @@ class Integration(TenantScopedModel):
         nullable=False,
         server_default=text("'{}'::jsonb"),
         comment="OAuth config (client_id, redirect_uri, scopes) - NO secrets",
+    )
+
+    # Platform credential delegation
+    use_platform_credentials: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        comment="If true, use platform-level OAuth app instead of tenant-provided credentials",
     )
 
     # Status
@@ -446,3 +459,80 @@ class IntegrationOAuthState(TenantScopedModel):
 
     def __repr__(self) -> str:
         return f"<IntegrationOAuthState(id={self.id}, state={self.state[:8]}...)>"
+
+
+class PlatformOAuthApp(TimestampedModel, Base):
+    """
+    Platform-level OAuth app registration.
+
+    NOT tenant-scoped — these are global OAuth apps managed by the platform
+    admin. Tenants can opt-in to use platform credentials instead of providing
+    their own via ``Integration.use_platform_credentials``.
+
+    Client secrets are Fernet-encrypted at rest (same key provider as
+    IntegrationCredential).
+    """
+
+    __tablename__ = "platform_oauth_apps"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=_uuid4,
+        comment="Unique identifier",
+    )
+
+    provider: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        unique=True,
+        comment="Provider key (google_workspace, microsoft_graph, …)",
+    )
+
+    client_id: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+        comment="OAuth client ID",
+    )
+
+    encrypted_client_secret: Mapped[bytes] = mapped_column(
+        LargeBinary,
+        nullable=False,
+        comment="Fernet-encrypted OAuth client secret",
+    )
+
+    encryption_key_id: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        comment="ID of encryption key used (for rotation)",
+    )
+
+    redirect_uri: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+        comment="OAuth redirect URI for this platform app",
+    )
+
+    default_scopes: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
+        comment="Default OAuth scopes",
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        server_default=text("'active'"),
+        comment="App status (active, disabled)",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'disabled')",
+            name="ck_platform_oauth_apps_status",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<PlatformOAuthApp(id={self.id}, provider={self.provider})>"

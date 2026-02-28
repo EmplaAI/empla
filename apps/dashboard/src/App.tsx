@@ -8,6 +8,8 @@ import { DashboardPage } from '@/routes/dashboard';
 import { EmployeesPage } from '@/routes/employees';
 import { EmployeeDetailPage } from '@/routes/employee-detail';
 import { EmployeeNewPage } from '@/routes/employee-new';
+import { IntegrationsPage } from '@/routes/integrations';
+import { IntegrationsCallbackPage } from '@/routes/integrations-callback';
 
 export function App() {
   return (
@@ -17,6 +19,7 @@ export function App() {
           <Routes>
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/integrations/callback" element={<IntegrationsCallbackPage />} />
 
           {/* Protected routes */}
           <Route
@@ -30,6 +33,7 @@ export function App() {
             <Route path="employees" element={<EmployeesPage />} />
             <Route path="employees/new" element={<EmployeeNewPage />} />
             <Route path="employees/:id" element={<EmployeeDetailPage />} />
+            <Route path="integrations" element={<IntegrationsPage />} />
           </Route>
 
           {/* Catch all - redirect to home */}

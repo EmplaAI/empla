@@ -131,7 +131,7 @@ class VertexAIProvider(LLMProviderBase):
                     parameters=tool.get("input_schema", {"type": "object", "properties": {}}),
                 )
             )
-        vertex_tools = [Tool(function_declarations=func_declarations)]
+        vertex_tools = [Tool(function_declarations=func_declarations)] if func_declarations else []
 
         # Build tool_call_id → function name map for tool result messages
         tool_name_map: dict[str, str] = {}
@@ -151,12 +151,10 @@ class VertexAIProvider(LLMProviderBase):
             elif msg.role == "tool":
                 # Accumulate tool results — they'll be sent as a single user turn
                 tool_call_id = msg.tool_call_id or ""
-                tool_name = tool_name_map.get(tool_call_id, "unknown")
-                if tool_name == "unknown":
-                    logger.warning(
-                        "tool_call_id %r not found in tool_name_map, using 'unknown'; content preview: %.120s",
-                        tool_call_id or "(empty)",
-                        msg.content,
+                tool_name = tool_name_map.get(tool_call_id)
+                if tool_name is None:
+                    raise ValueError(
+                        f"tool_call_id {tool_call_id!r} not found in prior assistant tool_calls"
                     )
                 try:
                     response_data = json.loads(msg.content)
@@ -228,8 +226,9 @@ class VertexAIProvider(LLMProviderBase):
 
         kwargs: dict[str, Any] = {
             "generation_config": generation_config,
-            "tools": vertex_tools,
         }
+        if vertex_tools:
+            kwargs["tools"] = vertex_tools
         if tool_config is not None:
             kwargs["tool_config"] = tool_config
 

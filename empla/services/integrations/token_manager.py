@@ -264,10 +264,18 @@ class TokenManager:
                     if not refresh_token:
                         raise RefreshError("No refresh token available")
 
+                    from empla.services.integrations.utils import (
+                        get_effective_client_secret,
+                        get_effective_oauth_config,
+                    )
+
+                    effective_config = await get_effective_oauth_config(integration, session, self)
+                    client_secret = await get_effective_client_secret(integration, session, self)
+
                     new_tokens = await provider.refresh_token(
                         refresh_token=refresh_token,
-                        client_id=integration.oauth_config.get("client_id"),
-                        client_secret=await self._get_client_secret(integration),
+                        client_id=effective_config["client_id"],
+                        client_secret=client_secret,
                     )
 
                     # Update data with new tokens
@@ -310,25 +318,6 @@ class TokenManager:
                     raise RefreshError(f"Token refresh failed: {e}") from e
 
         return data
-
-    async def _get_client_secret(self, integration: "Integration") -> str:
-        """
-        Get OAuth client secret from secure storage.
-
-        Delegates to shared utility function.
-
-        Args:
-            integration: Integration configuration
-
-        Returns:
-            Client secret string
-
-        Raises:
-            ClientSecretNotConfiguredError: If client secret is not configured
-        """
-        from empla.services.integrations.utils import get_oauth_client_secret
-
-        return get_oauth_client_secret(integration)
 
 
 # Default instance (can be replaced for testing)

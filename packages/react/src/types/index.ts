@@ -148,3 +148,64 @@ export interface LoginResponse {
   tenantName: string;
   role: string;
 }
+
+// =========================================================================
+// Integration Types
+// =========================================================================
+
+export type IntegrationProvider = 'google_workspace' | 'microsoft_graph';
+export type CredentialStatus = 'active' | 'expired' | 'revoked' | 'refreshing' | 'revocation_failed';
+export type CredentialType = 'oauth_tokens' | 'service_account_key';
+export type CredentialSource = 'platform' | 'tenant';
+
+/**
+ * Provider info from GET /providers.
+ */
+export interface ProviderInfo {
+  provider: IntegrationProvider;
+  displayName: string;
+  description: string;
+  icon: string;
+  available: boolean;
+  source: CredentialSource | null;
+  integrationId: string | null;
+  connectedEmployees: number;
+}
+
+/**
+ * Integration credential.
+ */
+export interface IntegrationCredential {
+  id: string;
+  integrationId: string;
+  employeeId: string;
+  employeeName: string;
+  provider: IntegrationProvider;
+  credentialType: CredentialType;
+  status: CredentialStatus;
+  issuedAt: string | null;
+  expiresAt: string | null;
+  lastRefreshedAt: string | null;
+  lastUsedAt: string | null;
+  tokenMetadata: Record<string, unknown>;
+}
+
+/**
+ * Connect request data.
+ */
+export interface ConnectRequest {
+  provider: IntegrationProvider;
+  employeeId: string;
+  redirectAfter?: string;
+}
+
+/**
+ * Connect response.
+ */
+export interface ConnectResponse {
+  authorizationUrl: string;
+  state: string;
+  provider: IntegrationProvider;
+  employeeId: string;
+  integrationId: string;
+}

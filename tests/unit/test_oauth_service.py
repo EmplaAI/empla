@@ -73,6 +73,7 @@ def sample_integration():
             "redirect_uri": "https://app.example.com/oauth/callback",
             "scopes": ["email", "calendar"],
         },
+        use_platform_credentials=False,
         status="active",
         enabled_by=uuid4(),
         enabled_at=datetime.now(UTC),
@@ -245,6 +246,11 @@ class TestGenerateAuthorizationUrl:
 class TestHandleCallback:
     """Tests for OAuthService.handle_callback()."""
 
+    @pytest.fixture(autouse=True)
+    def _set_client_secret_env(self, monkeypatch):
+        """Set the OAuth client secret env var for all callback tests."""
+        monkeypatch.setenv("OAUTH_GOOGLE_WORKSPACE_CLIENT_SECRET", "test_secret")
+
     @pytest.mark.asyncio
     async def test_validates_state_successfully(
         self, oauth_service, mock_session, sample_integration, sample_oauth_state
@@ -270,15 +276,10 @@ class TestHandleCallback:
             )
             mock_get_provider.return_value = mock_provider
 
-            with patch(
-                "empla.services.integrations.oauth_service.OAuthService._get_client_secret"
-            ) as mock_secret:
-                mock_secret.return_value = "test_secret"
-
-                credential, redirect = await oauth_service.handle_callback(
-                    state=sample_oauth_state.state,
-                    code="authorization_code_123",
-                )
+            credential, redirect = await oauth_service.handle_callback(
+                state=sample_oauth_state.state,
+                code="authorization_code_123",
+            )
 
         assert credential is not None
         assert redirect == sample_oauth_state.redirect_uri
@@ -347,16 +348,11 @@ class TestHandleCallback:
             mock_provider.exchange_code = AsyncMock(side_effect=Exception("Provider error"))
             mock_get_provider.return_value = mock_provider
 
-            with patch(
-                "empla.services.integrations.oauth_service.OAuthService._get_client_secret"
-            ) as mock_secret:
-                mock_secret.return_value = "test_secret"
-
-                with pytest.raises(TokenExchangeError) as exc_info:
-                    await oauth_service.handle_callback(
-                        state=sample_oauth_state.state,
-                        code="authorization_code",
-                    )
+            with pytest.raises(TokenExchangeError) as exc_info:
+                await oauth_service.handle_callback(
+                    state=sample_oauth_state.state,
+                    code="authorization_code",
+                )
 
         assert "Provider error" in str(exc_info.value)
 
@@ -390,15 +386,10 @@ class TestHandleCallback:
             mock_provider.get_user_info = AsyncMock(return_value={})
             mock_get_provider.return_value = mock_provider
 
-            with patch(
-                "empla.services.integrations.oauth_service.OAuthService._get_client_secret"
-            ) as mock_secret:
-                mock_secret.return_value = "test_secret"
-
-                await oauth_service.handle_callback(
-                    state=sample_oauth_state.state,
-                    code="authorization_code",
-                )
+            await oauth_service.handle_callback(
+                state=sample_oauth_state.state,
+                code="authorization_code",
+            )
 
         mock_token_manager.encrypt.assert_called_once_with(tokens)
 
@@ -446,15 +437,10 @@ class TestHandleCallback:
             mock_provider.get_user_info = AsyncMock(return_value={})
             mock_get_provider.return_value = mock_provider
 
-            with patch(
-                "empla.services.integrations.oauth_service.OAuthService._get_client_secret"
-            ) as mock_secret:
-                mock_secret.return_value = "test_secret"
-
-                credential, _ = await oauth_service.handle_callback(
-                    state=sample_oauth_state.state,
-                    code="authorization_code",
-                )
+            credential, _ = await oauth_service.handle_callback(
+                state=sample_oauth_state.state,
+                code="authorization_code",
+            )
 
         # Should update existing credential, not add new
         assert credential == existing_credential
@@ -480,15 +466,10 @@ class TestHandleCallback:
             mock_provider.get_user_info = AsyncMock(return_value={})
             mock_get_provider.return_value = mock_provider
 
-            with patch(
-                "empla.services.integrations.oauth_service.OAuthService._get_client_secret"
-            ) as mock_secret:
-                mock_secret.return_value = "test_secret"
-
-                await oauth_service.handle_callback(
-                    state=sample_oauth_state.state,
-                    code="authorization_code",
-                )
+            await oauth_service.handle_callback(
+                state=sample_oauth_state.state,
+                code="authorization_code",
+            )
 
         mock_session.delete.assert_called_once_with(sample_oauth_state)
 
@@ -519,15 +500,10 @@ class TestHandleCallback:
             mock_provider.get_user_info = AsyncMock(return_value=user_info)
             mock_get_provider.return_value = mock_provider
 
-            with patch(
-                "empla.services.integrations.oauth_service.OAuthService._get_client_secret"
-            ) as mock_secret:
-                mock_secret.return_value = "test_secret"
-
-                await oauth_service.handle_callback(
-                    state=sample_oauth_state.state,
-                    code="authorization_code",
-                )
+            await oauth_service.handle_callback(
+                state=sample_oauth_state.state,
+                code="authorization_code",
+            )
 
         # Verify credential was added with metadata
         added_credential = mock_session.add.call_args[0][0]
@@ -553,16 +529,11 @@ class TestHandleCallback:
             mock_provider.get_user_info = AsyncMock(side_effect=Exception("User info failed"))
             mock_get_provider.return_value = mock_provider
 
-            with patch(
-                "empla.services.integrations.oauth_service.OAuthService._get_client_secret"
-            ) as mock_secret:
-                mock_secret.return_value = "test_secret"
-
-                # Should not raise
-                credential, _ = await oauth_service.handle_callback(
-                    state=sample_oauth_state.state,
-                    code="authorization_code",
-                )
+            # Should not raise
+            credential, _ = await oauth_service.handle_callback(
+                state=sample_oauth_state.state,
+                code="authorization_code",
+            )
 
         assert credential is not None
 
@@ -598,23 +569,3 @@ class TestCleanupExpiredStates:
         count = await oauth_service.cleanup_expired_states()
 
         assert count == 0
-
-
-# =============================================================================
-# Test: _get_client_secret
-# =============================================================================
-
-
-class TestGetClientSecret:
-    """Tests for OAuthService._get_client_secret()."""
-
-    @pytest.mark.asyncio
-    async def test_gets_secret_from_utility(self, oauth_service, sample_integration):
-        """Test that secret is retrieved from shared utility."""
-        with patch("empla.services.integrations.utils.get_oauth_client_secret") as mock_get_secret:
-            mock_get_secret.return_value = "test_secret"
-
-            result = await oauth_service._get_client_secret(sample_integration)
-
-        assert result == "test_secret"
-        mock_get_secret.assert_called_once_with(sample_integration)

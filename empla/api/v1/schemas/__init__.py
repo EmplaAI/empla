@@ -20,7 +20,6 @@ from empla.api.v1.schemas.integration import (
     IntegrationListResponse,
     IntegrationResponse,
     IntegrationUpdate,
-    OAuthCallbackResponse,
     ServiceAccountSetup,
 )
 
@@ -38,6 +37,5 @@ __all__ = [
     "IntegrationListResponse",
     "IntegrationResponse",
     "IntegrationUpdate",
-    "OAuthCallbackResponse",
     "ServiceAccountSetup",
 ]

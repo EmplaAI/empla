@@ -4,6 +4,7 @@ import {
   Users,
   Plus,
   Activity,
+  Plug,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -28,6 +29,11 @@ const navItems = [
     label: 'Employees',
     href: '/employees',
     icon: Users,
+  },
+  {
+    label: 'Integrations',
+    href: '/integrations',
+    icon: Plug,
   },
   {
     label: 'Activity',

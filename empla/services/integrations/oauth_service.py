@@ -10,6 +10,7 @@ Handles OAuth 2.0 authorization flows:
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -126,13 +127,20 @@ class OAuthService:
         # Get provider
         provider = get_provider(integration.provider)
 
-        # Get scopes from integration config
-        scopes = integration.oauth_config.get("scopes", provider.get_default_scopes())
+        # Resolve effective config (platform or tenant)
+        from empla.services.integrations.utils import get_effective_oauth_config
+
+        effective_config = await get_effective_oauth_config(
+            integration, self.session, self.token_manager
+        )
+
+        # Get scopes from effective config
+        scopes = effective_config.get("scopes", provider.get_default_scopes())
 
         # Build authorization URL
         auth_url = provider.get_authorization_url(
-            client_id=integration.oauth_config["client_id"],
-            redirect_uri=integration.oauth_config["redirect_uri"],
+            client_id=effective_config["client_id"],
+            redirect_uri=effective_config["redirect_uri"],
             scopes=scopes,
             state=state,
             code_challenge=code_challenge,
@@ -206,13 +214,26 @@ class OAuthService:
         # Get provider
         provider = get_provider(integration.provider)
 
+        # Resolve effective config (platform or tenant)
+        from empla.services.integrations.utils import (
+            get_effective_client_secret,
+            get_effective_oauth_config,
+        )
+
+        effective_config = await get_effective_oauth_config(
+            integration, self.session, self.token_manager
+        )
+        client_secret = await get_effective_client_secret(
+            integration, self.session, self.token_manager
+        )
+
         try:
             # Exchange code for tokens
             tokens = await provider.exchange_code(
                 code=code,
-                client_id=integration.oauth_config["client_id"],
-                client_secret=await self._get_client_secret(integration),
-                redirect_uri=integration.oauth_config["redirect_uri"],
+                client_id=effective_config["client_id"],
+                client_secret=client_secret,
+                redirect_uri=effective_config["redirect_uri"],
                 code_verifier=oauth_state.code_verifier,
             )
         except Exception as e:
@@ -229,8 +250,16 @@ class OAuthService:
         try:
             user_info = await provider.get_user_info(tokens["access_token"])
         except Exception as e:
-            logger.warning(f"Failed to get user info: {e}")
-            user_info = {}
+            logger.error(
+                "Failed to get user info after token exchange",
+                extra={
+                    "integration_id": str(integration.id),
+                    "provider": integration.provider,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            user_info = {"_user_info_error": str(e)}
 
         # Encrypt and store credential
         encrypted, key_id = self.token_manager.encrypt(tokens)
@@ -245,15 +274,19 @@ class OAuthService:
         )
         existing_credential = existing_result.scalar_one_or_none()
 
+        token_metadata: dict[str, Any] = {
+            "email": user_info.get("email"),
+            "name": user_info.get("name"),
+            "scopes": tokens.get("scope", "").split() if tokens.get("scope") else [],
+        }
+        if "_user_info_error" in user_info:
+            token_metadata["_user_info_error"] = user_info["_user_info_error"]
+
         if existing_credential:
             # Update existing credential
             existing_credential.encrypted_data = encrypted
             existing_credential.encryption_key_id = key_id
-            existing_credential.token_metadata = {
-                "email": user_info.get("email"),
-                "name": user_info.get("name"),
-                "scopes": tokens.get("scope", "").split() if tokens.get("scope") else [],
-            }
+            existing_credential.token_metadata = token_metadata
             existing_credential.status = "active"
             existing_credential.issued_at = datetime.now(UTC)
             existing_credential.expires_at = datetime.now(UTC) + timedelta(
@@ -270,11 +303,7 @@ class OAuthService:
                 credential_type="oauth_tokens",
                 encrypted_data=encrypted,
                 encryption_key_id=key_id,
-                token_metadata={
-                    "email": user_info.get("email"),
-                    "name": user_info.get("name"),
-                    "scopes": tokens.get("scope", "").split() if tokens.get("scope") else [],
-                },
+                token_metadata=token_metadata,
                 status="active",
                 issued_at=datetime.now(UTC),
                 expires_at=datetime.now(UTC) + timedelta(seconds=tokens.get("expires_in", 3600)),
@@ -297,25 +326,6 @@ class OAuthService:
         )
 
         return credential, oauth_state.redirect_uri
-
-    async def _get_client_secret(self, integration: Integration) -> str:
-        """
-        Get OAuth client secret from secure storage.
-
-        Delegates to shared utility function.
-
-        Args:
-            integration: Integration configuration
-
-        Returns:
-            Client secret string
-
-        Raises:
-            ClientSecretNotConfiguredError: If client secret is not configured
-        """
-        from empla.services.integrations.utils import get_oauth_client_secret
-
-        return get_oauth_client_secret(integration)
 
     async def cleanup_expired_states(self) -> int:
         """
