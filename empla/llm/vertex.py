@@ -5,13 +5,17 @@ This module implements the LLM provider interface for Google's Gemini models via
 """
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
+from uuid import uuid4
 
 from pydantic import BaseModel
 
-from empla.llm.models import LLMRequest, LLMResponse, Message, TokenUsage
+from empla.llm.models import LLMRequest, LLMResponse, Message, TokenUsage, ToolCall
 from empla.llm.provider import LLMProviderBase
+
+logger = logging.getLogger(__name__)
 
 
 class VertexAIProvider(LLMProviderBase):
@@ -99,10 +103,174 @@ class VertexAIProvider(LLMProviderBase):
         )
 
     async def generate_with_tools(self, request: LLMRequest) -> LLMResponse:
-        """Generate with tools — not yet implemented for Vertex AI."""
-        raise NotImplementedError(
-            "Vertex AI tool calling is not yet implemented. "
-            "Use Anthropic or OpenAI provider for function calling."
+        """Generate completion with function calling via Vertex AI tools parameter."""
+        from vertexai.generative_models import (
+            Content,
+            FunctionDeclaration,
+            GenerativeModel,
+            Part,
+            Tool,
+            ToolConfig,
+        )
+
+        # Convert tool schemas to Vertex FunctionDeclarations
+        func_declarations = []
+        for tool in request.tools or []:
+            if (
+                not isinstance(tool, dict)
+                or not isinstance(tool.get("name"), str)
+                or not tool["name"]
+            ):
+                raise ValueError(
+                    f"Invalid tool descriptor: missing or invalid 'name' — got {tool!r}"
+                )
+            func_declarations.append(
+                FunctionDeclaration(
+                    name=tool["name"],
+                    description=tool.get("description", ""),
+                    parameters=tool.get("input_schema", {"type": "object", "properties": {}}),
+                )
+            )
+        vertex_tools = [Tool(function_declarations=func_declarations)]
+
+        # Build tool_call_id → function name map for tool result messages
+        tool_name_map: dict[str, str] = {}
+        for msg in request.messages:
+            if msg.role == "assistant" and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    tool_name_map[tc.id] = tc.name
+
+        # Build conversation contents
+        contents: list[Content] = []
+        system_instruction: str | None = None
+        pending_tool_parts: list[Part] = []
+
+        for msg in request.messages:
+            if msg.role == "system":
+                system_instruction = msg.content
+            elif msg.role == "tool":
+                # Accumulate tool results — they'll be sent as a single user turn
+                tool_call_id = msg.tool_call_id or ""
+                tool_name = tool_name_map.get(tool_call_id, "unknown")
+                if tool_name == "unknown":
+                    logger.warning(
+                        "tool_call_id %r not found in tool_name_map, using 'unknown'; content preview: %.120s",
+                        tool_call_id or "(empty)",
+                        msg.content,
+                    )
+                try:
+                    response_data = json.loads(msg.content)
+                    if not isinstance(response_data, dict):
+                        response_data = {"result": response_data}
+                except json.JSONDecodeError:
+                    response_data = {"result": msg.content}
+                pending_tool_parts.append(
+                    Part.from_function_response(name=tool_name, response=response_data)
+                )
+            else:
+                # Flush any pending tool results before the next non-tool message
+                if pending_tool_parts:
+                    contents.append(Content(role="user", parts=pending_tool_parts))
+                    pending_tool_parts = []
+
+                if msg.role == "assistant" and msg.tool_calls:
+                    parts: list[Part] = []
+                    if msg.content:
+                        parts.append(Part.from_text(msg.content))
+                    for tc in msg.tool_calls:
+                        parts.append(
+                            Part.from_dict(
+                                {"function_call": {"name": tc.name, "args": tc.arguments}}
+                            )
+                        )
+                    contents.append(Content(role="model", parts=parts))
+                elif msg.role == "assistant":
+                    contents.append(Content(role="model", parts=[Part.from_text(msg.content)]))
+                else:  # user
+                    contents.append(Content(role="user", parts=[Part.from_text(msg.content)]))
+
+        # Flush remaining tool results
+        if pending_tool_parts:
+            contents.append(Content(role="user", parts=pending_tool_parts))
+
+        # Build ToolConfig for tool_choice
+        tool_config: ToolConfig | None = None
+        if request.tool_choice == "required":
+            tool_config = ToolConfig(
+                function_calling_config=ToolConfig.FunctionCallingConfig(
+                    mode=ToolConfig.FunctionCallingConfig.Mode.ANY
+                )
+            )
+        elif request.tool_choice == "none":
+            tool_config = ToolConfig(
+                function_calling_config=ToolConfig.FunctionCallingConfig(
+                    mode=ToolConfig.FunctionCallingConfig.Mode.NONE
+                )
+            )
+        elif request.tool_choice == "auto":
+            tool_config = ToolConfig(
+                function_calling_config=ToolConfig.FunctionCallingConfig(
+                    mode=ToolConfig.FunctionCallingConfig.Mode.AUTO
+                )
+            )
+
+        # Create model and generate
+        model = GenerativeModel(
+            self.model_id,
+            system_instruction=system_instruction if system_instruction else None,
+        )
+
+        generation_config = {
+            "max_output_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "stop_sequences": request.stop_sequences,
+        }
+
+        kwargs: dict[str, Any] = {
+            "generation_config": generation_config,
+            "tools": vertex_tools,
+        }
+        if tool_config is not None:
+            kwargs["tool_config"] = tool_config
+
+        response = await model.generate_content_async(contents, **kwargs)
+
+        # Parse response — extract text and function calls
+        text_content = ""
+        tool_calls: list[ToolCall] = []
+        finish_reason = "STOP"
+
+        candidates = response.candidates or []
+        if candidates:
+            candidate = candidates[0]
+            parts = getattr(getattr(candidate, "content", None), "parts", None) or []
+            for part in parts:
+                fc = getattr(part, "function_call", None)
+                if fc and getattr(fc, "name", None):
+                    args = getattr(fc, "args", None)
+                    tool_calls.append(
+                        ToolCall(
+                            id=f"call_{uuid4().hex[:8]}",
+                            name=fc.name,
+                            arguments=dict(args) if args else {},
+                        )
+                    )
+                elif getattr(part, "text", None):
+                    text_content += part.text
+            finish_reason = getattr(getattr(candidate, "finish_reason", None), "name", "STOP")
+
+        usage = response.usage_metadata
+
+        return LLMResponse(
+            content=text_content,
+            model=self.model_id,
+            usage=TokenUsage(
+                input_tokens=usage.prompt_token_count,
+                output_tokens=usage.candidates_token_count,
+                total_tokens=usage.total_token_count,
+            ),
+            finish_reason=finish_reason,
+            tool_calls=tool_calls if tool_calls else None,
         )
 
     async def generate_structured(

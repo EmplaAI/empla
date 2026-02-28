@@ -375,6 +375,247 @@ async def test_openai_generate_with_tools_tool_calls():
 
 
 # ============================================================================
+# Vertex AI Provider Tests
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_vertex_generate_with_tools_text_response() -> None:
+    """Test Vertex AI provider returns text when no tool calls."""
+    with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
+        from empla.llm.vertex import VertexAIProvider
+
+        provider = VertexAIProvider.__new__(VertexAIProvider)
+        provider.api_key = ""
+        provider.model_id = "gemini-2.0-flash"
+        provider.kwargs = {}
+        provider.project_id = "test-project"
+        provider.location = "us-central1"
+
+    # Mock Vertex AI response with text only
+    mock_text_part = MagicMock()
+    mock_text_part.function_call = None
+    mock_text_part.text = "I'll help you with that."
+
+    mock_finish_reason = MagicMock()
+    mock_finish_reason.name = "STOP"
+
+    mock_candidate = MagicMock()
+    mock_candidate.content.parts = [mock_text_part]
+    mock_candidate.finish_reason = mock_finish_reason
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_token_count = 100
+    mock_usage.candidates_token_count = 50
+    mock_usage.total_token_count = 150
+
+    mock_response = MagicMock()
+    mock_response.candidates = [mock_candidate]
+    mock_response.usage_metadata = mock_usage
+
+    with patch("vertexai.generative_models.GenerativeModel") as mock_model_cls:
+        mock_model_instance = MagicMock()
+        mock_model_instance.generate_content_async = AsyncMock(return_value=mock_response)
+        mock_model_cls.return_value = mock_model_instance
+
+        request = LLMRequest(
+            messages=[Message(role="user", content="Help me")],
+            tools=SAMPLE_TOOLS,
+            tool_choice="auto",
+        )
+        response = await provider.generate_with_tools(request)
+
+    assert response.content == "I'll help you with that."
+    assert response.tool_calls is None
+    assert response.finish_reason == "STOP"
+
+
+@pytest.mark.asyncio
+async def test_vertex_generate_with_tools_function_call() -> None:
+    """Test Vertex AI provider parses function call responses."""
+    with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
+        from empla.llm.vertex import VertexAIProvider
+
+        provider = VertexAIProvider.__new__(VertexAIProvider)
+        provider.api_key = ""
+        provider.model_id = "gemini-2.0-flash"
+        provider.kwargs = {}
+        provider.project_id = "test-project"
+        provider.location = "us-central1"
+
+    # Mock Vertex AI response with function call
+    mock_fc = MagicMock()
+    mock_fc.name = "email.send"
+    mock_fc.args = {"to": ["a@b.com"], "subject": "Hi", "body": "Hello"}
+
+    mock_fc_part = MagicMock()
+    mock_fc_part.function_call = mock_fc
+    mock_fc_part.text = None
+
+    mock_finish_reason = MagicMock()
+    mock_finish_reason.name = "STOP"
+
+    mock_candidate = MagicMock()
+    mock_candidate.content.parts = [mock_fc_part]
+    mock_candidate.finish_reason = mock_finish_reason
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_token_count = 100
+    mock_usage.candidates_token_count = 50
+    mock_usage.total_token_count = 150
+
+    mock_response = MagicMock()
+    mock_response.candidates = [mock_candidate]
+    mock_response.usage_metadata = mock_usage
+
+    with patch("vertexai.generative_models.GenerativeModel") as mock_model_cls:
+        mock_model_instance = MagicMock()
+        mock_model_instance.generate_content_async = AsyncMock(return_value=mock_response)
+        mock_model_cls.return_value = mock_model_instance
+
+        request = LLMRequest(
+            messages=[Message(role="user", content="Send email to a@b.com")],
+            tools=SAMPLE_TOOLS,
+            tool_choice="auto",
+        )
+        response = await provider.generate_with_tools(request)
+
+    assert response.tool_calls is not None
+    assert len(response.tool_calls) == 1
+    assert response.tool_calls[0].name == "email.send"
+    assert response.tool_calls[0].arguments["to"] == ["a@b.com"]
+    assert response.tool_calls[0].id.startswith("call_")
+
+
+@pytest.mark.asyncio
+async def test_vertex_tool_result_message_conversion() -> None:
+    """Test Vertex AI provider converts tool result messages correctly."""
+    with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
+        from empla.llm.vertex import VertexAIProvider
+
+        provider = VertexAIProvider.__new__(VertexAIProvider)
+        provider.api_key = ""
+        provider.model_id = "gemini-2.0-flash"
+        provider.kwargs = {}
+        provider.project_id = "test-project"
+        provider.location = "us-central1"
+
+    # Mock text-only response after tool result
+    mock_text_part = MagicMock()
+    mock_text_part.function_call = None
+    mock_text_part.text = "Email sent successfully."
+
+    mock_finish_reason = MagicMock()
+    mock_finish_reason.name = "STOP"
+
+    mock_candidate = MagicMock()
+    mock_candidate.content.parts = [mock_text_part]
+    mock_candidate.finish_reason = mock_finish_reason
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_token_count = 200
+    mock_usage.candidates_token_count = 20
+    mock_usage.total_token_count = 220
+
+    mock_response = MagicMock()
+    mock_response.candidates = [mock_candidate]
+    mock_response.usage_metadata = mock_usage
+
+    with patch("vertexai.generative_models.GenerativeModel") as mock_model_cls:
+        mock_model_instance = MagicMock()
+        mock_model_instance.generate_content_async = AsyncMock(return_value=mock_response)
+        mock_model_cls.return_value = mock_model_instance
+
+        # Build multi-turn conversation with tool result
+        tc = ToolCall(id="call_abc", name="email.send", arguments={"to": ["a@b.com"]})
+        messages = [
+            Message(role="user", content="Send email"),
+            Message(role="assistant", content="", tool_calls=[tc]),
+            Message(role="tool", content='{"success": true}', tool_call_id="call_abc"),
+        ]
+
+        request = LLMRequest(messages=messages, tools=SAMPLE_TOOLS)
+        response = await provider.generate_with_tools(request)
+
+    assert response.content == "Email sent successfully."
+
+    # Verify the model was called with correct contents
+    call_args = mock_model_instance.generate_content_async.call_args
+    contents = call_args[0][0]
+
+    # First content: user message
+    assert contents[0].role == "user"
+    # Second content: model with function_call part
+    assert contents[1].role == "model"
+    # Third content: user with function_response part (tool results)
+    assert contents[2].role == "user"
+
+
+@pytest.mark.asyncio
+async def test_vertex_tool_choice_required() -> None:
+    """Test Vertex AI maps tool_choice='required' to Mode.ANY."""
+    with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
+        from empla.llm.vertex import VertexAIProvider
+
+        provider = VertexAIProvider.__new__(VertexAIProvider)
+        provider.api_key = ""
+        provider.model_id = "gemini-2.0-flash"
+        provider.kwargs = {}
+        provider.project_id = "test-project"
+        provider.location = "us-central1"
+
+    mock_fc = MagicMock()
+    mock_fc.name = "email.send"
+    mock_fc.args = {"to": ["a@b.com"], "subject": "Hi", "body": "Hello"}
+
+    mock_fc_part = MagicMock()
+    mock_fc_part.function_call = mock_fc
+    mock_fc_part.text = None
+
+    mock_finish_reason = MagicMock()
+    mock_finish_reason.name = "STOP"
+
+    mock_candidate = MagicMock()
+    mock_candidate.content.parts = [mock_fc_part]
+    mock_candidate.finish_reason = mock_finish_reason
+
+    mock_usage = MagicMock()
+    mock_usage.prompt_token_count = 100
+    mock_usage.candidates_token_count = 50
+    mock_usage.total_token_count = 150
+
+    mock_response = MagicMock()
+    mock_response.candidates = [mock_candidate]
+    mock_response.usage_metadata = mock_usage
+
+    with patch("vertexai.generative_models.GenerativeModel") as mock_model_cls:
+        mock_model_instance = MagicMock()
+        mock_model_instance.generate_content_async = AsyncMock(return_value=mock_response)
+        mock_model_cls.return_value = mock_model_instance
+
+        request = LLMRequest(
+            messages=[Message(role="user", content="Send email")],
+            tools=SAMPLE_TOOLS,
+            tool_choice="required",
+        )
+        await provider.generate_with_tools(request)
+
+    # Verify tool_config was passed with Mode.ANY for tool_choice="required"
+    call_kwargs = mock_model_instance.generate_content_async.call_args[1]
+    assert "tool_config" in call_kwargs
+    tool_config = call_kwargs["tool_config"]
+    from vertexai.generative_models import ToolConfig as VertexToolConfig
+
+    expected = VertexToolConfig(
+        function_calling_config=VertexToolConfig.FunctionCallingConfig(
+            mode=VertexToolConfig.FunctionCallingConfig.Mode.ANY
+        )
+    )
+    # ToolConfig wrapper doesn't implement __eq__; compare proto representations
+    assert str(tool_config) == str(expected)
+
+
+# ============================================================================
 # LLMService Tests
 # ============================================================================
 

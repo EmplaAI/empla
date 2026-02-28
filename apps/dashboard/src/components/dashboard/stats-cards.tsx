@@ -106,9 +106,8 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 export function StatsCards() {
-  // Fetch all employees to compute accurate stats
-  // Note: For large tenants (1000+ employees), consider adding a dedicated stats endpoint
-  const { data, isLoading, error, refetch } = useEmployees({ page: 1, pageSize: 1000 });
+  // Fetch employees to compute stats (API max page_size is 100)
+  const { data, isLoading, error, refetch } = useEmployees({ page: 1, pageSize: 100 });
 
   const stats = useMemo(() => {
     const employees = data?.items ?? [];
