@@ -380,7 +380,7 @@ async def test_openai_generate_with_tools_tool_calls():
 
 
 @pytest.mark.asyncio
-async def test_vertex_generate_with_tools_text_response():
+async def test_vertex_generate_with_tools_text_response() -> None:
     """Test Vertex AI provider returns text when no tool calls."""
     with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
         from empla.llm.vertex import VertexAIProvider
@@ -431,7 +431,7 @@ async def test_vertex_generate_with_tools_text_response():
 
 
 @pytest.mark.asyncio
-async def test_vertex_generate_with_tools_function_call():
+async def test_vertex_generate_with_tools_function_call() -> None:
     """Test Vertex AI provider parses function call responses."""
     with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
         from empla.llm.vertex import VertexAIProvider
@@ -488,7 +488,7 @@ async def test_vertex_generate_with_tools_function_call():
 
 
 @pytest.mark.asyncio
-async def test_vertex_tool_result_message_conversion():
+async def test_vertex_tool_result_message_conversion() -> None:
     """Test Vertex AI provider converts tool result messages correctly."""
     with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
         from empla.llm.vertex import VertexAIProvider
@@ -552,7 +552,7 @@ async def test_vertex_tool_result_message_conversion():
 
 
 @pytest.mark.asyncio
-async def test_vertex_tool_choice_required():
+async def test_vertex_tool_choice_required() -> None:
     """Test Vertex AI maps tool_choice='required' to Mode.ANY."""
     with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
         from empla.llm.vertex import VertexAIProvider
@@ -606,8 +606,13 @@ async def test_vertex_tool_choice_required():
     tool_config = call_kwargs["tool_config"]
     from vertexai.generative_models import ToolConfig as VertexToolConfig
 
-    actual_mode = tool_config._gapic_tool_config.function_calling_config.mode
-    assert actual_mode == VertexToolConfig.FunctionCallingConfig.Mode.ANY
+    expected = VertexToolConfig(
+        function_calling_config=VertexToolConfig.FunctionCallingConfig(
+            mode=VertexToolConfig.FunctionCallingConfig.Mode.ANY
+        )
+    )
+    # ToolConfig wrapper doesn't implement __eq__; compare proto representations
+    assert str(tool_config) == str(expected)
 
 
 # ============================================================================

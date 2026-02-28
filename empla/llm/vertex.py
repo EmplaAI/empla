@@ -116,6 +116,14 @@ class VertexAIProvider(LLMProviderBase):
         # Convert tool schemas to Vertex FunctionDeclarations
         func_declarations = []
         for tool in request.tools or []:
+            if (
+                not isinstance(tool, dict)
+                or not isinstance(tool.get("name"), str)
+                or not tool["name"]
+            ):
+                raise ValueError(
+                    f"Invalid tool descriptor: missing or invalid 'name' — got {tool!r}"
+                )
             func_declarations.append(
                 FunctionDeclaration(
                     name=tool["name"],
@@ -152,6 +160,8 @@ class VertexAIProvider(LLMProviderBase):
                     )
                 try:
                     response_data = json.loads(msg.content)
+                    if not isinstance(response_data, dict):
+                        response_data = {"result": response_data}
                 except json.JSONDecodeError:
                     response_data = {"result": msg.content}
                 pending_tool_parts.append(
@@ -213,6 +223,7 @@ class VertexAIProvider(LLMProviderBase):
         generation_config = {
             "max_output_tokens": request.max_tokens,
             "temperature": request.temperature,
+            "stop_sequences": request.stop_sequences,
         }
 
         kwargs: dict[str, Any] = {
