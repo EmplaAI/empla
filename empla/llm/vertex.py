@@ -5,6 +5,7 @@ This module implements the LLM provider interface for Google's Gemini models via
 """
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
@@ -13,6 +14,8 @@ from pydantic import BaseModel
 
 from empla.llm.models import LLMRequest, LLMResponse, Message, TokenUsage, ToolCall
 from empla.llm.provider import LLMProviderBase
+
+logger = logging.getLogger(__name__)
 
 
 class VertexAIProvider(LLMProviderBase):
@@ -139,7 +142,14 @@ class VertexAIProvider(LLMProviderBase):
                 system_instruction = msg.content
             elif msg.role == "tool":
                 # Accumulate tool results — they'll be sent as a single user turn
-                tool_name = tool_name_map.get(msg.tool_call_id or "", "unknown")
+                tool_call_id = msg.tool_call_id or ""
+                tool_name = tool_name_map.get(tool_call_id, "unknown")
+                if tool_name == "unknown":
+                    logger.warning(
+                        "tool_call_id %r not found in tool_name_map, using 'unknown'; content preview: %.120s",
+                        tool_call_id or "(empty)",
+                        msg.content,
+                    )
                 try:
                     response_data = json.loads(msg.content)
                 except json.JSONDecodeError:
@@ -217,21 +227,28 @@ class VertexAIProvider(LLMProviderBase):
         # Parse response — extract text and function calls
         text_content = ""
         tool_calls: list[ToolCall] = []
+        finish_reason = "STOP"
 
-        for part in response.candidates[0].content.parts:
-            if part.function_call and part.function_call.name:
-                tool_calls.append(
-                    ToolCall(
-                        id=f"call_{uuid4().hex[:8]}",
-                        name=part.function_call.name,
-                        arguments=dict(part.function_call.args),
+        candidates = response.candidates or []
+        if candidates:
+            candidate = candidates[0]
+            parts = getattr(getattr(candidate, "content", None), "parts", None) or []
+            for part in parts:
+                fc = getattr(part, "function_call", None)
+                if fc and getattr(fc, "name", None):
+                    args = getattr(fc, "args", None)
+                    tool_calls.append(
+                        ToolCall(
+                            id=f"call_{uuid4().hex[:8]}",
+                            name=fc.name,
+                            arguments=dict(args) if args else {},
+                        )
                     )
-                )
-            elif part.text:
-                text_content += part.text
+                elif getattr(part, "text", None):
+                    text_content += part.text
+            finish_reason = getattr(getattr(candidate, "finish_reason", None), "name", "STOP")
 
         usage = response.usage_metadata
-        finish_reason = response.candidates[0].finish_reason.name
 
         return LLMResponse(
             content=text_content,

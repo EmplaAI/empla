@@ -600,9 +600,14 @@ async def test_vertex_tool_choice_required():
         )
         await provider.generate_with_tools(request)
 
-    # Verify tool_config was passed
+    # Verify tool_config was passed with Mode.ANY for tool_choice="required"
     call_kwargs = mock_model_instance.generate_content_async.call_args[1]
     assert "tool_config" in call_kwargs
+    tool_config = call_kwargs["tool_config"]
+    from vertexai.generative_models import ToolConfig as VertexToolConfig
+
+    actual_mode = tool_config._gapic_tool_config.function_calling_config.mode
+    assert actual_mode == VertexToolConfig.FunctionCallingConfig.Mode.ANY
 
 
 # ============================================================================
