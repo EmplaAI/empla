@@ -606,6 +606,7 @@ export function createApiClient(config: ApiClientConfig) {
         id: string;
         integration_id: string;
         employee_id: string;
+        employee_name: string;
         provider: IntegrationProvider;
         credential_type: CredentialType;
         status: CredentialStatus;
@@ -621,6 +622,7 @@ export function createApiClient(config: ApiClientConfig) {
       id: c.id,
       integrationId: c.integration_id,
       employeeId: c.employee_id,
+      employeeName: c.employee_name,
       provider: c.provider,
       credentialType: c.credential_type,
       status: c.status,

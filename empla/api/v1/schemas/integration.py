@@ -274,6 +274,7 @@ class CredentialListItem(BaseModel):
     id: UUID
     integration_id: UUID
     employee_id: UUID
+    employee_name: str = Field(default="Unknown employee", description="Employee display name")
     provider: IntegrationProviderType
     credential_type: str
     status: CredentialStatusValue

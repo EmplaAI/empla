@@ -51,10 +51,14 @@ export function useConnectProvider() {
       if (!url) {
         throw new Error('Server returned empty authorization URL');
       }
+      let parsed: URL;
       try {
-        new URL(url);
+        parsed = new URL(url);
       } catch {
         throw new Error(`Server returned malformed authorization URL: ${url}`);
+      }
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        throw new Error('Server returned unsafe authorization URL');
       }
       window.location.href = url;
     },

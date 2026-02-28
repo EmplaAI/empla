@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Trash2, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { useCredentials, useRevokeCredential, useEmployees, type IntegrationCredential } from '@empla/react';
+import { useCredentials, useRevokeCredential, type IntegrationCredential } from '@empla/react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -22,13 +22,8 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 
 export function CredentialsTable() {
   const { data: credentials, isLoading, isError, error } = useCredentials();
-  const { data: employeesData } = useEmployees({ pageSize: 100 });
   const revokeMutation = useRevokeCredential();
   const [revokingId, setRevokingId] = useState<string | null>(null);
-
-  const employeeMap = new Map(
-    (employeesData?.items ?? []).map((e) => [e.id, e])
-  );
 
   function handleRevoke(cred: IntegrationCredential) {
     setRevokingId(cred.id);
@@ -86,7 +81,6 @@ export function CredentialsTable() {
   return (
     <div className="space-y-2">
       {credentials.map((cred) => {
-        const employee = employeeMap.get(cred.employeeId);
         const email = (cred.tokenMetadata as { email?: string })?.email;
         const isRevoking = revokingId === cred.id && revokeMutation.isPending;
 
@@ -99,7 +93,7 @@ export function CredentialsTable() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">
-                  {employee?.name ?? 'Unknown employee'}
+                  {cred.employeeName}
                 </span>
                 <Badge variant="outline" className="text-xs">
                   {PROVIDER_DISPLAY[cred.provider] ?? cred.provider}

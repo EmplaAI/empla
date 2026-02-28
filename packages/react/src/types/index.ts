@@ -179,6 +179,7 @@ export interface IntegrationCredential {
   id: string;
   integrationId: string;
   employeeId: string;
+  employeeName: string;
   provider: IntegrationProvider;
   credentialType: CredentialType;
   status: CredentialStatus;

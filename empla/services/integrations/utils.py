@@ -6,6 +6,7 @@ Common utility functions used across integration services.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import TYPE_CHECKING, Any
 
@@ -69,12 +70,18 @@ async def get_effective_oauth_config(
         the raw ``integration.oauth_config`` dict.
     """
     if not integration.use_platform_credentials:
-        if not integration.oauth_config or not isinstance(integration.oauth_config, dict):
+        raw = integration.oauth_config
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                raw = None
+        if not raw or not isinstance(raw, dict):
             raise ClientSecretNotConfiguredError(
                 integration.provider,
                 "integration.oauth_config is missing or malformed",
             )
-        return dict(integration.oauth_config)
+        return dict(raw)
 
     from empla.services.integrations.platform_service import PlatformOAuthAppService
 

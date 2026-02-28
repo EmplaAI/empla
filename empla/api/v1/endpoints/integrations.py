@@ -377,8 +377,9 @@ async def list_credentials(
 ) -> CredentialListResponse:
     """List all credentials for the current tenant across integrations."""
     result = await db.execute(
-        select(IntegrationCredential, Integration.provider)
+        select(IntegrationCredential, Integration.provider, Employee.name)
         .join(Integration, IntegrationCredential.integration_id == Integration.id)
+        .outerjoin(Employee, IntegrationCredential.employee_id == Employee.id)
         .where(
             IntegrationCredential.tenant_id == auth.tenant_id,
             IntegrationCredential.deleted_at.is_(None),
@@ -387,11 +388,12 @@ async def list_credentials(
     )
 
     items: list[CredentialListItem] = []
-    for cred, provider in result.all():
+    for cred, provider, employee_name in result.all():
         item = CredentialListItem(
             id=cred.id,
             integration_id=cred.integration_id,
             employee_id=cred.employee_id,
+            employee_name=employee_name or "Unknown employee",
             provider=provider,
             credential_type=cred.credential_type,
             status=cred.status,

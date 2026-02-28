@@ -4,7 +4,10 @@ Unit tests for LLM function calling / tool use support.
 Tests tool call models, provider-level tool calling, and LLMService.generate_with_tools().
 """
 
+from __future__ import annotations
+
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,6 +21,9 @@ from empla.llm.models import (
     TokenUsage,
     ToolCall,
 )
+
+if TYPE_CHECKING:
+    from empla.llm.vertex import VertexAIProvider
 
 # ============================================================================
 # Model Tests
@@ -380,7 +386,7 @@ async def test_openai_generate_with_tools_tool_calls():
 
 
 @pytest.fixture
-def vertex_provider():
+def vertex_provider() -> VertexAIProvider:
     """Create a VertexAIProvider instance with mocked __init__."""
     with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
         from empla.llm.vertex import VertexAIProvider
