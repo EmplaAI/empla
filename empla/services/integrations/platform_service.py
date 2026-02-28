@@ -94,6 +94,8 @@ class PlatformOAuthAppService:
 
     def decrypt_client_secret(self, app: PlatformOAuthApp) -> str:
         """Decrypt the client secret for a platform OAuth app."""
+        from empla.services.integrations.utils import ClientSecretNotConfiguredError
+
         data = self.token_manager.decrypt(app.encrypted_client_secret, app.encryption_key_id)
         secret = data.get("client_secret")
         if not secret:
@@ -101,5 +103,8 @@ class PlatformOAuthAppService:
                 "Decrypted platform OAuth app payload missing 'client_secret' key",
                 extra={"app_id": str(app.id), "provider": app.provider},
             )
-            raise ValueError(f"Platform OAuth app for {app.provider} has corrupted secret data")
+            raise ClientSecretNotConfiguredError(
+                app.provider,
+                f"db:PlatformOAuthApp[{app.provider}] (corrupted secret data)",
+            )
         return secret

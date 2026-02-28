@@ -19,7 +19,7 @@ export function App() {
           <Routes>
           {/* Public routes */}
           <Route path="/login" element={<LoginPage />} />
-          <Route path="integrations/callback" element={<IntegrationsCallbackPage />} />
+          <Route path="/integrations/callback" element={<IntegrationsCallbackPage />} />
 
           {/* Protected routes */}
           <Route

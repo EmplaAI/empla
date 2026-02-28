@@ -611,7 +611,8 @@ async def test_vertex_tool_choice_required() -> None:
             mode=VertexToolConfig.FunctionCallingConfig.Mode.ANY
         )
     )
-    # ToolConfig wrapper doesn't implement __eq__; compare proto representations
+    # ToolConfig is a proto-plus wrapper; compare via proto representation
+    assert type(tool_config) is VertexToolConfig
     assert str(tool_config) == str(expected)
 
 

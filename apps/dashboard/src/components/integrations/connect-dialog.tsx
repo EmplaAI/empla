@@ -27,7 +27,7 @@ interface ConnectDialogProps {
 
 export function ConnectDialog({ provider, open, onOpenChange }: ConnectDialogProps) {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
-  const { data: employeesData, isError: isEmployeesError } = useEmployees({ pageSize: 100 });
+  const { data: employeesData, isLoading: isEmployeesLoading, isError: isEmployeesError } = useEmployees({ pageSize: 100 });
   const connectMutation = useConnectProvider();
 
   const employees = employeesData?.items ?? [];
@@ -76,6 +76,11 @@ export function ConnectDialog({ provider, open, onOpenChange }: ConnectDialogPro
                 Failed to load employees. Please close and try again.
               </p>
             </div>
+          ) : isEmployeesLoading ? (
+            <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading employees...
+            </div>
           ) : (
             <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
               <SelectTrigger>
@@ -84,7 +89,7 @@ export function ConnectDialog({ provider, open, onOpenChange }: ConnectDialogPro
               <SelectContent>
                 {employees.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id}>
-                    {emp.name} ({emp.email})
+                    {emp.name}{emp.email ? ` (${emp.email})` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

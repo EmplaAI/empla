@@ -151,7 +151,7 @@ class TestPlatformOAuthAppService:
     async def test_create_app(self, platform_service, mock_session, mock_token_manager):
         mock_session.refresh = AsyncMock()
 
-        app = await platform_service.create_app(
+        await platform_service.create_app(
             provider="google_workspace",
             client_id="test_client",
             client_secret="test_secret",

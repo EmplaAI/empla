@@ -26,7 +26,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from empla.employees.config import LLMSettings
@@ -69,6 +69,13 @@ class EmplaSettings(BaseSettings):
 
     # -- Frontend (for OAuth callback redirects) --------------------------------
     frontend_base_url: str = "http://localhost:5173"
+
+    @field_validator("frontend_base_url")
+    @classmethod
+    def _validate_frontend_base_url(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("frontend_base_url must start with http:// or https://")
+        return v.rstrip("/")
 
     # -- Logging ---------------------------------------------------------------
     log_level: str = "INFO"

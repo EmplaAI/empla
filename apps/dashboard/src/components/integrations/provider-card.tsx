@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Cable, CheckCircle2 } from 'lucide-react';
 import type { ProviderInfo } from '@empla/react';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ interface ProviderCardProps {
 }
 
 export function ProviderCard({ provider, onConnect }: ProviderCardProps) {
+  const [imgError, setImgError] = useState(false);
   const hasConnections = provider.connectedEmployees > 0;
 
   return (
@@ -29,18 +31,16 @@ export function ProviderCard({ provider, onConnect }: ProviderCardProps) {
       <div className="flex items-start gap-4">
         {/* Icon */}
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-muted/50">
-          {PROVIDER_ICONS[provider.icon] ? (
+          {PROVIDER_ICONS[provider.icon] && !imgError ? (
             <img
               src={PROVIDER_ICONS[provider.icon]}
               alt={provider.displayName}
               className="h-6 w-6"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
-              }}
+              onError={() => setImgError(true)}
             />
-          ) : null}
-          <Cable className={cn('h-6 w-6 text-muted-foreground', PROVIDER_ICONS[provider.icon] && 'hidden fallback-icon')} />
+          ) : (
+            <Cable className="h-6 w-6 text-muted-foreground" />
+          )}
         </div>
 
         {/* Info */}

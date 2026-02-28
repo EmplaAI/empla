@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from empla.api.deps import CurrentUser, DBSession, RequireAdmin
 from empla.api.ratelimit import (
@@ -550,13 +551,21 @@ async def create_platform_app(
             detail=f"Platform OAuth app for '{data.provider}' already exists",
         )
 
-    app = await svc.create_app(
-        provider=data.provider,
-        client_id=data.client_id,
-        client_secret=data.client_secret.get_secret_value(),
-        redirect_uri=data.redirect_uri,
-        scopes=data.scopes,
-    )
+    try:
+        app = await svc.create_app(
+            provider=data.provider,
+            client_id=data.client_id,
+            client_secret=data.client_secret.get_secret_value(),
+            redirect_uri=data.redirect_uri,
+            scopes=data.scopes,
+        )
+    except IntegrityError:
+        # Race condition: another request created the app between our check and insert
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Platform OAuth app for '{data.provider}' already exists",
+        ) from None
 
     logger.info(
         "Created platform OAuth app",

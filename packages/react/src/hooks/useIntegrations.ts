@@ -23,6 +23,7 @@ export function useProviders() {
   return useQuery({
     queryKey: integrationKeys.providers(),
     queryFn: () => api.listProviders(),
+    staleTime: 5 * 60 * 1000, // Provider catalog rarely changes
   });
 }
 

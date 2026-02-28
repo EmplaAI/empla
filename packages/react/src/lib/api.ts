@@ -634,7 +634,7 @@ export function createApiClient(config: ApiClientConfig) {
 
   async function revokeCredential(integrationId: string, employeeId: string): Promise<void> {
     await request<void>(
-      `/v1/integrations/${integrationId}/employees/${employeeId}/credential`,
+      `/v1/integrations/${encodeURIComponent(integrationId)}/employees/${encodeURIComponent(employeeId)}/credential`,
       { method: 'DELETE' }
     );
   }

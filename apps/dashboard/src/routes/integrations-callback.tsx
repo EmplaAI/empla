@@ -15,7 +15,7 @@ export function IntegrationsCallbackPage() {
     if (success === 'true') {
       toast.success(
         provider
-          ? `Successfully connected ${provider.replace('_', ' ')}`
+          ? `Successfully connected ${provider.replace(/_/g, ' ')}`
           : 'Successfully connected'
       );
     } else if (error) {

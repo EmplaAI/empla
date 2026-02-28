@@ -135,7 +135,7 @@ class TestConnectFlow:
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
 
-        integration = await service.create_integration(
+        await service.create_integration(
             tenant_id=tenant_id,
             provider="google_workspace",
             auth_type="user_oauth",
@@ -242,6 +242,6 @@ class TestIntegrationWithPlatformCredentials:
             oauth_config={},
             status="active",
         )
-        # Server default is false, but in Python without DB it may be unset
-        # This test validates the attribute exists on the model
         assert hasattr(integration, "use_platform_credentials")
+        # server_default only applies at DB level; Python-side defaults to falsy
+        assert not integration.use_platform_credentials

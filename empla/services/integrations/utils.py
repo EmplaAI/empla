@@ -69,6 +69,11 @@ async def get_effective_oauth_config(
         the raw ``integration.oauth_config`` dict.
     """
     if not integration.use_platform_credentials:
+        if not integration.oauth_config or not isinstance(integration.oauth_config, dict):
+            raise ClientSecretNotConfiguredError(
+                integration.provider,
+                "integration.oauth_config is missing or malformed",
+            )
         return dict(integration.oauth_config)
 
     from empla.services.integrations.platform_service import PlatformOAuthAppService

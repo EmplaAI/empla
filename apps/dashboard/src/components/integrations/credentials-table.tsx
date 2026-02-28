@@ -125,7 +125,7 @@ export function CredentialsTable() {
               size="icon"
               className="h-8 w-8 text-muted-foreground hover:text-destructive"
               onClick={() => handleRevoke(cred)}
-              disabled={revokeMutation.isPending}
+              disabled={isRevoking}
             >
               {isRevoking ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

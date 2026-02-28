@@ -416,7 +416,7 @@ class IntegrationService:
         self,
         tenant_id: UUID,
         employee_id: UUID,
-        provider: IntegrationProvider,
+        provider: IntegrationProvider | str,
         auto_refresh: bool = True,
     ) -> tuple[Integration, IntegrationCredential, dict[str, Any]] | None:
         """
@@ -658,7 +658,7 @@ class IntegrationService:
     async def has_credential(
         self,
         employee_id: UUID,
-        provider: IntegrationProvider,
+        provider: IntegrationProvider | str,
     ) -> bool:
         """
         Check if employee has active credential for provider.
