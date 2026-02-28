@@ -444,11 +444,14 @@ class IntegrationService:
             ...     integration, credential, data = result
             ...     access_token = data["access_token"]
         """
+        # Normalize provider to string for DB query
+        provider_value = provider.value if isinstance(provider, IntegrationProvider) else provider
+
         # Query for integration and credential
         result = await self.session.execute(
             select(Integration, IntegrationCredential).where(
                 Integration.tenant_id == tenant_id,
-                Integration.provider == provider.value,
+                Integration.provider == provider_value,
                 Integration.status == "active",
                 Integration.deleted_at.is_(None),
                 IntegrationCredential.integration_id == Integration.id,
@@ -670,13 +673,15 @@ class IntegrationService:
         Returns:
             True if active credential exists
         """
+        provider_value = provider.value if isinstance(provider, IntegrationProvider) else provider
+
         result = await self.session.execute(
             select(IntegrationCredential.id).where(
                 IntegrationCredential.employee_id == employee_id,
                 IntegrationCredential.status == "active",
                 IntegrationCredential.deleted_at.is_(None),
                 Integration.id == IntegrationCredential.integration_id,
-                Integration.provider == provider.value,
+                Integration.provider == provider_value,
                 Integration.status == "active",
                 Integration.deleted_at.is_(None),
             )

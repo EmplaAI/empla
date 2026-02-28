@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -73,8 +74,22 @@ class EmplaSettings(BaseSettings):
     @field_validator("frontend_base_url")
     @classmethod
     def _validate_frontend_base_url(cls, v: str) -> str:
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("frontend_base_url must start with http:// or https://")
+        """Validate that frontend_base_url is a well-formed HTTP(S) URL.
+
+        Args:
+            v: Raw URL string from env/config.
+
+        Returns:
+            The URL with any trailing slash stripped.
+
+        Raises:
+            ValueError: If the scheme is not http/https or the host is missing.
+        """
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("frontend_base_url must use http:// or https:// scheme")
+        if not parsed.netloc:
+            raise ValueError("frontend_base_url must include a host (e.g. http://localhost:5173)")
         return v.rstrip("/")
 
     # -- Logging ---------------------------------------------------------------

@@ -379,9 +379,9 @@ async def test_openai_generate_with_tools_tool_calls():
 # ============================================================================
 
 
-@pytest.mark.asyncio
-async def test_vertex_generate_with_tools_text_response() -> None:
-    """Test Vertex AI provider returns text when no tool calls."""
+@pytest.fixture
+def vertex_provider():
+    """Create a VertexAIProvider instance with mocked __init__."""
     with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
         from empla.llm.vertex import VertexAIProvider
 
@@ -391,6 +391,13 @@ async def test_vertex_generate_with_tools_text_response() -> None:
         provider.kwargs = {}
         provider.project_id = "test-project"
         provider.location = "us-central1"
+    return provider
+
+
+@pytest.mark.asyncio
+async def test_vertex_generate_with_tools_text_response(vertex_provider) -> None:
+    """Test Vertex AI provider returns text when no tool calls."""
+    provider = vertex_provider
 
     # Mock Vertex AI response with text only
     mock_text_part = MagicMock()
@@ -431,17 +438,9 @@ async def test_vertex_generate_with_tools_text_response() -> None:
 
 
 @pytest.mark.asyncio
-async def test_vertex_generate_with_tools_function_call() -> None:
+async def test_vertex_generate_with_tools_function_call(vertex_provider) -> None:
     """Test Vertex AI provider parses function call responses."""
-    with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
-        from empla.llm.vertex import VertexAIProvider
-
-        provider = VertexAIProvider.__new__(VertexAIProvider)
-        provider.api_key = ""
-        provider.model_id = "gemini-2.0-flash"
-        provider.kwargs = {}
-        provider.project_id = "test-project"
-        provider.location = "us-central1"
+    provider = vertex_provider
 
     # Mock Vertex AI response with function call
     mock_fc = MagicMock()
@@ -488,17 +487,9 @@ async def test_vertex_generate_with_tools_function_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_vertex_tool_result_message_conversion() -> None:
+async def test_vertex_tool_result_message_conversion(vertex_provider) -> None:
     """Test Vertex AI provider converts tool result messages correctly."""
-    with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
-        from empla.llm.vertex import VertexAIProvider
-
-        provider = VertexAIProvider.__new__(VertexAIProvider)
-        provider.api_key = ""
-        provider.model_id = "gemini-2.0-flash"
-        provider.kwargs = {}
-        provider.project_id = "test-project"
-        provider.location = "us-central1"
+    provider = vertex_provider
 
     # Mock text-only response after tool result
     mock_text_part = MagicMock()
@@ -552,17 +543,9 @@ async def test_vertex_tool_result_message_conversion() -> None:
 
 
 @pytest.mark.asyncio
-async def test_vertex_tool_choice_required() -> None:
+async def test_vertex_tool_choice_required(vertex_provider) -> None:
     """Test Vertex AI maps tool_choice='required' to Mode.ANY."""
-    with patch("empla.llm.vertex.VertexAIProvider.__init__", return_value=None):
-        from empla.llm.vertex import VertexAIProvider
-
-        provider = VertexAIProvider.__new__(VertexAIProvider)
-        provider.api_key = ""
-        provider.model_id = "gemini-2.0-flash"
-        provider.kwargs = {}
-        provider.project_id = "test-project"
-        provider.location = "us-central1"
+    provider = vertex_provider
 
     mock_fc = MagicMock()
     mock_fc.name = "email.send"

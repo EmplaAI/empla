@@ -47,8 +47,16 @@ export function useConnectProvider() {
   return useMutation({
     mutationFn: (data: ConnectRequest) => api.connectProvider(data),
     onSuccess: (response) => {
-      // Redirect browser to OAuth consent screen
-      window.location.href = response.authorizationUrl;
+      const url = response.authorizationUrl;
+      if (!url) {
+        throw new Error('Server returned empty authorization URL');
+      }
+      try {
+        new URL(url);
+      } catch {
+        throw new Error(`Server returned malformed authorization URL: ${url}`);
+      }
+      window.location.href = url;
     },
   });
 }

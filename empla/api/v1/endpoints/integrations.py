@@ -345,7 +345,7 @@ async def connect_provider(
             redirect_after=data.redirect_after,
         )
     except ClientSecretNotConfiguredError as e:
-        logger.error(
+        logger.exception(
             "Connect failed: OAuth credentials not configured",
             extra={"provider": data.provider, "error": str(e)},
         )
@@ -493,7 +493,7 @@ async def oauth_callback(
         )
 
     except ClientSecretNotConfiguredError:
-        logger.error("OAuth callback failed: client secret not configured")
+        logger.exception("OAuth callback failed: client secret not configured")
         return RedirectResponse(
             url=f"{base}/integrations/callback?error=config_missing",
             status_code=302,
@@ -753,7 +753,7 @@ async def delete_integration(
             force=force,
         )
     except RevocationError as e:
-        logger.error(
+        logger.exception(
             f"Failed to revoke credentials for integration {integration_id}",
             extra={
                 "integration_id": str(integration_id),
@@ -853,7 +853,7 @@ async def get_authorization_url(
             use_pkce=data.use_pkce,
         )
     except ClientSecretNotConfiguredError as e:
-        logger.error(
+        logger.exception(
             "Authorization failed: OAuth credentials not configured",
             extra={"provider": integration.provider, "error": str(e)},
         )
