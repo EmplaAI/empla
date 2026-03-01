@@ -14,6 +14,10 @@ const pageTitles: Record<string, { title: string; description: string }> = {
     title: 'New Employee',
     description: 'Create a new digital employee',
   },
+  '/integrations': {
+    title: 'Integrations',
+    description: 'Connect tools and services to your employees',
+  },
   '/activity': {
     title: 'Activity',
     description: 'Recent activity across all employees',
