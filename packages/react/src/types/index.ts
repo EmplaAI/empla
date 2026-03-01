@@ -155,7 +155,7 @@ export interface LoginResponse {
 
 export type IntegrationProvider = 'google_workspace' | 'microsoft_graph';
 export type CredentialStatus = 'active' | 'expired' | 'revoked' | 'refreshing' | 'revocation_failed';
-export type CredentialType = 'oauth_tokens' | 'service_account_key';
+export type CredentialType = 'oauth_tokens' | 'service_account_key' | 'api_key' | 'bearer_token';
 export type CredentialSource = 'platform' | 'tenant';
 
 /**
@@ -208,4 +208,92 @@ export interface ConnectResponse {
   provider: IntegrationProvider;
   employeeId: string;
   integrationId: string;
+}
+
+// =========================================================================
+// MCP Server Types
+// =========================================================================
+
+export type MCPTransport = 'http' | 'stdio';
+export type MCPAuthType = 'none' | 'api_key' | 'bearer_token' | 'oauth';
+export type MCPServerStatus = 'active' | 'disabled' | 'revoked';
+
+/**
+ * Discovered tool from an MCP server.
+ */
+export interface MCPToolInfo {
+  name: string;
+  description: string;
+}
+
+/**
+ * MCP server from API.
+ */
+export interface MCPServer {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  transport: MCPTransport;
+  url: string | null;
+  command: string[] | null;
+  authType: MCPAuthType;
+  hasCredentials: boolean;
+  status: MCPServerStatus;
+  discoveredTools: MCPToolInfo[];
+  lastConnectedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * MCP server creation data.
+ */
+export interface MCPServerCreate {
+  name: string;
+  displayName: string;
+  description?: string;
+  transport: MCPTransport;
+  url?: string;
+  command?: string[];
+  env?: Record<string, string>;
+  authType?: MCPAuthType;
+  credentials?: Record<string, unknown>;
+}
+
+/**
+ * MCP server update data.
+ */
+export interface MCPServerUpdate {
+  displayName?: string;
+  description?: string;
+  url?: string;
+  command?: string[];
+  env?: Record<string, string>;
+  authType?: MCPAuthType;
+  credentials?: Record<string, unknown>;
+  status?: MCPServerStatus;
+}
+
+/**
+ * MCP server test result.
+ */
+export interface MCPServerTestResult {
+  success: boolean;
+  toolsDiscovered: number;
+  toolNames: string[];
+  error: string | null;
+}
+
+/**
+ * MCP server test request (unsaved).
+ */
+export interface MCPServerTestRequest {
+  transport: MCPTransport;
+  url?: string;
+  command?: string[];
+  env?: Record<string, string>;
+  authType?: MCPAuthType;
+  credentials?: Record<string, unknown>;
 }

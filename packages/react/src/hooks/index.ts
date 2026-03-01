@@ -27,3 +27,14 @@ export {
   useProviders,
   useRevokeCredential,
 } from './useIntegrations';
+
+export {
+  mcpServerKeys,
+  useCreateMCPServer,
+  useDeleteMCPServer,
+  useMCPServer,
+  useMCPServers,
+  useTestMCPServer,
+  useTestMCPServerConnection,
+  useUpdateMCPServer,
+} from './useMCPServers';

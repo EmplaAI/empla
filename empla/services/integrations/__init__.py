@@ -43,6 +43,7 @@ from empla.services.integrations.key_provider import (
     get_key_provider,
     set_key_provider,
 )
+from empla.services.integrations.mcp_service import MCPIntegrationService
 from empla.services.integrations.oauth_service import (
     InvalidStateError,
     OAuthError,
@@ -77,6 +78,7 @@ __all__ = [
     "KeyNotFoundError",
     "KeyProvider",
     "KeyProviderError",
+    "MCPIntegrationService",
     "NoKeysConfiguredError",
     "OAuthError",
     "OAuthService",

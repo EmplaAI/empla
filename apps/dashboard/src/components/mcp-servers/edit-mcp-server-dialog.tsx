@@ -1,0 +1,329 @@
+import { useEffect, useRef } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { useUpdateMCPServer, type MCPServer, type MCPAuthType } from '@empla/react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { buildCredentials, parseCommand, parseEnv } from './parse-utils';
+
+const editSchema = z.object({
+  displayName: z.string().min(1).max(200),
+  description: z.string().max(500).optional(),
+  url: z.string().max(2000).optional(),
+  command: z.string().optional(),
+  env: z.string().optional(),
+  authType: z.enum(['none', 'api_key', 'bearer_token', 'oauth'] as const),
+  apiKey: z.string().optional(),
+  bearerToken: z.string().optional(),
+  oauthClientId: z.string().optional(),
+  oauthClientSecret: z.string().optional(),
+  oauthTokenUrl: z.string().optional(),
+  oauthAuthorizationUrl: z.string().optional(),
+  oauthScopes: z.string().optional(),
+  status: z.enum(['active', 'disabled'] as const),
+});
+
+type EditFormData = z.infer<typeof editSchema>;
+
+interface EditMCPServerDialogProps {
+  server: MCPServer;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function EditMCPServerDialog({ server, open, onOpenChange }: EditMCPServerDialogProps) {
+  const updateServer = useUpdateMCPServer();
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm<EditFormData>({
+    resolver: zodResolver(editSchema),
+    defaultValues: {
+      displayName: server.displayName,
+      description: server.description,
+      url: server.url ?? '',
+      command: server.command?.join(' ') ?? '',
+      authType: server.authType as EditFormData['authType'],
+      status: (server.status === 'active' ? 'active' : 'disabled') as EditFormData['status'],
+    },
+  });
+
+  const prevOpenRef = useRef(false);
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      reset({
+        displayName: server.displayName,
+        description: server.description,
+        url: server.url ?? '',
+        command: server.command?.join(' ') ?? '',
+        authType: server.authType as EditFormData['authType'],
+        status: (server.status === 'active' ? 'active' : 'disabled') as EditFormData['status'],
+      });
+    }
+    prevOpenRef.current = open;
+  }, [open, server, reset]);
+
+  const authType = watch('authType');
+  const selectedStatus = watch('status');
+
+  const onSubmit = async (data: EditFormData) => {
+    try {
+      await updateServer.mutateAsync({
+        id: server.id,
+        data: {
+          displayName: data.displayName,
+          description: data.description,
+          url: server.transport === 'http' ? data.url : undefined,
+          command: server.transport === 'stdio' ? parseCommand(data.command) : undefined,
+          env: server.transport === 'stdio' ? parseEnv(data.env) : undefined,
+          authType: data.authType as MCPAuthType,
+          credentials: buildCredentials(data.authType, data),
+          status: data.status,
+        },
+      });
+
+      toast.success('Server updated', { description: `${data.displayName} has been updated` });
+      onOpenChange(false);
+    } catch (error) {
+      toast.error('Failed to update server', {
+        description: error instanceof Error ? error.message : 'Please try again',
+      });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[540px]">
+        <DialogHeader>
+          <DialogTitle className="font-display">Edit MCP Server</DialogTitle>
+          <DialogDescription>
+            Update configuration for <span className="font-mono">{server.name}</span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {/* Display Name */}
+          <div className="space-y-2">
+            <Label htmlFor="edit-display-name">Display Name</Label>
+            <Input
+              id="edit-display-name"
+              className="bg-background/50"
+              {...register('displayName')}
+            />
+            {errors.displayName && (
+              <p className="text-sm text-destructive">{errors.displayName.message}</p>
+            )}
+          </div>
+
+          {/* Description */}
+          <div className="space-y-2">
+            <Label htmlFor="edit-description">Description</Label>
+            <Input
+              id="edit-description"
+              className="bg-background/50"
+              {...register('description')}
+            />
+          </div>
+
+          {/* URL or Command based on transport */}
+          {server.transport === 'http' ? (
+            <div className="space-y-2">
+              <Label htmlFor="edit-url">URL</Label>
+              <Input id="edit-url" className="bg-background/50" {...register('url')} />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="edit-command">Command</Label>
+                <Input
+                  id="edit-command"
+                  className="bg-background/50 font-mono text-sm"
+                  {...register('command')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-env">Environment Variables</Label>
+                <Input
+                  id="edit-env"
+                  placeholder="KEY=value (one per line)"
+                  className="bg-background/50 font-mono text-sm"
+                  {...register('env')}
+                />
+              </div>
+            </>
+          )}
+
+          {/* Status */}
+          <div className="space-y-2">
+            <Label>Status</Label>
+            <Select
+              value={selectedStatus}
+              onValueChange={(v: 'active' | 'disabled') => setValue('status', v)}
+            >
+              <SelectTrigger className="bg-background/50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="disabled">Disabled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Auth Type */}
+          <div className="space-y-2">
+            <Label>Authentication</Label>
+            <Select
+              value={authType}
+              onValueChange={(v: MCPAuthType) => setValue('authType', v)}
+            >
+              <SelectTrigger className="bg-background/50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="api_key">API Key</SelectItem>
+                <SelectItem value="bearer_token">Bearer Token</SelectItem>
+                <SelectItem value="oauth">OAuth</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Credential fields */}
+          {authType === 'api_key' && (
+            <div className="space-y-2">
+              <Label htmlFor="edit-api-key">API Key</Label>
+              <Input
+                id="edit-api-key"
+                type="password"
+                placeholder={server.hasCredentials ? '(credentials saved)' : 'sk-...'}
+                className="bg-background/50 font-mono"
+                {...register('apiKey')}
+              />
+              {server.hasCredentials && (
+                <p className="text-xs text-muted-foreground">
+                  Leave blank to keep existing credentials
+                </p>
+              )}
+            </div>
+          )}
+
+          {authType === 'bearer_token' && (
+            <div className="space-y-2">
+              <Label htmlFor="edit-bearer-token">Bearer Token</Label>
+              <Input
+                id="edit-bearer-token"
+                type="password"
+                placeholder={server.hasCredentials ? '(credentials saved)' : 'Token...'}
+                className="bg-background/50 font-mono"
+                {...register('bearerToken')}
+              />
+              {server.hasCredentials && (
+                <p className="text-xs text-muted-foreground">
+                  Leave blank to keep existing credentials
+                </p>
+              )}
+            </div>
+          )}
+
+          {authType === 'oauth' && (
+            <div className="space-y-3 rounded-md border border-border/50 p-3">
+              {server.hasCredentials && (
+                <p className="text-xs text-muted-foreground">
+                  Leave fields blank to keep existing credentials
+                </p>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="edit-oauth-client-id">Client ID</Label>
+                <Input
+                  id="edit-oauth-client-id"
+                  placeholder={server.hasCredentials ? '(saved)' : ''}
+                  className="bg-background/50"
+                  {...register('oauthClientId')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-oauth-client-secret">Client Secret</Label>
+                <Input
+                  id="edit-oauth-client-secret"
+                  type="password"
+                  placeholder={server.hasCredentials ? '(saved)' : ''}
+                  className="bg-background/50"
+                  {...register('oauthClientSecret')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-oauth-token-url">Token URL</Label>
+                <Input
+                  id="edit-oauth-token-url"
+                  placeholder="https://provider.com/oauth/token"
+                  className="bg-background/50"
+                  {...register('oauthTokenUrl')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-oauth-auth-url">Authorization URL</Label>
+                <Input
+                  id="edit-oauth-auth-url"
+                  placeholder="https://provider.com/oauth/authorize"
+                  className="bg-background/50"
+                  {...register('oauthAuthorizationUrl')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-oauth-scopes">Scopes</Label>
+                <Input
+                  id="edit-oauth-scopes"
+                  placeholder="read, write"
+                  className="bg-background/50"
+                  {...register('oauthScopes')}
+                />
+                <p className="text-xs text-muted-foreground">Comma-separated</p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={updateServer.isPending}>
+              {updateServer.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

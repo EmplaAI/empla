@@ -2,12 +2,12 @@
 empla.models.integration - Integration & OAuth Models
 
 Models for managing third-party integrations and OAuth credentials:
-- Integration: Tenant-level provider configuration (Google, Microsoft)
-- IntegrationCredential: Employee-level encrypted tokens
+- Integration: Tenant-level provider configuration (Google, Microsoft, MCP servers)
+- IntegrationCredential: Employee-level or tenant-level encrypted tokens
 - IntegrationOAuthState: Temporary OAuth state for CSRF protection
 
-These models support both User OAuth (consent flow) and Service Account
-authentication, with application-level encryption for sensitive data.
+These models support User OAuth (consent flow), Service Account, and
+MCP server authentication, with application-level encryption for sensitive data.
 """
 
 from datetime import datetime
@@ -44,11 +44,22 @@ class IntegrationProvider(str, Enum):
     MICROSOFT_GRAPH = "microsoft_graph"
 
 
+class IntegrationType(str, Enum):
+    """Type of integration."""
+
+    OAUTH_PROVIDER = "oauth_provider"  # Traditional OAuth provider (Google, Microsoft)
+    MCP_SERVER = "mcp_server"  # External MCP server
+
+
 class IntegrationAuthType(str, Enum):
     """Authentication type for integrations."""
 
     USER_OAUTH = "user_oauth"  # User consent flow (OAuth 2.0)
     SERVICE_ACCOUNT = "service_account"  # Service account (Google) / App-only (Microsoft)
+    API_KEY = "api_key"  # API key header auth (MCP servers)
+    BEARER_TOKEN = "bearer_token"  # Bearer token auth (MCP servers)
+    OAUTH = "oauth"  # OAuth client credentials (MCP servers)
+    NONE = "none"  # No authentication (MCP servers)
 
 
 class IntegrationStatus(str, Enum):
@@ -85,6 +96,8 @@ class CredentialType(str, Enum):
 
     OAUTH_TOKENS = "oauth_tokens"
     SERVICE_ACCOUNT_KEY = "service_account_key"
+    API_KEY = "api_key"
+    BEARER_TOKEN = "bearer_token"
 
 
 class Integration(TenantScopedModel):
@@ -112,17 +125,25 @@ class Integration(TenantScopedModel):
 
     __tablename__ = "integrations"
 
+    # Type discriminator
+    integration_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        server_default=text("'oauth_provider'"),
+        comment="Integration type (oauth_provider, mcp_server)",
+    )
+
     # Identity
     provider: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        comment="Provider (google_workspace, microsoft_graph)",
+        comment="Provider key (google_workspace, microsoft_graph, or arbitrary MCP server name)",
     )
 
     auth_type: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        comment="Auth type (user_oauth, service_account)",
+        comment="Auth type (user_oauth, service_account, api_key, bearer_token, oauth, none)",
     )
 
     display_name: Mapped[str] = mapped_column(
@@ -136,7 +157,7 @@ class Integration(TenantScopedModel):
         JSONB,
         nullable=False,
         server_default=text("'{}'::jsonb"),
-        comment="OAuth config (client_id, redirect_uri, scopes) - NO secrets",
+        comment="Configuration JSONB (OAuth: client_id/scopes; MCP: transport/url/tools) - NO secrets",
     )
 
     # Platform credential delegation
@@ -179,11 +200,11 @@ class Integration(TenantScopedModel):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "provider IN ('google_workspace', 'microsoft_graph')",
-            name="ck_integrations_provider",
+            "integration_type IN ('oauth_provider', 'mcp_server')",
+            name="ck_integrations_integration_type",
         ),
         CheckConstraint(
-            "auth_type IN ('user_oauth', 'service_account')",
+            "auth_type IN ('user_oauth', 'service_account', 'api_key', 'bearer_token', 'oauth', 'none')",
             name="ck_integrations_auth_type",
         ),
         CheckConstraint(
@@ -195,6 +216,19 @@ class Integration(TenantScopedModel):
             "tenant_id",
             "provider",
             unique=True,
+            postgresql_where=text("deleted_at IS NULL AND integration_type = 'oauth_provider'"),
+        ),
+        Index(
+            "idx_integrations_tenant_mcp_provider",
+            "tenant_id",
+            "provider",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL AND integration_type = 'mcp_server'"),
+        ),
+        Index(
+            "idx_integrations_tenant_type",
+            "tenant_id",
+            "integration_type",
             postgresql_where=text("deleted_at IS NULL"),
         ),
         Index(
@@ -211,15 +245,20 @@ class Integration(TenantScopedModel):
     )
 
     def __repr__(self) -> str:
-        return f"<Integration(id={self.id}, provider={self.provider}, auth_type={self.auth_type})>"
+        return (
+            f"<Integration(id={self.id}, type={self.integration_type}, provider={self.provider})>"
+        )
 
 
 class IntegrationCredential(TenantScopedModel):
     """
-    Employee-level encrypted credentials for integrations.
+    Encrypted credentials for integrations (employee-level or tenant-level).
 
-    Stores encrypted OAuth tokens (access_token, refresh_token) or service
-    account keys. All sensitive data is encrypted at rest using Fernet (AES-128-CBC).
+    Stores encrypted OAuth tokens, service account keys, API keys, or bearer
+    tokens. All sensitive data is encrypted at rest using Fernet (AES-128-CBC).
+
+    When ``employee_id`` is NULL, this is a tenant-level credential shared
+    across all employees (e.g., MCP server API keys).
 
     The encryption_key_id tracks which key was used, enabling key rotation
     without re-encrypting all credentials at once.
@@ -228,7 +267,7 @@ class IntegrationCredential(TenantScopedModel):
         >>> credential = IntegrationCredential(
         ...     tenant_id=tenant.id,
         ...     integration_id=integration.id,
-        ...     employee_id=employee.id,
+        ...     employee_id=employee.id,  # or None for tenant-level
         ...     credential_type="oauth_tokens",
         ...     encrypted_data=encrypt({"access_token": "...", "refresh_token": "..."}),
         ...     encryption_key_id="key_v1",
@@ -247,18 +286,18 @@ class IntegrationCredential(TenantScopedModel):
         comment="Integration this credential belongs to",
     )
 
-    employee_id: Mapped[UUID] = mapped_column(
+    employee_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("employees.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
-        comment="Employee this credential belongs to",
+        comment="Employee this credential belongs to (NULL = tenant-level, e.g. MCP server creds)",
     )
 
     # Credential type and encrypted data
     credential_type: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        comment="Type (oauth_tokens, service_account_key)",
+        comment="Type (oauth_tokens, service_account_key, api_key, bearer_token)",
     )
 
     encrypted_data: Mapped[bytes] = mapped_column(
@@ -319,7 +358,7 @@ class IntegrationCredential(TenantScopedModel):
         "Integration",
         back_populates="credentials",
     )
-    employee: Mapped["Employee"] = relationship(
+    employee: Mapped["Employee | None"] = relationship(
         "Employee",
         backref="integration_credentials",
     )
@@ -327,7 +366,7 @@ class IntegrationCredential(TenantScopedModel):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "credential_type IN ('oauth_tokens', 'service_account_key')",
+            "credential_type IN ('oauth_tokens', 'service_account_key', 'api_key', 'bearer_token')",
             name="ck_credentials_credential_type",
         ),
         CheckConstraint(
@@ -339,7 +378,13 @@ class IntegrationCredential(TenantScopedModel):
             "employee_id",
             "integration_id",
             unique=True,
-            postgresql_where=text("deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL AND employee_id IS NOT NULL"),
+        ),
+        Index(
+            "idx_credentials_tenant_integration",
+            "integration_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL AND employee_id IS NULL"),
         ),
         Index(
             "idx_credentials_expires",

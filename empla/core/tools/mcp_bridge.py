@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .base import Tool
 from .registry import ToolRegistry
@@ -52,6 +52,19 @@ class MCPServerConfig(BaseModel):
         default_factory=dict,
         description="Environment variables for stdio subprocess",
     )
+    headers: dict[str, str] = Field(
+        default_factory=dict,
+        description="HTTP headers for authentication (e.g., API key, bearer token)",
+    )
+
+    @model_validator(mode="after")
+    def validate_transport_config(self) -> MCPServerConfig:
+        """Ensure url is set for HTTP transport and command for stdio."""
+        if self.transport == "http" and not self.url:
+            raise ValueError("HTTP transport requires 'url'")
+        if self.transport == "stdio" and not self.command:
+            raise ValueError("stdio transport requires 'command'")
+        return self
 
 
 class _MCPToolImplementation:
@@ -130,9 +143,7 @@ class MCPBridge:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
-        if not config.command:
-            raise ValueError("stdio transport requires 'command' in config")
-
+        assert config.command  # Guaranteed by model_validator
         server_params = StdioServerParameters(
             command=config.command[0],
             args=config.command[1:] if len(config.command) > 1 else [],
@@ -198,11 +209,18 @@ class MCPBridge:
                 "HTTP MCP transport requires the 'mcp' package with HTTP support."
             ) from e
 
-        if not config.url:
-            raise ValueError("http transport requires 'url' in config")
+        assert config.url  # Guaranteed by model_validator
+        # Build HTTP client with auth headers if provided
+        transport_kwargs: dict[str, Any] = {}
+        http_client = None
+        if config.headers:
+            import httpx
+
+            http_client = httpx.AsyncClient(headers=config.headers)
+            transport_kwargs["http_client"] = http_client
 
         # Store CMs for cleanup in disconnect()
-        transport_cm = streamablehttp_client(config.url)
+        transport_cm = streamablehttp_client(config.url, **transport_kwargs)
         read_stream, write_stream, _ = await transport_cm.__aenter__()
         session_cm: ClientSession | None = None
         try:
@@ -227,12 +245,21 @@ class MCPBridge:
                     f"Error closing MCP transport during failed connect to {config.name}",
                     exc_info=True,
                 )
+            if http_client is not None:
+                try:
+                    await http_client.aclose()
+                except Exception:
+                    logger.warning(
+                        f"Error closing HTTP client during failed connect to {config.name}",
+                        exc_info=True,
+                    )
             raise
 
         self._connections[config.name] = {
             "session": session,
             "session_cm": session_cm,
             "transport_cm": transport_cm,
+            "http_client": http_client,
             "tool_names": tool_names,
             "config": config,
         }
@@ -334,6 +361,17 @@ class MCPBridge:
             except Exception:
                 logger.warning(
                     f"Error closing MCP transport for {server_name}",
+                    exc_info=True,
+                )
+
+        # Close HTTP client if one was created for auth headers
+        http_client = conn.get("http_client")
+        if http_client is not None:
+            try:
+                await http_client.aclose()
+            except Exception:
+                logger.warning(
+                    f"Error closing HTTP client for {server_name}",
                     exc_info=True,
                 )
 

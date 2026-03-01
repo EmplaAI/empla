@@ -39,6 +39,7 @@ from empla.core.memory import (
     WorkingMemory,
 )
 from empla.core.tools import ToolRegistry
+from empla.core.tools.mcp_bridge import MCPBridge, MCPServerConfig
 from empla.core.tools.router import ToolRouter
 from empla.employees.config import EmployeeConfig, GoalConfig
 from empla.employees.exceptions import (
@@ -152,6 +153,7 @@ class DigitalEmployee(ABC):
         self._capabilities: CapabilityRegistry | None = None
         self._tool_registry: ToolRegistry | None = None
         self._tool_router: ToolRouter | None = None
+        self._mcp_bridge: MCPBridge | None = None
         self._loop: ProactiveExecutionLoop | None = None
         self._db_employee: EmployeeModel | None = None
 
@@ -308,6 +310,7 @@ class DigitalEmployee(ABC):
         self,
         run_loop: bool = True,
         status_checker: Callable[[EmployeeModel], Awaitable[None]] | None = None,
+        mcp_configs: list[MCPServerConfig] | None = None,
     ) -> None:
         """
         Start the digital employee.
@@ -322,6 +325,8 @@ class DigitalEmployee(ABC):
             status_checker: Optional async callback that refreshes
                 employee.status from the database each cycle. Used by
                 the runner process for pause-via-DB.
+            mcp_configs: Optional list of MCP server configurations to
+                connect at startup. Failures are logged but don't block startup.
 
         Raises:
             EmployeeStartupError: If initialization fails
@@ -366,6 +371,10 @@ class DigitalEmployee(ABC):
 
             # Initialize capabilities
             await self._init_capabilities()
+
+            # Connect to MCP servers (after capabilities, before goals)
+            if mcp_configs:
+                await self._init_mcp_servers(mcp_configs)
 
             # Create default goals
             await self._create_default_goals()
@@ -465,6 +474,15 @@ class DigitalEmployee(ABC):
         except Exception as e:
             logger.error(f"employee_stop hook emission failed for {self.name}: {e}", exc_info=True)
             shutdown_errors.append(("hook_employee_stop", e))
+
+        # Disconnect MCP servers
+        if self._mcp_bridge:
+            try:
+                await self._mcp_bridge.disconnect_all()
+            except Exception as e:
+                logger.error(f"Error disconnecting MCP servers: {e}", exc_info=True)
+                shutdown_errors.append(("mcp_bridge", e))
+            self._mcp_bridge = None
 
         # Shutdown capabilities for this employee only (continue even if some fail)
         if self._capabilities and self._employee_id:
@@ -580,6 +598,14 @@ class DigitalEmployee(ABC):
                 await self._loop.stop()
             except Exception as e:
                 logger.warning(f"Error stopping loop during cleanup: {e}")
+
+        # Disconnect MCP servers to avoid leaked subprocesses
+        if self._mcp_bridge:
+            try:
+                await self._mcp_bridge.disconnect_all()
+            except Exception as e:
+                logger.warning(f"Error disconnecting MCP servers during cleanup: {e}")
+            self._mcp_bridge = None
 
         # Close database session and dispose engine
         if self._session:
@@ -761,6 +787,39 @@ class DigitalEmployee(ABC):
 
         logger.debug(f"Initialized capabilities: {cap_list}")
 
+    async def _init_mcp_servers(self, configs: list[MCPServerConfig]) -> None:
+        """Connect to external MCP servers and register their tools.
+
+        Failures are logged as warnings but do not block startup.
+        """
+        if not configs:
+            return
+
+        # ToolRegistry must exist (created in _init_loop, but we need it earlier)
+        if self._tool_registry is None:
+            self._tool_registry = ToolRegistry()
+
+        self._mcp_bridge = MCPBridge(self._tool_registry)
+
+        failed: list[str] = []
+        for config in configs:
+            try:
+                tool_names = await self._mcp_bridge.connect(config)
+                logger.info(
+                    f"Connected MCP server '{config.name}' with {len(tool_names)} tools",
+                    extra={"server": config.name, "tools": tool_names},
+                )
+            except Exception as e:
+                failed.append(config.name)
+                logger.error(
+                    f"Failed to connect MCP server '{config.name}': {e}",
+                    extra={"server": config.name},
+                    exc_info=True,
+                )
+
+        if failed:
+            logger.warning(f"{len(failed)} MCP server(s) failed to connect: {', '.join(failed)}")
+
     async def _create_default_goals(self) -> None:
         """Create default goals for the role."""
         assert self._goals is not None, "_init_bdi() must be called before _create_default_goals()"
@@ -791,7 +850,9 @@ class DigitalEmployee(ABC):
         assert self._capabilities is not None, "CapabilityRegistry not initialized"
 
         # Create ToolRouter to unify capabilities + standalone tools
-        self._tool_registry = ToolRegistry()
+        # Reuse existing registry if MCP servers already initialized it
+        if self._tool_registry is None:
+            self._tool_registry = ToolRegistry()
         self._tool_router = ToolRouter(self._capabilities, self._tool_registry)
 
         loop_config = LoopConfig(

@@ -19,6 +19,11 @@ import type {
   IntegrationCredential,
   IntegrationProvider,
   LoginResponse,
+  MCPServer,
+  MCPServerCreate,
+  MCPServerTestRequest,
+  MCPServerTestResult,
+  MCPServerUpdate,
   PaginatedResponse,
   ProviderInfo,
 } from '../types';
@@ -641,6 +646,144 @@ export function createApiClient(config: ApiClientConfig) {
     );
   }
 
+  // =========================================================================
+  // MCP Server Endpoints
+  // =========================================================================
+
+  interface MCPServerApiResponse {
+    id: string;
+    name: string;
+    display_name: string;
+    description: string;
+    transport: string;
+    url: string | null;
+    command: string[] | null;
+    auth_type: string;
+    has_credentials: boolean;
+    status: string;
+    discovered_tools: Array<{ name: string; description: string }>;
+    last_connected_at: string | null;
+    last_error: string | null;
+    created_at: string;
+    updated_at: string;
+  }
+
+  function transformMCPServer(data: MCPServerApiResponse): MCPServer {
+    return {
+      id: data.id,
+      name: data.name,
+      displayName: data.display_name,
+      description: data.description,
+      transport: data.transport as MCPServer['transport'],
+      url: data.url,
+      command: data.command,
+      authType: data.auth_type as MCPServer['authType'],
+      hasCredentials: data.has_credentials,
+      status: data.status as MCPServer['status'],
+      discoveredTools: data.discovered_tools,
+      lastConnectedAt: data.last_connected_at,
+      lastError: data.last_error,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  }
+
+  async function listMCPServers(): Promise<{ items: MCPServer[]; total: number }> {
+    const response = await request<{
+      items: MCPServerApiResponse[];
+      total: number;
+    }>('/v1/mcp-servers');
+
+    return {
+      items: response.items.map(transformMCPServer),
+      total: response.total,
+    };
+  }
+
+  async function getMCPServer(id: string): Promise<MCPServer> {
+    const response = await request<MCPServerApiResponse>(`/v1/mcp-servers/${id}`);
+    return transformMCPServer(response);
+  }
+
+  async function createMCPServer(data: MCPServerCreate): Promise<MCPServer> {
+    const response = await request<MCPServerApiResponse>('/v1/mcp-servers', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: data.name,
+        display_name: data.displayName,
+        description: data.description ?? '',
+        transport: data.transport,
+        url: data.url,
+        command: data.command,
+        env: data.env,
+        auth_type: data.authType ?? 'none',
+        credentials: data.credentials,
+      }),
+    });
+    return transformMCPServer(response);
+  }
+
+  async function updateMCPServer(id: string, data: MCPServerUpdate): Promise<MCPServer> {
+    const snakeCaseData: Record<string, unknown> = {};
+    if (data.displayName !== undefined) snakeCaseData.display_name = data.displayName;
+    if (data.description !== undefined) snakeCaseData.description = data.description;
+    if (data.url !== undefined) snakeCaseData.url = data.url;
+    if (data.command !== undefined) snakeCaseData.command = data.command;
+    if (data.env !== undefined) snakeCaseData.env = data.env;
+    if (data.authType !== undefined) snakeCaseData.auth_type = data.authType;
+    if (data.credentials !== undefined) snakeCaseData.credentials = data.credentials;
+    if (data.status !== undefined) snakeCaseData.status = data.status;
+
+    const response = await request<MCPServerApiResponse>(`/v1/mcp-servers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(snakeCaseData),
+    });
+    return transformMCPServer(response);
+  }
+
+  async function deleteMCPServer(id: string): Promise<void> {
+    await request<void>(`/v1/mcp-servers/${id}`, { method: 'DELETE' });
+  }
+
+  type MCPTestApiResponse = {
+    success: boolean;
+    tools_discovered: number;
+    tool_names: string[];
+    error: string | null;
+  };
+
+  function transformTestResult(response: MCPTestApiResponse): MCPServerTestResult {
+    return {
+      success: response.success,
+      toolsDiscovered: response.tools_discovered,
+      toolNames: response.tool_names,
+      error: response.error,
+    };
+  }
+
+  async function testMCPServer(data: MCPServerTestRequest): Promise<MCPServerTestResult> {
+    const response = await request<MCPTestApiResponse>('/v1/mcp-servers/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        transport: data.transport,
+        url: data.url,
+        command: data.command,
+        env: data.env,
+        auth_type: data.authType ?? 'none',
+        credentials: data.credentials,
+      }),
+    });
+    return transformTestResult(response);
+  }
+
+  async function testMCPServerConnection(id: string): Promise<MCPServerTestResult> {
+    const response = await request<MCPTestApiResponse>(
+      `/v1/mcp-servers/${id}/test-connection`,
+      { method: 'POST' },
+    );
+    return transformTestResult(response);
+  }
+
   return {
     setAuthToken,
     login,
@@ -661,6 +804,13 @@ export function createApiClient(config: ApiClientConfig) {
     connectProvider,
     listCredentials,
     revokeCredential,
+    listMCPServers,
+    getMCPServer,
+    createMCPServer,
+    updateMCPServer,
+    deleteMCPServer,
+    testMCPServer,
+    testMCPServerConnection,
   };
 }
 
