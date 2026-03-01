@@ -6,23 +6,27 @@ import { ActivityItem } from '@/components/activity/activity-item';
 import { ActivityFilters } from '@/components/activity/activity-filters';
 import { Pagination } from '@/components/employees/pagination';
 
+const HOURS_FOR_RANGE: Record<string, number> = {
+  '24h': 24,
+  '7d': 168,
+  '30d': 720,
+};
+
 function timeRangeToSince(range: string): string | undefined {
-  if (range === 'all') return undefined;
+  const hours = HOURS_FOR_RANGE[range];
+  if (!hours) return undefined;
   const now = new Date();
-  const hours = range === '24h' ? 24 : range === '7d' ? 168 : 720;
   return new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
 }
 
 function timeRangeToHours(range: string): number | undefined {
-  if (range === 'all') return undefined;
-  return range === '24h' ? 24 : range === '7d' ? 168 : 720;
+  return HOURS_FOR_RANGE[range];
 }
 
 function importanceToMin(importance: string): number | undefined {
-  if (importance === 'all') return undefined;
   if (importance === 'high') return 0.8;
   if (importance === 'medium') return 0.5;
-  return undefined; // low = no filter (show all)
+  return undefined;
 }
 
 export function ActivityPage() {

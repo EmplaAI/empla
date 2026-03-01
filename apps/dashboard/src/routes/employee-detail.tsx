@@ -200,7 +200,7 @@ export function EmployeeDetailPage() {
 
                 {/* Actions */}
                 <div className="flex gap-2">
-                  <Button variant="outline" size="icon" onClick={() => setEditOpen(true)}>
+                  <Button variant="outline" size="icon" aria-label={`Edit ${employee.name}`} onClick={() => setEditOpen(true)}>
                     <Edit className="h-4 w-4" />
                   </Button>
 

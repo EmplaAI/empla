@@ -32,7 +32,6 @@ const importanceLevels = [
   { value: 'all', label: 'All Importance' },
   { value: 'high', label: 'High' },
   { value: 'medium', label: 'Medium' },
-  { value: 'low', label: 'Low' },
 ];
 
 const timeRanges = [
@@ -53,7 +52,7 @@ export function ActivityFilters({
   return (
     <div className="flex flex-wrap gap-3">
       <Select value={eventType} onValueChange={onEventTypeChange}>
-        <SelectTrigger className="w-[160px] bg-card/80">
+        <SelectTrigger className="w-[160px] bg-card/80" aria-label="Event type">
           <SelectValue placeholder="Event type" />
         </SelectTrigger>
         <SelectContent>
@@ -66,7 +65,7 @@ export function ActivityFilters({
       </Select>
 
       <Select value={importance} onValueChange={onImportanceChange}>
-        <SelectTrigger className="w-[170px] bg-card/80">
+        <SelectTrigger className="w-[170px] bg-card/80" aria-label="Importance">
           <SelectValue placeholder="Importance" />
         </SelectTrigger>
         <SelectContent>
@@ -79,7 +78,7 @@ export function ActivityFilters({
       </Select>
 
       <Select value={timeRange} onValueChange={onTimeRangeChange}>
-        <SelectTrigger className="w-[170px] bg-card/80">
+        <SelectTrigger className="w-[170px] bg-card/80" aria-label="Time range">
           <SelectValue placeholder="Time range" />
         </SelectTrigger>
         <SelectContent>

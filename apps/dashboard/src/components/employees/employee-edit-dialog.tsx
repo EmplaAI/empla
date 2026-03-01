@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -65,8 +65,9 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
     },
   });
 
+  const prevOpenRef = useRef(false);
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpenRef.current) {
       reset({
         name: employee.name,
         email: employee.email,
@@ -74,6 +75,7 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
         capabilities: employee.capabilities.join(', '),
       });
     }
+    prevOpenRef.current = open;
   }, [open, employee, reset]);
 
   const selectedStage = watch('lifecycleStage');
@@ -146,12 +148,12 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
 
           {/* Lifecycle Stage */}
           <div className="space-y-2">
-            <Label>Lifecycle Stage</Label>
+            <Label htmlFor="lifecycleStage-select">Lifecycle Stage</Label>
             <Select
               value={selectedStage}
               onValueChange={(v: LifecycleStage) => setValue('lifecycleStage', v)}
             >
-              <SelectTrigger className="bg-background/50">
+              <SelectTrigger id="lifecycleStage-select" className="bg-background/50">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
