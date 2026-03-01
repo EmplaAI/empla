@@ -60,6 +60,8 @@ def build_auth_headers(auth_type: str, cred_data: dict[str, Any]) -> dict[str, s
         if not token:
             raise ValueError("bearer_token auth configured but credential data has no 'token' key")
         headers["Authorization"] = f"Bearer {token}"
+    else:
+        raise ValueError(f"Unsupported auth_type for header generation: '{auth_type}'")
     return headers
 
 
@@ -211,10 +213,17 @@ class MCPIntegrationService:
 
         # Update auth_type and credentials if changed
         if auth_type is not None:
+            old_auth = server.auth_type
             server.auth_type = auth_type
-            # Switching to "none" should remove existing credentials
+
             if auth_type == "none" and credentials is None:
+                # Switching to "none" — remove existing credentials
                 await self._upsert_credential(server, "none", {})
+            elif auth_type not in ("none", old_auth) and credentials is None:
+                # Changing to a different credential-bearing type without new credentials
+                raise ValueError(
+                    f"Credentials are required when changing auth_type from '{old_auth}' to '{auth_type}'"
+                )
 
         if credentials is not None:
             effective_auth = auth_type or server.auth_type

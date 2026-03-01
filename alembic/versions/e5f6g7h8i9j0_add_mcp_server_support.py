@@ -135,24 +135,38 @@ def downgrade() -> None:
         )
 
     null_employee_creds = conn.execute(
-        sa.text("SELECT COUNT(*) FROM integration_credentials WHERE employee_id IS NULL AND deleted_at IS NULL")
+        sa.text("SELECT COUNT(*) FROM integration_credentials WHERE employee_id IS NULL")
     ).scalar()
     if null_employee_creds:
         raise RuntimeError(
-            f"Cannot downgrade: {null_employee_creds} tenant-level credential(s) with NULL employee_id exist. "
-            "Remove these credentials before downgrading."
+            f"Cannot downgrade: {null_employee_creds} credential(s) with NULL employee_id exist "
+            "(including soft-deleted). Remove or hard-delete these rows before downgrading."
         )
 
     mcp_cred_types = conn.execute(
         sa.text(
             "SELECT COUNT(*) FROM integration_credentials "
-            "WHERE credential_type NOT IN ('oauth_tokens', 'service_account_key') AND deleted_at IS NULL"
+            "WHERE credential_type NOT IN ('oauth_tokens', 'service_account_key')"
         )
     ).scalar()
     if mcp_cred_types:
         raise RuntimeError(
-            f"Cannot downgrade: {mcp_cred_types} credential(s) with MCP-era credential_type values exist. "
-            "Remove these credentials before downgrading."
+            f"Cannot downgrade: {mcp_cred_types} credential(s) with MCP-era credential_type values exist "
+            "(including soft-deleted). Remove or hard-delete these rows before downgrading."
+        )
+
+    non_legacy_providers = conn.execute(
+        sa.text(
+            "SELECT COUNT(*) FROM integrations "
+            "WHERE integration_type = 'oauth_provider' "
+            "AND (provider NOT IN ('google_workspace', 'microsoft_graph') "
+            "     OR auth_type NOT IN ('user_oauth', 'service_account'))"
+        )
+    ).scalar()
+    if non_legacy_providers:
+        raise RuntimeError(
+            f"Cannot downgrade: {non_legacy_providers} oauth_provider integration(s) have non-legacy "
+            "provider or auth_type values. Correct these rows before downgrading."
         )
 
     # --- integration_credentials table ---

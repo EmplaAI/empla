@@ -160,7 +160,10 @@ export function MCPServerCard({ server, onEdit, onViewTools }: MCPServerCardProp
               ) : (
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
-                  onClick={() => setConfirmDelete(true)}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setConfirmDelete(true);
+                  }}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
                   Remove

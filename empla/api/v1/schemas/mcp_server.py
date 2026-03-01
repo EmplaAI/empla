@@ -32,15 +32,17 @@ def _validate_url_safety(url: str) -> str:
     hostname = parsed.hostname
     if not hostname:
         raise ValueError("URL must have a valid hostname")
+    # Normalize: lowercase and strip trailing dot to prevent bypass (e.g. "localhost.")
+    hostname_norm = hostname.lower().rstrip(".")
     try:
-        ip = ipaddress.ip_address(hostname)
+        ip = ipaddress.ip_address(hostname_norm)
         if ip.is_private or ip.is_loopback or ip.is_link_local:
             raise ValueError("Cannot connect to private/internal network addresses")
     except ValueError as e:
         if "Cannot connect" in str(e):
             raise
         # hostname is a DNS name, not an IP literal
-        if hostname.lower() in _BLOCKED_HOSTNAMES:
+        if hostname_norm in _BLOCKED_HOSTNAMES:
             raise ValueError("Cannot connect to reserved hostnames") from e
     return url
 
@@ -222,6 +224,15 @@ class MCPServerTestRequest(BaseModel):
     @classmethod
     def validate_command_for_stdio(cls, v: list[str] | None, info: Any) -> list[str] | None:
         return _validate_command_for_transport(v, info.data.get("transport"))
+
+    @model_validator(mode="after")
+    def validate_auth_credentials(self) -> Self:
+        """Ensure credentials match auth_type."""
+        if self.auth_type != "none" and not self.credentials:
+            raise ValueError(f"Credentials are required when auth_type is '{self.auth_type}'")
+        if self.auth_type == "none" and self.credentials:
+            raise ValueError("Credentials should not be provided when auth_type is 'none'")
+        return self
 
 
 class MCPServerTestResponse(BaseModel):

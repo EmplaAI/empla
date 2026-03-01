@@ -7,6 +7,7 @@ provide tools to all employees in the tenant.
 """
 
 import logging
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -163,17 +164,23 @@ async def update_mcp_server(
     if not server:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
 
-    server = await service.update_mcp_server(
-        server,
-        display_name=body.display_name,
-        description=body.description,
-        url=body.url,
-        command=body.command,
-        env=body.env,
-        auth_type=body.auth_type,
-        credentials=body.credentials,
-        status=body.status,
-    )
+    try:
+        server = await service.update_mcp_server(
+            server,
+            display_name=body.display_name,
+            description=body.description,
+            url=body.url,
+            command=body.command,
+            env=body.env,
+            auth_type=body.auth_type,
+            credentials=body.credentials,
+            status=body.status,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
     has_creds = await service.has_credential(server)
     logger.info(
@@ -265,6 +272,12 @@ async def _test_connection(
     from empla.core.tools.registry import ToolRegistry
     from empla.services.integrations.mcp_service import build_auth_headers
 
+    # Sanitize URL for logging (strip userinfo, query, fragment)
+    safe_url: str | None = None
+    if url:
+        parsed = urlparse(url)
+        safe_url = f"{parsed.scheme}://{parsed.hostname}{':' + str(parsed.port) if parsed.port else ''}{parsed.path}"
+
     # Build headers from credentials
     headers: dict[str, str] = {}
     if auth_type == "oauth":
@@ -300,7 +313,7 @@ async def _test_connection(
     except (ConnectionError, TimeoutError, OSError) as e:
         logger.warning(
             "MCP server test connection failed",
-            extra={"transport": transport, "url": url, "error": str(e)},
+            extra={"transport": transport, "url": safe_url, "error": str(e)},
         )
         return MCPServerTestResponse(success=False, error=str(e))
     except ImportError as e:
@@ -312,7 +325,7 @@ async def _test_connection(
     except Exception as e:
         logger.error(
             "Unexpected error during MCP server test",
-            extra={"transport": transport, "url": url},
+            extra={"transport": transport, "url": safe_url},
             exc_info=True,
         )
         return MCPServerTestResponse(success=False, error=f"Unexpected error: {type(e).__name__}")

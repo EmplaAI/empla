@@ -611,6 +611,10 @@ class DigitalEmployee(ABC):
                 logger.warning(f"Error disconnecting MCP servers during cleanup: {e}")
             self._mcp_bridge = None
 
+        # Clear tool state so future start() gets fresh instances
+        self._tool_registry = None
+        self._tool_router = None
+
         # Close database session and dispose engine
         if self._session:
             try:
