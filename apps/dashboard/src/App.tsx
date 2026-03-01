@@ -10,6 +10,7 @@ import { EmployeeDetailPage } from '@/routes/employee-detail';
 import { EmployeeNewPage } from '@/routes/employee-new';
 import { IntegrationsPage } from '@/routes/integrations';
 import { IntegrationsCallbackPage } from '@/routes/integrations-callback';
+import { ActivityPage } from '@/routes/activity';
 
 export function App() {
   return (
@@ -34,6 +35,7 @@ export function App() {
             <Route path="employees/new" element={<EmployeeNewPage />} />
             <Route path="employees/:id" element={<EmployeeDetailPage />} />
             <Route path="integrations" element={<IntegrationsPage />} />
+            <Route path="activity" element={<ActivityPage />} />
           </Route>
 
           {/* Catch all - redirect to home */}
