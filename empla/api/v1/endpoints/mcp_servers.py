@@ -292,19 +292,18 @@ async def _test_connection(
         except ValueError as e:
             return MCPServerTestResponse(success=False, error=str(e))
 
-    config = MCPServerConfig(
-        name="__test__",
-        transport=transport,
-        url=url,
-        command=command,
-        env=env or {},
-        headers=headers,
-    )
-
     registry = ToolRegistry()
     bridge = MCPBridge(registry)
 
     try:
+        config = MCPServerConfig(
+            name="__test__",
+            transport=transport,
+            url=url,
+            command=command,
+            env=env or {},
+            headers=headers,
+        )
         tool_names = await bridge.connect(config)
         clean_names = [n.replace("__test__.", "") for n in tool_names]
 

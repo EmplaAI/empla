@@ -151,8 +151,9 @@ class MCPIntegrationService:
                 encrypted, key_id = self.token_manager.encrypt(credentials)
             except NoKeysConfiguredError:
                 raise
-            except Exception as e:
-                raise ValueError(f"Failed to encrypt credentials: {e}") from e
+            except (TypeError, ValueError) as e:
+                # Non-serializable or invalid credential data
+                raise ValueError(f"Invalid credential data: {e}") from e
             cred = IntegrationCredential(
                 tenant_id=tenant_id,
                 integration_id=integration.id,
@@ -265,8 +266,11 @@ class MCPIntegrationService:
 
         try:
             encrypted, key_id = self.token_manager.encrypt(credentials)
-        except Exception as e:
-            raise ValueError(f"Failed to encrypt credentials: {e}") from e
+        except NoKeysConfiguredError:
+            raise
+        except (TypeError, ValueError) as e:
+            # Non-serializable or invalid credential data
+            raise ValueError(f"Invalid credential data: {e}") from e
 
         if existing:
             existing.credential_type = credential_type
@@ -353,18 +357,19 @@ class MCPIntegrationService:
         return self.token_manager.decrypt(cred.encrypted_data, cred.encryption_key_id)
 
     async def has_credential(self, server: Integration) -> bool:
-        """Check if an MCP server has a tenant-level credential."""
+        """Check if an MCP server has an active tenant-level credential."""
         result = await self.session.execute(
             select(IntegrationCredential.id).where(
                 IntegrationCredential.integration_id == server.id,
                 IntegrationCredential.employee_id.is_(None),
                 IntegrationCredential.deleted_at.is_(None),
+                IntegrationCredential.status == "active",
             )
         )
         return result.scalar_one_or_none() is not None
 
     async def has_credentials_batch(self, server_ids: list[UUID]) -> set[UUID]:
-        """Return the set of server IDs that have tenant-level credentials.
+        """Return the set of server IDs that have active tenant-level credentials.
 
         Single query instead of N+1 per-server checks.
         """
@@ -376,6 +381,7 @@ class MCPIntegrationService:
                 IntegrationCredential.integration_id.in_(server_ids),
                 IntegrationCredential.employee_id.is_(None),
                 IntegrationCredential.deleted_at.is_(None),
+                IntegrationCredential.status == "active",
             )
             .distinct()
         )

@@ -6,6 +6,7 @@ Request/response schemas for MCP server management endpoints.
 
 import ipaddress
 import re
+import socket
 from datetime import datetime
 from typing import Any, Literal, Self
 from urllib.parse import urlparse
@@ -24,6 +25,11 @@ _SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{0,48}[a-z0-9]$")
 _BLOCKED_HOSTNAMES = {"localhost", "metadata.google.internal"}
 
 
+def _is_dangerous_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check if an IP address is private, loopback, or link-local."""
+    return ip.is_private or ip.is_loopback or ip.is_link_local
+
+
 def _validate_url_safety(url: str) -> str:
     """Reject URLs targeting private/internal network addresses (SSRF protection)."""
     parsed = urlparse(url)
@@ -40,9 +46,19 @@ def _validate_url_safety(url: str) -> str:
         # Not an IP literal — treat as DNS name and check against blocklist
         if hostname_norm in _BLOCKED_HOSTNAMES:
             raise ValueError("Cannot connect to reserved hostnames") from None
+        # Resolve hostname and check all returned IPs (A + AAAA records)
+        try:
+            addrinfo = socket.getaddrinfo(hostname_norm, None)
+        except socket.gaierror:
+            raise ValueError(f"Cannot resolve hostname: {hostname_norm}") from None
+        else:
+            for _family, _type, _proto, _canonname, sockaddr in addrinfo:
+                resolved_ip = ipaddress.ip_address(sockaddr[0])
+                if _is_dangerous_ip(resolved_ip):
+                    raise ValueError("Cannot connect to private/internal network addresses")
     else:
-        # Valid IP — check for private/internal ranges
-        if ip.is_private or ip.is_loopback or ip.is_link_local:
+        # Valid IP literal — check directly
+        if _is_dangerous_ip(ip):
             raise ValueError("Cannot connect to private/internal network addresses")
     return url
 
@@ -133,9 +149,11 @@ class MCPServerCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_auth_credentials(self) -> Self:
-        """Ensure credentials are provided when auth_type requires them."""
+        """Ensure credentials match auth_type."""
         if self.auth_type not in ("none",) and not self.credentials:
             raise ValueError(f"Credentials are required when auth_type is '{self.auth_type}'")
+        if self.auth_type == "none" and self.credentials:
+            raise ValueError("Credentials should not be provided when auth_type is 'none'")
         return self
 
 
