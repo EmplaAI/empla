@@ -196,6 +196,15 @@ class MCPIntegrationService:
     ) -> Integration:
         """Update an MCP server integration."""
         config = dict(server.oauth_config)
+        transport = config.get("transport", "http")
+
+        # Validate transport-field consistency
+        if url is not None and transport != "http":
+            raise ValueError("Cannot set URL on a stdio-transport server")
+        if command is not None and transport != "stdio":
+            raise ValueError("Cannot set command on an HTTP-transport server")
+        if env is not None and transport != "stdio":
+            raise ValueError("Cannot set env on an HTTP-transport server")
 
         if display_name is not None:
             server.display_name = display_name

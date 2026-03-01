@@ -22,6 +22,7 @@ from empla.api.v1.schemas.mcp_server import (
     MCPServerTestResponse,
     MCPServerUpdate,
     MCPToolInfo,
+    validate_url_dns_safety,
 )
 from empla.models.integration import Integration
 from empla.services.integrations import NoKeysConfiguredError
@@ -92,6 +93,12 @@ async def create_mcp_server(
     body: MCPServerCreate, db: DBSession, auth: RequireAdmin
 ) -> MCPServerResponse:
     """Create a new MCP server integration (admin only)."""
+    if body.url:
+        try:
+            await validate_url_dns_safety(body.url)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
     service = _get_service(db)
 
     try:
@@ -132,6 +139,12 @@ async def test_mcp_server_unsaved(
 
     Connects temporarily, discovers tools, and disconnects.
     """
+    if body.url:
+        try:
+            await validate_url_dns_safety(body.url)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
     return await _test_connection(
         transport=body.transport,
         url=body.url,
@@ -159,6 +172,12 @@ async def update_mcp_server(
     server_id: UUID, body: MCPServerUpdate, db: DBSession, auth: RequireAdmin
 ) -> MCPServerResponse:
     """Update an MCP server integration (admin only)."""
+    if body.url is not None:
+        try:
+            await validate_url_dns_safety(body.url)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
     service = _get_service(db)
     server = await service.get_mcp_server(auth.tenant_id, server_id)
     if not server:

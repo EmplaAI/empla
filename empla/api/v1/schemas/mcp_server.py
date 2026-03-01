@@ -31,7 +31,11 @@ def _is_dangerous_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
 
 
 def _validate_url_safety(url: str) -> str:
-    """Reject URLs targeting private/internal network addresses (SSRF protection)."""
+    """Fast SSRF checks: scheme, hostname blocklist, IP literal.
+
+    Does NOT perform DNS resolution (that's blocking). Use
+    ``validate_url_dns_safety`` for the async DNS check.
+    """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError("Only http/https URLs are allowed")
@@ -46,21 +50,49 @@ def _validate_url_safety(url: str) -> str:
         # Not an IP literal — treat as DNS name and check against blocklist
         if hostname_norm in _BLOCKED_HOSTNAMES:
             raise ValueError("Cannot connect to reserved hostnames") from None
-        # Resolve hostname and check all returned IPs (A + AAAA records)
-        try:
-            addrinfo = socket.getaddrinfo(hostname_norm, None)
-        except socket.gaierror:
-            raise ValueError(f"Cannot resolve hostname: {hostname_norm}") from None
-        else:
-            for _family, _type, _proto, _canonname, sockaddr in addrinfo:
-                resolved_ip = ipaddress.ip_address(sockaddr[0])
-                if _is_dangerous_ip(resolved_ip):
-                    raise ValueError("Cannot connect to private/internal network addresses")
     else:
         # Valid IP literal — check directly
         if _is_dangerous_ip(ip):
             raise ValueError("Cannot connect to private/internal network addresses")
     return url
+
+
+async def validate_url_dns_safety(url: str) -> None:
+    """Async DNS resolution check for SSRF protection.
+
+    Resolves the hostname and verifies none of the returned IPs are
+    private/loopback/link-local. Must be called from an async context
+    (endpoint handler, not Pydantic validator).
+    """
+    import asyncio
+
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        return
+    hostname_norm = hostname.lower().rstrip(".")
+
+    # Skip DNS check for IP literals (already validated by _validate_url_safety)
+    try:
+        ipaddress.ip_address(hostname_norm)
+        return
+    except ValueError:
+        pass
+
+    # Skip blocked hostnames (already rejected by _validate_url_safety)
+    if hostname_norm in _BLOCKED_HOSTNAMES:
+        return
+
+    loop = asyncio.get_running_loop()
+    try:
+        addrinfo = await loop.run_in_executor(None, socket.getaddrinfo, hostname_norm, None)
+    except (socket.gaierror, UnicodeError, OSError):
+        raise ValueError(f"Cannot resolve hostname: {hostname_norm}") from None
+
+    for _family, _type, _proto, _canonname, sockaddr in addrinfo:
+        resolved_ip = ipaddress.ip_address(sockaddr[0])
+        if _is_dangerous_ip(resolved_ip):
+            raise ValueError("Cannot connect to private/internal network addresses")
 
 
 def _validate_url_for_transport(url: str | None, transport: str | None) -> str | None:
@@ -79,6 +111,14 @@ def _validate_command_for_transport(
     if transport == "stdio" and not command:
         raise ValueError("Command is required for stdio transport")
     return command
+
+
+def _validate_credential_shape(auth_type: str, credentials: dict[str, Any]) -> None:
+    """Validate that credential dict contains the keys expected for the auth_type."""
+    if auth_type == "api_key" and not credentials.get("api_key"):
+        raise ValueError("api_key auth requires a non-empty 'api_key' in credentials")
+    if auth_type == "bearer_token" and not credentials.get("token"):
+        raise ValueError("bearer_token auth requires a non-empty 'token' in credentials")
 
 
 class MCPServerCreate(BaseModel):
@@ -149,11 +189,13 @@ class MCPServerCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_auth_credentials(self) -> Self:
-        """Ensure credentials match auth_type."""
+        """Ensure credentials match auth_type and have the expected shape."""
         if self.auth_type not in ("none",) and not self.credentials:
             raise ValueError(f"Credentials are required when auth_type is '{self.auth_type}'")
         if self.auth_type == "none" and self.credentials:
             raise ValueError("Credentials should not be provided when auth_type is 'none'")
+        if self.credentials and self.auth_type != "none":
+            _validate_credential_shape(self.auth_type, self.credentials)
         return self
 
 
@@ -245,11 +287,13 @@ class MCPServerTestRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_auth_credentials(self) -> Self:
-        """Ensure credentials match auth_type."""
+        """Ensure credentials match auth_type and have the expected shape."""
         if self.auth_type != "none" and not self.credentials:
             raise ValueError(f"Credentials are required when auth_type is '{self.auth_type}'")
         if self.auth_type == "none" and self.credentials:
             raise ValueError("Credentials should not be provided when auth_type is 'none'")
+        if self.credentials and self.auth_type != "none":
+            _validate_credential_shape(self.auth_type, self.credentials)
         return self
 
 

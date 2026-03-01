@@ -817,9 +817,9 @@ class DigitalEmployee(ABC):
                     f"Connected MCP server '{config.name}' with {len(tool_names)} tools",
                     extra={"server": config.name, "tools": tool_names},
                 )
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, ImportError, ValueError) as e:
                 failed.append(config.name)
-                logger.error(
+                logger.warning(
                     f"Failed to connect MCP server '{config.name}': {e}",
                     extra={"server": config.name},
                     exc_info=True,
