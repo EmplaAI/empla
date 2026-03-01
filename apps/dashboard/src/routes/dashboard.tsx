@@ -1,8 +1,14 @@
+import { useActivitySummary } from '@empla/react';
 import { StatsCards } from '@/components/dashboard/stats-cards';
 import { QuickActions } from '@/components/dashboard/quick-actions';
 import { ActivityFeed } from '@/components/activity/activity-feed';
 
 export function DashboardPage() {
+  const { data: summary } = useActivitySummary({ hours: 24 });
+
+  const totalEvents = summary?.total ?? 0;
+  const errorCount = summary?.eventCounts?.error ?? 0;
+
   return (
     <div className="space-y-6">
       {/* Stats overview */}
@@ -19,7 +25,7 @@ export function DashboardPage() {
         <div className="space-y-6">
           <QuickActions />
 
-          {/* System status card */}
+          {/* Activity summary (last 24h) */}
           <div className="rounded-lg border border-border/50 bg-card/80 p-4 backdrop-blur-sm">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-status-active/30 bg-status-active/10">
@@ -27,10 +33,15 @@ export function DashboardPage() {
               </div>
               <div>
                 <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                  System Status
+                  Last 24 Hours
                 </p>
-                <p className="text-sm font-medium text-status-active">
-                  All Systems Operational
+                <p className="text-sm font-medium text-foreground">
+                  {totalEvents} event{totalEvents !== 1 ? 's' : ''}
+                  {errorCount > 0 && (
+                    <span className="ml-2 text-status-error">
+                      ({errorCount} error{errorCount !== 1 ? 's' : ''})
+                    </span>
+                  )}
                 </p>
               </div>
             </div>

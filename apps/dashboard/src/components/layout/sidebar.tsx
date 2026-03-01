@@ -156,7 +156,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Settings */}
       <div className="border-t border-border p-3">
-        <NavItem href="/settings" icon={Settings} label="Settings" disabled />
+        <NavItem href="/settings" icon={Settings} label="Settings" />
       </div>
 
       {/* Collapse toggle */}

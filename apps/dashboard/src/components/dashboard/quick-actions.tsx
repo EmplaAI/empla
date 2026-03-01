@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Plus, Users } from 'lucide-react';
+import { Plus, Users, Plug, Activity } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
@@ -16,6 +16,20 @@ const actions = [
     description: 'Manage employees',
     href: '/employees',
     icon: Users,
+    primary: false,
+  },
+  {
+    label: 'Integrations',
+    description: 'Connect services',
+    href: '/integrations',
+    icon: Plug,
+    primary: false,
+  },
+  {
+    label: 'Activity',
+    description: 'View event log',
+    href: '/activity',
+    icon: Activity,
     primary: false,
   },
 ];

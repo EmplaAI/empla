@@ -11,6 +11,7 @@ import { EmployeeNewPage } from '@/routes/employee-new';
 import { IntegrationsPage } from '@/routes/integrations';
 import { IntegrationsCallbackPage } from '@/routes/integrations-callback';
 import { ActivityPage } from '@/routes/activity';
+import { SettingsPage } from '@/routes/settings';
 
 export function App() {
   return (
@@ -36,6 +37,7 @@ export function App() {
             <Route path="employees/:id" element={<EmployeeDetailPage />} />
             <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="activity" element={<ActivityPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
 
           {/* Catch all - redirect to home */}
