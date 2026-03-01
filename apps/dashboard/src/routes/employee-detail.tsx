@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Trash2, Edit, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -20,6 +21,7 @@ import { EmployeeStatusBadge, LifecycleBadge } from '@/components/employees/empl
 import { EmployeeControls } from '@/components/employees/employee-controls';
 import { EmployeeInfoCard } from '@/components/employees/employee-info-card';
 import { ActivityFeed } from '@/components/activity/activity-feed';
+import { EmployeeEditDialog } from '@/components/employees/employee-edit-dialog';
 import { getInitials, cn } from '@/lib/utils';
 
 function EmployeeDetailSkeleton() {
@@ -90,6 +92,7 @@ export function EmployeeDetailPage() {
   const { data: employee, isLoading, error, refetch } = useEmployee(id ?? '', {
     enabled: !!id,
   });
+  const [editOpen, setEditOpen] = useState(false);
 
   // Early return if no ID provided
   if (!id) {
@@ -197,7 +200,7 @@ export function EmployeeDetailPage() {
 
                 {/* Actions */}
                 <div className="flex gap-2">
-                  <Button variant="outline" size="icon" disabled>
+                  <Button variant="outline" size="icon" aria-label={`Edit ${employee.name}`} onClick={() => setEditOpen(true)}>
                     <Edit className="h-4 w-4" />
                   </Button>
 
@@ -250,6 +253,13 @@ export function EmployeeDetailPage() {
           <EmployeeInfoCard employee={employee} />
         </div>
       </div>
+
+      {/* Edit dialog */}
+      <EmployeeEditDialog
+        employee={employee}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
     </div>
   );
 }
