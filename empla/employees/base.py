@@ -532,6 +532,10 @@ class DigitalEmployee(ABC):
             self._engine = None
             self._sessionmaker = None
 
+        # Clear tool registry and router so restarts get fresh instances
+        self._tool_registry = None
+        self._tool_router = None
+
         # Mark as stopped
         self._is_running = False
 

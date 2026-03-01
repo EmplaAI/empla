@@ -80,10 +80,8 @@ async def list_mcp_servers(db: DBSession, auth: CurrentUser) -> MCPServerListRes
     service = _get_service(db)
     servers = await service.list_mcp_servers(auth.tenant_id)
 
-    items = []
-    for s in servers:
-        has_creds = await service.has_credential(s)
-        items.append(_server_to_response(s, has_creds))
+    cred_ids = await service.has_credentials_batch([s.id for s in servers])
+    items = [_server_to_response(s, s.id in cred_ids) for s in servers]
 
     return MCPServerListResponse(items=items, total=len(items))
 
@@ -269,6 +267,12 @@ async def _test_connection(
 
     # Build headers from credentials
     headers: dict[str, str] = {}
+    if auth_type == "oauth":
+        return MCPServerTestResponse(
+            success=False,
+            error="OAuth authentication requires an interactive authorization flow. "
+            "Save the server first, then complete the OAuth flow to test.",
+        )
     if credentials and auth_type in ("api_key", "bearer_token"):
         headers = build_auth_headers(auth_type, credentials)
 

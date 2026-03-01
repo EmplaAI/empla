@@ -22,13 +22,25 @@ from empla.services.integrations.token_manager import DecryptionError, TokenMana
 logger = logging.getLogger(__name__)
 
 
+_AUTH_TO_CREDENTIAL_TYPE = {
+    "api_key": "api_key",
+    "bearer_token": "bearer_token",
+    "oauth": "oauth_tokens",
+}
+
+
 def _resolve_credential_type(auth_type: str) -> str:
-    """Map auth_type to the credential_type stored in IntegrationCredential."""
-    if auth_type == "api_key":
-        return "api_key"
-    if auth_type == "oauth":
-        return "oauth_tokens"
-    return "bearer_token"
+    """Map auth_type to the credential_type stored in IntegrationCredential.
+
+    Raises:
+        ValueError: If auth_type is not a recognized credential-bearing type.
+    """
+    try:
+        return _AUTH_TO_CREDENTIAL_TYPE[auth_type]
+    except KeyError:
+        raise ValueError(
+            f"Unknown auth_type '{auth_type}' — expected one of: {', '.join(_AUTH_TO_CREDENTIAL_TYPE)}"
+        ) from None
 
 
 def build_auth_headers(auth_type: str, cred_data: dict[str, Any]) -> dict[str, str]:
@@ -200,6 +212,9 @@ class MCPIntegrationService:
         # Update auth_type and credentials if changed
         if auth_type is not None:
             server.auth_type = auth_type
+            # Switching to "none" should remove existing credentials
+            if auth_type == "none" and credentials is None:
+                await self._upsert_credential(server, "none", {})
 
         if credentials is not None:
             effective_auth = auth_type or server.auth_type
@@ -339,6 +354,24 @@ class MCPIntegrationService:
         )
         return result.scalar_one_or_none() is not None
 
+    async def has_credentials_batch(self, server_ids: list[UUID]) -> set[UUID]:
+        """Return the set of server IDs that have tenant-level credentials.
+
+        Single query instead of N+1 per-server checks.
+        """
+        if not server_ids:
+            return set()
+        result = await self.session.execute(
+            select(IntegrationCredential.integration_id)
+            .where(
+                IntegrationCredential.integration_id.in_(server_ids),
+                IntegrationCredential.employee_id.is_(None),
+                IntegrationCredential.deleted_at.is_(None),
+            )
+            .distinct()
+        )
+        return set(result.scalars().all())
+
     async def get_active_mcp_servers(self, tenant_id: UUID) -> list[dict[str, Any]]:
         """Get active MCP servers with decrypted configs for employee runtime.
 
@@ -366,6 +399,12 @@ class MCPIntegrationService:
 
             # Resolve auth headers from credentials
             headers: dict[str, str] = {}
+            if server.auth_type == "oauth":
+                logger.warning(
+                    "Skipping MCP server with OAuth auth — OAuth runtime not yet supported",
+                    extra={"server_id": str(server.id), "name": server.provider},
+                )
+                continue
             if server.auth_type in ("api_key", "bearer_token"):
                 try:
                     cred_data = await self.get_server_credential(server)

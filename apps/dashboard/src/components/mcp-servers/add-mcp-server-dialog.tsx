@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, TestTube, CheckCircle2 } from 'lucide-react';
+import { Loader2, TestTube, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useCreateMCPServer,
@@ -239,10 +239,11 @@ export function AddMCPServerDialog({ open, onOpenChange }: AddMCPServerDialogPro
               </div>
               <div className="space-y-2">
                 <Label htmlFor="mcp-env">Environment Variables</Label>
-                <Input
+                <textarea
                   id="mcp-env"
+                  rows={3}
                   placeholder="KEY=value (one per line)"
-                  className="bg-background/50 font-mono text-sm"
+                  className="flex w-full rounded-md border border-input bg-background/50 px-3 py-2 font-mono text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   {...register('env')}
                 />
               </div>
@@ -356,7 +357,11 @@ export function AddMCPServerDialog({ open, onOpenChange }: AddMCPServerDialogPro
                   : 'border-status-error/30 bg-status-error/5 text-status-error'
               }`}
             >
-              <CheckCircle2 className="h-4 w-4" />
+              {testResult.success ? (
+                <CheckCircle2 className="h-4 w-4" />
+              ) : (
+                <XCircle className="h-4 w-4" />
+              )}
               {testResult.success
                 ? `Connection successful - ${testResult.tools} tools discovered`
                 : 'Connection failed'}

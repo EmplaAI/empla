@@ -9,16 +9,16 @@ auth_type CHECK constraints, and makes employee_id nullable on
 integration_credentials for tenant-level MCP server credentials.
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "e5f6g7h8i9j0"
-down_revision: Union[str, None] = "d4e5f6g7h8i9"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "d4e5f6g7h8i9"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -122,6 +122,39 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # --- Safety: abort if MCP-era data exists that would violate old constraints ---
+    conn = op.get_bind()
+
+    mcp_integrations = conn.execute(
+        sa.text("SELECT COUNT(*) FROM integrations WHERE integration_type = 'mcp_server'")
+    ).scalar()
+    if mcp_integrations:
+        raise RuntimeError(
+            f"Cannot downgrade: {mcp_integrations} MCP server integration(s) exist. "
+            "Delete all MCP server integrations before downgrading."
+        )
+
+    null_employee_creds = conn.execute(
+        sa.text("SELECT COUNT(*) FROM integration_credentials WHERE employee_id IS NULL AND deleted_at IS NULL")
+    ).scalar()
+    if null_employee_creds:
+        raise RuntimeError(
+            f"Cannot downgrade: {null_employee_creds} tenant-level credential(s) with NULL employee_id exist. "
+            "Remove these credentials before downgrading."
+        )
+
+    mcp_cred_types = conn.execute(
+        sa.text(
+            "SELECT COUNT(*) FROM integration_credentials "
+            "WHERE credential_type NOT IN ('oauth_tokens', 'service_account_key') AND deleted_at IS NULL"
+        )
+    ).scalar()
+    if mcp_cred_types:
+        raise RuntimeError(
+            f"Cannot downgrade: {mcp_cred_types} credential(s) with MCP-era credential_type values exist. "
+            "Remove these credentials before downgrading."
+        )
+
     # --- integration_credentials table ---
     op.drop_index("idx_credentials_tenant_integration", table_name="integration_credentials")
     op.drop_index("idx_credentials_employee_integration", table_name="integration_credentials")

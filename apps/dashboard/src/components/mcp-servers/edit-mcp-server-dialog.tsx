@@ -167,10 +167,11 @@ export function EditMCPServerDialog({ server, open, onOpenChange }: EditMCPServe
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-env">Environment Variables</Label>
-                <Input
+                <textarea
                   id="edit-env"
+                  rows={3}
                   placeholder="KEY=value (one per line)"
-                  className="bg-background/50 font-mono text-sm"
+                  className="flex w-full rounded-md border border-input bg-background/50 px-3 py-2 font-mono text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   {...register('env')}
                 />
               </div>

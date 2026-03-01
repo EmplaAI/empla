@@ -159,6 +159,13 @@ class MCPServerUpdate(BaseModel):
     credentials: dict[str, Any] | None = Field(default=None)
     status: MCPServerStatusValue | None = Field(default=None)
 
+    @field_validator("url")
+    @classmethod
+    def validate_url_safety(cls, v: str | None) -> str | None:
+        if v is not None:
+            _validate_url_safety(v)
+        return v
+
 
 class MCPToolInfo(BaseModel):
     """Discovered tool from an MCP server."""
