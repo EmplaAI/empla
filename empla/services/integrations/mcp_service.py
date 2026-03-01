@@ -15,17 +15,24 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from empla.models.integration import Integration, IntegrationCredential
+from empla.models.integration import (
+    CredentialStatus,
+    Integration,
+    IntegrationAuthType,
+    IntegrationCredential,
+    IntegrationStatus,
+    IntegrationType,
+)
 from empla.services.integrations.key_provider import NoKeysConfiguredError
 from empla.services.integrations.token_manager import DecryptionError, TokenManager
 
 logger = logging.getLogger(__name__)
 
 
-_AUTH_TO_CREDENTIAL_TYPE = {
-    "api_key": "api_key",
-    "bearer_token": "bearer_token",
-    "oauth": "oauth_tokens",
+_AUTH_TO_CREDENTIAL_TYPE: dict[str, str] = {
+    IntegrationAuthType.API_KEY: "api_key",
+    IntegrationAuthType.BEARER_TOKEN: "bearer_token",
+    IntegrationAuthType.OAUTH: "oauth_tokens",
 }
 
 
@@ -50,12 +57,12 @@ def build_auth_headers(auth_type: str, cred_data: dict[str, Any]) -> dict[str, s
         ValueError: If the credential data is missing the expected key.
     """
     headers: dict[str, str] = {}
-    if auth_type == "api_key":
+    if auth_type == IntegrationAuthType.API_KEY:
         api_key = cred_data.get("api_key")
         if not api_key:
             raise ValueError("api_key auth configured but credential data has no 'api_key' key")
         headers["X-API-Key"] = api_key
-    elif auth_type == "bearer_token":
+    elif auth_type == IntegrationAuthType.BEARER_TOKEN:
         token = cred_data.get("token")
         if not token:
             raise ValueError("bearer_token auth configured but credential data has no 'token' key")
@@ -78,7 +85,7 @@ class MCPIntegrationService:
             select(Integration)
             .where(
                 Integration.tenant_id == tenant_id,
-                Integration.integration_type == "mcp",
+                Integration.integration_type == IntegrationType.MCP,
                 Integration.deleted_at.is_(None),
             )
             .order_by(Integration.created_at.desc())
@@ -91,7 +98,7 @@ class MCPIntegrationService:
             select(Integration).where(
                 Integration.id == server_id,
                 Integration.tenant_id == tenant_id,
-                Integration.integration_type == "mcp",
+                Integration.integration_type == IntegrationType.MCP,
                 Integration.deleted_at.is_(None),
             )
         )
@@ -130,13 +137,13 @@ class MCPIntegrationService:
 
         integration = Integration(
             tenant_id=tenant_id,
-            integration_type="mcp",
+            integration_type=IntegrationType.MCP,
             provider=name,
             auth_type=auth_type,
             display_name=display_name,
             oauth_config=oauth_config,
             use_platform_credentials=False,
-            status="active",
+            status=IntegrationStatus.ACTIVE,
             enabled_by=enabled_by,
             enabled_at=datetime.now(UTC),
         )
@@ -144,28 +151,8 @@ class MCPIntegrationService:
         await self.session.flush()
 
         # Store encrypted credentials if provided
-        if credentials and auth_type != "none":
-            credential_type = _resolve_credential_type(auth_type)
-
-            try:
-                encrypted, key_id = self.token_manager.encrypt(credentials)
-            except NoKeysConfiguredError:
-                raise
-            except (TypeError, ValueError) as e:
-                # Non-serializable or invalid credential data
-                raise ValueError(f"Invalid credential data: {e}") from e
-            cred = IntegrationCredential(
-                tenant_id=tenant_id,
-                integration_id=integration.id,
-                employee_id=None,
-                credential_type=credential_type,
-                encrypted_data=encrypted,
-                encryption_key_id=key_id,
-                token_metadata={"auth_type": auth_type},
-                status="active",
-                issued_at=datetime.now(UTC),
-            )
-            self.session.add(cred)
+        if credentials and auth_type != IntegrationAuthType.NONE:
+            await self._upsert_credential(integration, auth_type, credentials)
 
         await self.session.commit()
         await self.session.refresh(integration)
@@ -226,10 +213,10 @@ class MCPIntegrationService:
             old_auth = server.auth_type
             server.auth_type = auth_type
 
-            if auth_type == "none" and credentials is None:
+            if auth_type == IntegrationAuthType.NONE and credentials is None:
                 # Switching to "none" — remove existing credentials
-                await self._upsert_credential(server, "none", {})
-            elif auth_type not in ("none", old_auth) and credentials is None:
+                await self._upsert_credential(server, IntegrationAuthType.NONE, {})
+            elif auth_type not in (IntegrationAuthType.NONE, old_auth) and credentials is None:
                 # Changing to a different credential-bearing type without new credentials
                 raise ValueError(
                     f"Credentials are required when changing auth_type from '{old_auth}' to '{auth_type}'"
@@ -237,7 +224,7 @@ class MCPIntegrationService:
 
         if credentials is not None:
             effective_auth = auth_type or server.auth_type
-            if effective_auth == "none":
+            if effective_auth == IntegrationAuthType.NONE:
                 raise ValueError("Cannot provide credentials when auth_type is 'none'")
             await self._upsert_credential(server, effective_auth, credentials)
 
@@ -267,7 +254,7 @@ class MCPIntegrationService:
         )
         existing = result.scalar_one_or_none()
 
-        if auth_type == "none":
+        if auth_type == IntegrationAuthType.NONE:
             # Remove credential if switching to no auth
             if existing:
                 existing.deleted_at = datetime.now(UTC)
@@ -288,7 +275,7 @@ class MCPIntegrationService:
             existing.encrypted_data = encrypted
             existing.encryption_key_id = key_id
             existing.token_metadata = {"auth_type": auth_type}
-            existing.status = "active"
+            existing.status = CredentialStatus.ACTIVE
         else:
             cred = IntegrationCredential(
                 tenant_id=server.tenant_id,
@@ -298,7 +285,7 @@ class MCPIntegrationService:
                 encrypted_data=encrypted,
                 encryption_key_id=key_id,
                 token_metadata={"auth_type": auth_type},
-                status="active",
+                status=CredentialStatus.ACTIVE,
                 issued_at=datetime.now(UTC),
             )
             self.session.add(cred)
@@ -307,7 +294,7 @@ class MCPIntegrationService:
         """Soft-delete an MCP server integration and its credentials."""
         now = datetime.now(UTC)
         server.deleted_at = now
-        server.status = "revoked"
+        server.status = IntegrationStatus.REVOKED
 
         # Soft-delete tenant-level credentials
         result = await self.session.execute(
@@ -358,7 +345,7 @@ class MCPIntegrationService:
                 IntegrationCredential.integration_id == server.id,
                 IntegrationCredential.employee_id.is_(None),
                 IntegrationCredential.deleted_at.is_(None),
-                IntegrationCredential.status == "active",
+                IntegrationCredential.status == CredentialStatus.ACTIVE,
             )
         )
         cred = result.scalar_one_or_none()
@@ -374,7 +361,7 @@ class MCPIntegrationService:
                 IntegrationCredential.integration_id == server.id,
                 IntegrationCredential.employee_id.is_(None),
                 IntegrationCredential.deleted_at.is_(None),
-                IntegrationCredential.status == "active",
+                IntegrationCredential.status == CredentialStatus.ACTIVE,
             )
         )
         return result.scalar_one_or_none() is not None
@@ -392,7 +379,7 @@ class MCPIntegrationService:
                 IntegrationCredential.integration_id.in_(server_ids),
                 IntegrationCredential.employee_id.is_(None),
                 IntegrationCredential.deleted_at.is_(None),
-                IntegrationCredential.status == "active",
+                IntegrationCredential.status == CredentialStatus.ACTIVE,
             )
             .distinct()
         )
@@ -404,13 +391,18 @@ class MCPIntegrationService:
         Returns a list of dicts suitable for constructing MCPServerConfig objects,
         with auth headers pre-computed from decrypted credentials.
         """
-        servers = await self.list_mcp_servers(tenant_id)
+        result = await self.session.execute(
+            select(Integration).where(
+                Integration.tenant_id == tenant_id,
+                Integration.integration_type == IntegrationType.MCP,
+                Integration.status == IntegrationStatus.ACTIVE,
+                Integration.deleted_at.is_(None),
+            )
+        )
+        servers = list(result.scalars().all())
         configs: list[dict[str, Any]] = []
 
         for server in servers:
-            if server.status != "active":
-                continue
-
             config = dict(server.oauth_config)
             entry: dict[str, Any] = {
                 "name": config.get("name", server.provider),
@@ -425,13 +417,13 @@ class MCPIntegrationService:
 
             # Resolve auth headers from credentials
             headers: dict[str, str] = {}
-            if server.auth_type == "oauth":
+            if server.auth_type == IntegrationAuthType.OAUTH:
                 logger.warning(
                     "Skipping MCP server with OAuth auth — OAuth runtime not yet supported",
                     extra={"server_id": str(server.id), "name": server.provider},
                 )
                 continue
-            if server.auth_type in ("api_key", "bearer_token"):
+            if server.auth_type in (IntegrationAuthType.API_KEY, IntegrationAuthType.BEARER_TOKEN):
                 try:
                     cred_data = await self.get_server_credential(server)
                 except DecryptionError:

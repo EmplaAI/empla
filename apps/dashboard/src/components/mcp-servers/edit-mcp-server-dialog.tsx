@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { AuthFields } from './auth-fields';
 import { buildCredentials, parseCommand, parseEnv } from './parse-utils';
 
 const editSchema = z.object({
@@ -195,118 +196,13 @@ export function EditMCPServerDialog({ server, open, onOpenChange }: EditMCPServe
             </Select>
           </div>
 
-          {/* Auth Type */}
-          <div className="space-y-2">
-            <Label>Authentication</Label>
-            <Select
-              value={authType}
-              onValueChange={(v: MCPAuthType) => setValue('authType', v)}
-            >
-              <SelectTrigger className="bg-background/50">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                <SelectItem value="api_key">API Key</SelectItem>
-                <SelectItem value="bearer_token">Bearer Token</SelectItem>
-                <SelectItem value="oauth">OAuth</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Credential fields */}
-          {authType === 'api_key' && (
-            <div className="space-y-2">
-              <Label htmlFor="edit-api-key">API Key</Label>
-              <Input
-                id="edit-api-key"
-                type="password"
-                placeholder={server.hasCredentials ? '(credentials saved)' : 'sk-...'}
-                className="bg-background/50 font-mono"
-                {...register('apiKey')}
-              />
-              {server.hasCredentials && (
-                <p className="text-xs text-muted-foreground">
-                  Leave blank to keep existing credentials
-                </p>
-              )}
-            </div>
-          )}
-
-          {authType === 'bearer_token' && (
-            <div className="space-y-2">
-              <Label htmlFor="edit-bearer-token">Bearer Token</Label>
-              <Input
-                id="edit-bearer-token"
-                type="password"
-                placeholder={server.hasCredentials ? '(credentials saved)' : 'Token...'}
-                className="bg-background/50 font-mono"
-                {...register('bearerToken')}
-              />
-              {server.hasCredentials && (
-                <p className="text-xs text-muted-foreground">
-                  Leave blank to keep existing credentials
-                </p>
-              )}
-            </div>
-          )}
-
-          {authType === 'oauth' && (
-            <div className="space-y-3 rounded-md border border-border/50 p-3">
-              {server.hasCredentials && (
-                <p className="text-xs text-muted-foreground">
-                  Leave fields blank to keep existing credentials
-                </p>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="edit-oauth-client-id">Client ID</Label>
-                <Input
-                  id="edit-oauth-client-id"
-                  placeholder={server.hasCredentials ? '(saved)' : ''}
-                  className="bg-background/50"
-                  {...register('oauthClientId')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-oauth-client-secret">Client Secret</Label>
-                <Input
-                  id="edit-oauth-client-secret"
-                  type="password"
-                  placeholder={server.hasCredentials ? '(saved)' : ''}
-                  className="bg-background/50"
-                  {...register('oauthClientSecret')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-oauth-token-url">Token URL</Label>
-                <Input
-                  id="edit-oauth-token-url"
-                  placeholder="https://provider.com/oauth/token"
-                  className="bg-background/50"
-                  {...register('oauthTokenUrl')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-oauth-auth-url">Authorization URL</Label>
-                <Input
-                  id="edit-oauth-auth-url"
-                  placeholder="https://provider.com/oauth/authorize"
-                  className="bg-background/50"
-                  {...register('oauthAuthorizationUrl')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-oauth-scopes">Scopes</Label>
-                <Input
-                  id="edit-oauth-scopes"
-                  placeholder="read, write"
-                  className="bg-background/50"
-                  {...register('oauthScopes')}
-                />
-                <p className="text-xs text-muted-foreground">Comma-separated</p>
-              </div>
-            </div>
-          )}
+          <AuthFields
+            authType={authType}
+            register={register}
+            setValue={setValue}
+            hasCredentials={server.hasCredentials}
+            idPrefix="edit"
+          />
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

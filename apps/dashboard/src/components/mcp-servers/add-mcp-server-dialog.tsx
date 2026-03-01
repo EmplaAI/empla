@@ -28,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { AuthFields } from './auth-fields';
 import { buildCredentials, parseCommand, parseEnv } from './parse-utils';
 
 const nameSlugRe = /^[a-z][a-z0-9_-]{0,48}[a-z0-9]$/;
@@ -250,103 +251,12 @@ export function AddMCPServerDialog({ open, onOpenChange }: AddMCPServerDialogPro
             </>
           )}
 
-          {/* Auth Type */}
-          <div className="space-y-2">
-            <Label>Authentication</Label>
-            <Select
-              value={authType}
-              onValueChange={(v: MCPAuthType) => setValue('authType', v)}
-            >
-              <SelectTrigger className="bg-background/50">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                <SelectItem value="api_key">API Key</SelectItem>
-                <SelectItem value="bearer_token">Bearer Token</SelectItem>
-                <SelectItem value="oauth">OAuth</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* API Key */}
-          {authType === 'api_key' && (
-            <div className="space-y-2">
-              <Label htmlFor="mcp-api-key">API Key</Label>
-              <Input
-                id="mcp-api-key"
-                type="password"
-                placeholder="sk-..."
-                className="bg-background/50 font-mono"
-                {...register('apiKey')}
-              />
-            </div>
-          )}
-
-          {/* Bearer Token */}
-          {authType === 'bearer_token' && (
-            <div className="space-y-2">
-              <Label htmlFor="mcp-bearer-token">Bearer Token</Label>
-              <Input
-                id="mcp-bearer-token"
-                type="password"
-                placeholder="Token..."
-                className="bg-background/50 font-mono"
-                {...register('bearerToken')}
-              />
-            </div>
-          )}
-
-          {/* OAuth */}
-          {authType === 'oauth' && (
-            <div className="space-y-3 rounded-md border border-border/50 p-3">
-              <div className="space-y-2">
-                <Label htmlFor="mcp-oauth-client-id">Client ID</Label>
-                <Input
-                  id="mcp-oauth-client-id"
-                  className="bg-background/50"
-                  {...register('oauthClientId')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mcp-oauth-client-secret">Client Secret</Label>
-                <Input
-                  id="mcp-oauth-client-secret"
-                  type="password"
-                  className="bg-background/50"
-                  {...register('oauthClientSecret')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mcp-oauth-token-url">Token URL</Label>
-                <Input
-                  id="mcp-oauth-token-url"
-                  placeholder="https://provider.com/oauth/token"
-                  className="bg-background/50"
-                  {...register('oauthTokenUrl')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mcp-oauth-auth-url">Authorization URL</Label>
-                <Input
-                  id="mcp-oauth-auth-url"
-                  placeholder="https://provider.com/oauth/authorize"
-                  className="bg-background/50"
-                  {...register('oauthAuthorizationUrl')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mcp-oauth-scopes">Scopes</Label>
-                <Input
-                  id="mcp-oauth-scopes"
-                  placeholder="read, write"
-                  className="bg-background/50"
-                  {...register('oauthScopes')}
-                />
-                <p className="text-xs text-muted-foreground">Comma-separated</p>
-              </div>
-            </div>
-          )}
+          <AuthFields
+            authType={authType}
+            register={register}
+            setValue={setValue}
+            idPrefix="mcp"
+          />
 
           {/* Test result */}
           {testResult && (

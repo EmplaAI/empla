@@ -121,6 +121,19 @@ def _validate_credential_shape(auth_type: str, credentials: dict[str, Any]) -> N
         raise ValueError("bearer_token auth requires a non-empty 'token' in credentials")
 
 
+def _validate_auth_credentials(auth_type: str, credentials: dict[str, Any] | None) -> None:
+    """Validate auth_type/credentials consistency and credential shape.
+
+    Shared by MCPServerCreate and MCPServerTestRequest model validators.
+    """
+    if auth_type != "none" and not credentials:
+        raise ValueError(f"Credentials are required when auth_type is '{auth_type}'")
+    if auth_type == "none" and credentials:
+        raise ValueError("Credentials should not be provided when auth_type is 'none'")
+    if credentials and auth_type != "none":
+        _validate_credential_shape(auth_type, credentials)
+
+
 class MCPServerCreate(BaseModel):
     """Schema for creating an MCP server integration."""
 
@@ -189,13 +202,7 @@ class MCPServerCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_auth_credentials(self) -> Self:
-        """Ensure credentials match auth_type and have the expected shape."""
-        if self.auth_type not in ("none",) and not self.credentials:
-            raise ValueError(f"Credentials are required when auth_type is '{self.auth_type}'")
-        if self.auth_type == "none" and self.credentials:
-            raise ValueError("Credentials should not be provided when auth_type is 'none'")
-        if self.credentials and self.auth_type != "none":
-            _validate_credential_shape(self.auth_type, self.credentials)
+        _validate_auth_credentials(self.auth_type, self.credentials)
         return self
 
 
@@ -287,13 +294,7 @@ class MCPServerTestRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_auth_credentials(self) -> Self:
-        """Ensure credentials match auth_type and have the expected shape."""
-        if self.auth_type != "none" and not self.credentials:
-            raise ValueError(f"Credentials are required when auth_type is '{self.auth_type}'")
-        if self.auth_type == "none" and self.credentials:
-            raise ValueError("Credentials should not be provided when auth_type is 'none'")
-        if self.credentials and self.auth_type != "none":
-            _validate_credential_shape(self.auth_type, self.credentials)
+        _validate_auth_credentials(self.auth_type, self.credentials)
         return self
 
 

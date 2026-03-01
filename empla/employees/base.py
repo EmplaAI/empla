@@ -809,22 +809,25 @@ class DigitalEmployee(ABC):
 
         self._mcp_bridge = MCPBridge(self._tool_registry)
 
-        failed: list[str] = []
-        for config in configs:
+        async def connect_one(cfg: MCPServerConfig) -> str | None:
+            """Connect a single MCP server. Returns name on failure, None on success."""
             try:
-                tool_names = await self._mcp_bridge.connect(config)
+                tool_names = await self._mcp_bridge.connect(cfg)
                 logger.info(
-                    f"Connected MCP server '{config.name}' with {len(tool_names)} tools",
-                    extra={"server": config.name, "tools": tool_names},
+                    f"Connected MCP server '{cfg.name}' with {len(tool_names)} tools",
+                    extra={"server": cfg.name, "tools": tool_names},
                 )
+                return None
             except (ConnectionError, TimeoutError, OSError, ImportError, ValueError) as e:
-                failed.append(config.name)
                 logger.warning(
-                    f"Failed to connect MCP server '{config.name}': {e}",
-                    extra={"server": config.name},
+                    f"Failed to connect MCP server '{cfg.name}': {e}",
+                    extra={"server": cfg.name},
                     exc_info=True,
                 )
+                return cfg.name
 
+        results = await asyncio.gather(*(connect_one(c) for c in configs))
+        failed = [name for name in results if name is not None]
         if failed:
             logger.warning(f"{len(failed)} MCP server(s) failed to connect: {', '.join(failed)}")
 

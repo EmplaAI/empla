@@ -24,7 +24,7 @@ from empla.api.v1.schemas.mcp_server import (
     MCPToolInfo,
     validate_url_dns_safety,
 )
-from empla.models.integration import Integration
+from empla.models.integration import Integration, IntegrationAuthType
 from empla.services.integrations import NoKeysConfiguredError
 from empla.services.integrations.mcp_service import MCPIntegrationService
 from empla.services.integrations.token_manager import DecryptionError, get_token_manager
@@ -32,6 +32,16 @@ from empla.services.integrations.token_manager import DecryptionError, get_token
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _assert_dns_safe(url: str | None) -> None:
+    """Run async DNS SSRF check, raising HTTPException on failure."""
+    if not url:
+        return
+    try:
+        await validate_url_dns_safety(url)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 def _get_service(db: DBSession) -> MCPIntegrationService:
@@ -93,12 +103,7 @@ async def create_mcp_server(
     body: MCPServerCreate, db: DBSession, auth: RequireAdmin
 ) -> MCPServerResponse:
     """Create a new MCP server integration (admin only)."""
-    if body.url:
-        try:
-            await validate_url_dns_safety(body.url)
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
+    await _assert_dns_safe(body.url)
     service = _get_service(db)
 
     try:
@@ -139,12 +144,7 @@ async def test_mcp_server_unsaved(
 
     Connects temporarily, discovers tools, and disconnects.
     """
-    if body.url:
-        try:
-            await validate_url_dns_safety(body.url)
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
+    await _assert_dns_safe(body.url)
     return await _test_connection(
         transport=body.transport,
         url=body.url,
@@ -172,12 +172,7 @@ async def update_mcp_server(
     server_id: UUID, body: MCPServerUpdate, db: DBSession, auth: RequireAdmin
 ) -> MCPServerResponse:
     """Update an MCP server integration (admin only)."""
-    if body.url is not None:
-        try:
-            await validate_url_dns_safety(body.url)
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
+    await _assert_dns_safe(body.url)
     service = _get_service(db)
     server = await service.get_mcp_server(auth.tenant_id, server_id)
     if not server:
@@ -238,7 +233,7 @@ async def test_mcp_server_connection(
 
     # Resolve credentials from DB
     credentials: dict | None = None
-    if server.auth_type != "none":
+    if server.auth_type != IntegrationAuthType.NONE:
         try:
             credentials = await service.get_server_credential(server)
         except DecryptionError as e:
@@ -295,13 +290,13 @@ async def _test_connection(
 
     # Build headers from credentials
     headers: dict[str, str] = {}
-    if auth_type == "oauth":
+    if auth_type == IntegrationAuthType.OAUTH:
         return MCPServerTestResponse(
             success=False,
             error="OAuth authentication requires an interactive authorization flow. "
             "Save the server first, then complete the OAuth flow to test.",
         )
-    if credentials and auth_type in ("api_key", "bearer_token"):
+    if credentials and auth_type in (IntegrationAuthType.API_KEY, IntegrationAuthType.BEARER_TOKEN):
         from empla.services.integrations.mcp_service import build_auth_headers
 
         try:
