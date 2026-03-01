@@ -32,7 +32,6 @@ const importanceLevels = [
   { value: 'all', label: 'All Importance' },
   { value: 'high', label: 'High' },
   { value: 'medium', label: 'Medium' },
-  { value: 'low', label: 'Low' },
 ];
 
 const timeRanges = [
