@@ -113,10 +113,17 @@ export function createApiClient(config: ApiClientConfig) {
         );
       }
 
-      const message =
-        (data as { detail?: string })?.detail ||
-        rawText?.substring(0, 200) ||
-        `Request failed: ${response.statusText}`;
+      // FastAPI returns detail as a string for HTTPException, or an array for
+      // validation errors (422). Extract a readable message from either shape.
+      const detail = (data as { detail?: unknown })?.detail;
+      let message: string;
+      if (typeof detail === 'string') {
+        message = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        message = detail.map((e: { msg?: string }) => e.msg ?? String(e)).join('; ');
+      } else {
+        message = rawText?.substring(0, 200) || `Request failed: ${response.statusText}`;
+      }
 
       throw new ApiError(message, response.status, data ?? { rawBody: rawText });
     }
