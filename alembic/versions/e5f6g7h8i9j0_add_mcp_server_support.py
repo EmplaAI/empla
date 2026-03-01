@@ -24,14 +24,14 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     # --- integrations table ---
 
-    # 1. Add integration_type column (default existing rows to oauth_provider)
+    # 1. Add integration_type column (default existing rows to 'api')
     op.add_column(
         "integrations",
         sa.Column(
             "integration_type",
             sa.String(30),
             nullable=False,
-            server_default=sa.text("'oauth_provider'"),
+            server_default=sa.text("'api'"),
         ),
     )
 
@@ -43,7 +43,7 @@ def upgrade() -> None:
     op.create_check_constraint(
         "ck_integrations_integration_type",
         "integrations",
-        "integration_type IN ('oauth_provider', 'mcp_server')",
+        "integration_type IN ('api', 'mcp')",
     )
 
     # 4. Add expanded auth_type CHECK (includes MCP auth types)
@@ -60,7 +60,7 @@ def upgrade() -> None:
         "integrations",
         ["tenant_id", "provider"],
         unique=True,
-        postgresql_where=sa.text("deleted_at IS NULL AND integration_type = 'oauth_provider'"),
+        postgresql_where=sa.text("deleted_at IS NULL AND integration_type = 'api'"),
     )
 
     # 6. Add unique index for MCP server names per tenant
@@ -69,7 +69,7 @@ def upgrade() -> None:
         "integrations",
         ["tenant_id", "provider"],
         unique=True,
-        postgresql_where=sa.text("deleted_at IS NULL AND integration_type = 'mcp_server'"),
+        postgresql_where=sa.text("deleted_at IS NULL AND integration_type = 'mcp'"),
     )
 
     # 7. Add index for tenant + integration_type
@@ -118,7 +118,7 @@ def upgrade() -> None:
     )
 
     # 11. Backfill existing rows
-    op.execute("UPDATE integrations SET integration_type = 'oauth_provider' WHERE integration_type IS NULL")
+    op.execute("UPDATE integrations SET integration_type = 'api' WHERE integration_type IS NULL")
 
 
 def downgrade() -> None:
@@ -126,7 +126,7 @@ def downgrade() -> None:
     conn = op.get_bind()
 
     mcp_integrations = conn.execute(
-        sa.text("SELECT COUNT(*) FROM integrations WHERE integration_type = 'mcp_server'")
+        sa.text("SELECT COUNT(*) FROM integrations WHERE integration_type = 'mcp'")
     ).scalar()
     if mcp_integrations:
         raise RuntimeError(
@@ -158,14 +158,14 @@ def downgrade() -> None:
     non_legacy_providers = conn.execute(
         sa.text(
             "SELECT COUNT(*) FROM integrations "
-            "WHERE integration_type = 'oauth_provider' "
+            "WHERE integration_type = 'api' "
             "AND (provider NOT IN ('google_workspace', 'microsoft_graph') "
             "     OR auth_type NOT IN ('user_oauth', 'service_account'))"
         )
     ).scalar()
     if non_legacy_providers:
         raise RuntimeError(
-            f"Cannot downgrade: {non_legacy_providers} oauth_provider integration(s) have non-legacy "
+            f"Cannot downgrade: {non_legacy_providers} api integration(s) have non-legacy "
             "provider or auth_type values. Correct these rows before downgrading."
         )
 

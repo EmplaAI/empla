@@ -268,10 +268,6 @@ async def _test_connection(
     credentials: dict | None,
 ) -> MCPServerTestResponse:
     """Connect to an MCP server temporarily, discover tools, disconnect."""
-    from empla.core.tools.mcp_bridge import MCPBridge, MCPServerConfig
-    from empla.core.tools.registry import ToolRegistry
-    from empla.services.integrations.mcp_service import build_auth_headers
-
     # Sanitize URL for logging (strip userinfo, query, fragment)
     safe_url: str | None = None
     if url:
@@ -287,15 +283,21 @@ async def _test_connection(
             "Save the server first, then complete the OAuth flow to test.",
         )
     if credentials and auth_type in ("api_key", "bearer_token"):
+        from empla.services.integrations.mcp_service import build_auth_headers
+
         try:
             headers = build_auth_headers(auth_type, credentials)
         except ValueError as e:
             return MCPServerTestResponse(success=False, error=str(e))
 
-    registry = ToolRegistry()
-    bridge = MCPBridge(registry)
-
+    bridge = None
     try:
+        from empla.core.tools.mcp_bridge import MCPBridge, MCPServerConfig
+        from empla.core.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        bridge = MCPBridge(registry)
+
         config = MCPServerConfig(
             name="__test__",
             transport=transport,
@@ -332,7 +334,8 @@ async def _test_connection(
         )
         return MCPServerTestResponse(success=False, error=f"Unexpected error: {type(e).__name__}")
     finally:
-        try:
-            await bridge.disconnect("__test__")
-        except Exception:
-            logger.warning("Error during cleanup after MCP test", exc_info=True)
+        if bridge is not None:
+            try:
+                await bridge.disconnect("__test__")
+            except Exception:
+                logger.warning("Error during cleanup after MCP test", exc_info=True)

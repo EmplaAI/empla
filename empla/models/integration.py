@@ -11,7 +11,7 @@ MCP server authentication, with application-level encryption for sensitive data.
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 from uuid import uuid4 as _uuid4
@@ -37,21 +37,21 @@ if TYPE_CHECKING:
     from empla.models.tenant import User
 
 
-class IntegrationProvider(str, Enum):
+class IntegrationProvider(StrEnum):
     """Supported integration providers."""
 
     GOOGLE_WORKSPACE = "google_workspace"
     MICROSOFT_GRAPH = "microsoft_graph"
 
 
-class IntegrationType(str, Enum):
+class IntegrationType(StrEnum):
     """Type of integration."""
 
-    OAUTH_PROVIDER = "oauth_provider"  # Traditional OAuth provider (Google, Microsoft)
-    MCP_SERVER = "mcp_server"  # External MCP server
+    API = "api"  # Custom API integration (REST, GraphQL — Google, Microsoft, etc.)
+    MCP = "mcp"  # MCP protocol server
 
 
-class IntegrationAuthType(str, Enum):
+class IntegrationAuthType(StrEnum):
     """Authentication type for integrations."""
 
     USER_OAUTH = "user_oauth"  # User consent flow (OAuth 2.0)
@@ -62,7 +62,7 @@ class IntegrationAuthType(str, Enum):
     NONE = "none"  # No authentication (MCP servers)
 
 
-class IntegrationStatus(str, Enum):
+class IntegrationStatus(StrEnum):
     """Integration status."""
 
     ACTIVE = "active"
@@ -70,7 +70,7 @@ class IntegrationStatus(str, Enum):
     REVOKED = "revoked"
 
 
-class CredentialStatus(str, Enum):
+class CredentialStatus(StrEnum):
     """
     Credential status.
 
@@ -91,7 +91,7 @@ class CredentialStatus(str, Enum):
     REVOCATION_FAILED = "revocation_failed"  # Provider revocation failed - token may still be valid
 
 
-class CredentialType(str, Enum):
+class CredentialType(StrEnum):
     """Credential type."""
 
     OAUTH_TOKENS = "oauth_tokens"
@@ -129,8 +129,8 @@ class Integration(TenantScopedModel):
     integration_type: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        server_default=text("'oauth_provider'"),
-        comment="Integration type (oauth_provider, mcp_server)",
+        server_default=text("'api'"),
+        comment="Integration type (api, mcp)",
     )
 
     # Identity
@@ -200,7 +200,7 @@ class Integration(TenantScopedModel):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "integration_type IN ('oauth_provider', 'mcp_server')",
+            "integration_type IN ('api', 'mcp')",
             name="ck_integrations_integration_type",
         ),
         CheckConstraint(
@@ -216,14 +216,14 @@ class Integration(TenantScopedModel):
             "tenant_id",
             "provider",
             unique=True,
-            postgresql_where=text("deleted_at IS NULL AND integration_type = 'oauth_provider'"),
+            postgresql_where=text("deleted_at IS NULL AND integration_type = 'api'"),
         ),
         Index(
             "idx_integrations_tenant_mcp_provider",
             "tenant_id",
             "provider",
             unique=True,
-            postgresql_where=text("deleted_at IS NULL AND integration_type = 'mcp_server'"),
+            postgresql_where=text("deleted_at IS NULL AND integration_type = 'mcp'"),
         ),
         Index(
             "idx_integrations_tenant_type",

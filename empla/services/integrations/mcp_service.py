@@ -2,7 +2,7 @@
 empla.services.integrations.mcp_service - MCP Server Integration Service
 
 CRUD operations for MCP server configurations stored as integrations.
-MCP servers are represented as Integration rows with integration_type='mcp_server'.
+MCP servers are represented as Integration rows with integration_type='mcp'.
 Credentials (API keys, bearer tokens, OAuth client secrets) are stored
 encrypted in IntegrationCredential with employee_id=NULL (tenant-level).
 """
@@ -78,7 +78,7 @@ class MCPIntegrationService:
             select(Integration)
             .where(
                 Integration.tenant_id == tenant_id,
-                Integration.integration_type == "mcp_server",
+                Integration.integration_type == "mcp",
                 Integration.deleted_at.is_(None),
             )
             .order_by(Integration.created_at.desc())
@@ -91,7 +91,7 @@ class MCPIntegrationService:
             select(Integration).where(
                 Integration.id == server_id,
                 Integration.tenant_id == tenant_id,
-                Integration.integration_type == "mcp_server",
+                Integration.integration_type == "mcp",
                 Integration.deleted_at.is_(None),
             )
         )
@@ -130,7 +130,7 @@ class MCPIntegrationService:
 
         integration = Integration(
             tenant_id=tenant_id,
-            integration_type="mcp_server",
+            integration_type="mcp",
             provider=name,
             auth_type=auth_type,
             display_name=display_name,
@@ -228,6 +228,8 @@ class MCPIntegrationService:
 
         if credentials is not None:
             effective_auth = auth_type or server.auth_type
+            if effective_auth == "none":
+                raise ValueError("Cannot provide credentials when auth_type is 'none'")
             await self._upsert_credential(server, effective_auth, credentials)
 
         await self.session.commit()
