@@ -56,6 +56,7 @@ from empla.services.integrations import (
     DecryptionError,
     IntegrationService,
     InvalidStateError,
+    NoKeysConfiguredError,
     OAuthService,
     PlatformOAuthAppService,
     RevocationError,
@@ -203,9 +204,13 @@ async def list_providers(
 
     Checks each provider's availability (platform app exists or tenant integration exists).
     """
-    platform_svc = _get_platform_service(db)
-    platform_apps = await platform_svc.list_apps()
-    platform_providers = {app.provider for app in platform_apps}
+    try:
+        platform_svc = _get_platform_service(db)
+        platform_apps = await platform_svc.list_apps()
+        platform_providers = {app.provider for app in platform_apps}
+    except NoKeysConfiguredError:
+        logger.warning("Encryption keys not configured — treating all platform apps as unavailable")
+        platform_providers: set[str] = set()
 
     # Get tenant integrations
     result = await db.execute(
