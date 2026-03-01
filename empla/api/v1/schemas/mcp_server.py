@@ -36,14 +36,14 @@ def _validate_url_safety(url: str) -> str:
     hostname_norm = hostname.lower().rstrip(".")
     try:
         ip = ipaddress.ip_address(hostname_norm)
+    except ValueError:
+        # Not an IP literal — treat as DNS name and check against blocklist
+        if hostname_norm in _BLOCKED_HOSTNAMES:
+            raise ValueError("Cannot connect to reserved hostnames") from None
+    else:
+        # Valid IP — check for private/internal ranges
         if ip.is_private or ip.is_loopback or ip.is_link_local:
             raise ValueError("Cannot connect to private/internal network addresses")
-    except ValueError as e:
-        if "Cannot connect" in str(e):
-            raise
-        # hostname is a DNS name, not an IP literal
-        if hostname_norm in _BLOCKED_HOSTNAMES:
-            raise ValueError("Cannot connect to reserved hostnames") from e
     return url
 
 

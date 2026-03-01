@@ -287,7 +287,10 @@ async def _test_connection(
             "Save the server first, then complete the OAuth flow to test.",
         )
     if credentials and auth_type in ("api_key", "bearer_token"):
-        headers = build_auth_headers(auth_type, credentials)
+        try:
+            headers = build_auth_headers(auth_type, credentials)
+        except ValueError as e:
+            return MCPServerTestResponse(success=False, error=str(e))
 
     config = MCPServerConfig(
         name="__test__",

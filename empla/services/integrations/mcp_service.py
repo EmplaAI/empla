@@ -427,19 +427,27 @@ class MCPIntegrationService:
                         server, [], error="Credential decryption failed"
                     )
                     continue
-                if cred_data:
-                    try:
-                        headers = build_auth_headers(server.auth_type, cred_data)
-                    except ValueError:
-                        logger.error(
-                            "Skipping MCP server due to malformed credentials",
-                            extra={"server_id": str(server.id), "name": server.provider},
-                            exc_info=True,
-                        )
-                        await self.update_discovered_tools(
-                            server, [], error="Credential data malformed"
-                        )
-                        continue
+                if not cred_data:
+                    logger.warning(
+                        "Skipping MCP server — no credentials stored for authenticated server",
+                        extra={"server_id": str(server.id), "name": server.provider},
+                    )
+                    await self.update_discovered_tools(
+                        server, [], error="No credentials stored for authenticated server"
+                    )
+                    continue
+                try:
+                    headers = build_auth_headers(server.auth_type, cred_data)
+                except ValueError:
+                    logger.error(
+                        "Skipping MCP server due to malformed credentials",
+                        extra={"server_id": str(server.id), "name": server.provider},
+                        exc_info=True,
+                    )
+                    await self.update_discovered_tools(
+                        server, [], error="Credential data malformed"
+                    )
+                    continue
 
             if headers:
                 entry["headers"] = headers

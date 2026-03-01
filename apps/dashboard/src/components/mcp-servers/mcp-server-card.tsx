@@ -102,7 +102,7 @@ export function MCPServerCard({ server, onEdit, onViewTools }: MCPServerCardProp
               <button
                 type="button"
                 onClick={() => onViewTools(server)}
-                className="flex items-center gap-1 text-primary hover:underline"
+                className="flex items-center gap-1 rounded text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
               >
                 <Wrench className="h-3 w-3" />
                 {toolCount} {toolCount === 1 ? 'tool' : 'tools'}
