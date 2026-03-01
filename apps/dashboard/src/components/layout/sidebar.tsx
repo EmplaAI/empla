@@ -39,7 +39,6 @@ const navItems = [
     label: 'Activity',
     href: '/activity',
     icon: Activity,
-    disabled: true,
   },
 ];
 
