@@ -192,7 +192,17 @@ async def run_employee(
         async with session_factory() as session:
             mcp_service = MCPIntegrationService(session, token_manager)
             raw_configs = await mcp_service.get_active_mcp_servers(tenant_id)
-        mcp_configs = [MCPServerConfig.model_validate(entry) for entry in raw_configs]
+        for entry in raw_configs:
+            try:
+                mcp_configs.append(MCPServerConfig.model_validate(entry))
+            except Exception as exc:
+                logger.warning(
+                    "Skipping invalid MCP server config for employee %s: %s — %s",
+                    employee_id,
+                    entry.get("name", "<unknown>"),
+                    exc,
+                    extra={"employee_id": str(employee_id), "tenant_id": str(tenant_id)},
+                )
         if mcp_configs:
             logger.info(
                 "Loaded %d MCP server config(s) for employee %s",
