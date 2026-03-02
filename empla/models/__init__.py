@@ -33,6 +33,7 @@ from empla.models.integration import (
     IntegrationOAuthState,
     IntegrationProvider,
     IntegrationStatus,
+    IntegrationType,
     PlatformOAuthApp,
 )
 from empla.models.memory import (
@@ -62,6 +63,7 @@ __all__ = [
     "IntegrationOAuthState",
     "IntegrationProvider",
     "IntegrationStatus",
+    "IntegrationType",
     "Metric",
     "PlatformOAuthApp",
     "ProceduralMemory",

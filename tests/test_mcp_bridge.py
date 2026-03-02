@@ -93,22 +93,24 @@ class TestMCPBridge:
             )
 
     async def test_connect_stdio_missing_command(self, bridge):
-        config = MCPServerConfig(
-            name="bad",
-            transport="stdio",
-        )
-        # This should fail because no command is provided
-        # But first it needs to import mcp - if mcp is not installed, ImportError
-        with pytest.raises((ValueError, ImportError)):
-            await bridge.connect(config)
+        # Validation now happens at construction time
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="stdio transport requires 'command'"):
+            MCPServerConfig(
+                name="bad",
+                transport="stdio",
+            )
 
     async def test_connect_http_missing_url(self, bridge):
-        config = MCPServerConfig(
-            name="bad",
-            transport="http",
-        )
-        with pytest.raises((ValueError, ImportError)):
-            await bridge.connect(config)
+        # Validation now happens at construction time
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="HTTP transport requires 'url'"):
+            MCPServerConfig(
+                name="bad",
+                transport="http",
+            )
 
     async def test_disconnect_unknown_server(self, bridge):
         # Should not raise, just log warning

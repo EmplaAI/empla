@@ -89,6 +89,18 @@ def _get_platform_service(db: DBSession) -> PlatformOAuthAppService:
     return PlatformOAuthAppService(db, token_manager)
 
 
+def _require_platform_service(db: DBSession) -> PlatformOAuthAppService:
+    """Get platform service, raising HTTP 503 if encryption keys are missing."""
+    try:
+        return _get_platform_service(db)
+    except NoKeysConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Encryption keys not configured. Platform OAuth apps require "
+            "ENCRYPTION_KEY_V1 and ENCRYPTION_KEY_ID environment variables.",
+        ) from e
+
+
 @router.get("", response_model=IntegrationListResponse)
 async def list_integrations(
     db: DBSession,
@@ -306,7 +318,8 @@ async def connect_provider(
 
     service = _get_integration_service(db)
     oauth_service = _get_oauth_service(db)
-    platform_svc = _get_platform_service(db)
+
+    platform_svc = _require_platform_service(db)
 
     # Check if Integration exists for tenant+provider
     existing = await service.get_integration(auth.tenant_id, data.provider)
@@ -534,7 +547,7 @@ async def list_platform_apps(
     auth: RequireAdmin,  # noqa: ARG001 — enforces admin via DI
 ) -> list[PlatformOAuthAppResponse]:
     """List all platform OAuth apps (admin only)."""
-    svc = _get_platform_service(db)
+    svc = _require_platform_service(db)
     apps = await svc.list_apps()
     return [PlatformOAuthAppResponse.model_validate(app) for app in apps]
 
@@ -550,7 +563,7 @@ async def create_platform_app(
     data: PlatformOAuthAppCreate,
 ) -> PlatformOAuthAppResponse:
     """Register a platform OAuth app (admin only)."""
-    svc = _get_platform_service(db)
+    svc = _require_platform_service(db)
 
     # Check for existing
     existing = await svc.get_app(data.provider)

@@ -94,6 +94,15 @@ export {
   useCredentials,
   useProviders,
   useRevokeCredential,
+  // MCP Servers
+  mcpServerKeys,
+  useCreateMCPServer,
+  useDeleteMCPServer,
+  useMCPServer,
+  useMCPServers,
+  useTestMCPServer,
+  useTestMCPServerConnection,
+  useUpdateMCPServer,
 } from './hooks';
 
 // Components
@@ -146,6 +155,15 @@ export type {
   IntegrationProvider,
   LifecycleStage,
   LoginResponse,
+  MCPAuthType,
+  MCPServer,
+  MCPServerCreate,
+  MCPServerStatus,
+  MCPServerTestRequest,
+  MCPServerTestResult,
+  MCPServerUpdate,
+  MCPToolInfo,
+  MCPTransport,
   PaginatedResponse,
   ProviderInfo,
 } from './types';
