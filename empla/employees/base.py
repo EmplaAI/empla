@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -892,7 +893,7 @@ class DigitalEmployee(ABC):
         identity = None
         try:
             identity = self._build_identity()
-        except Exception as e:
+        except (ValidationError, ValueError, TypeError) as e:
             logger.warning(
                 f"Failed to build identity for {self.config.name}, "
                 f"LLM prompts will use generic context: {e}",

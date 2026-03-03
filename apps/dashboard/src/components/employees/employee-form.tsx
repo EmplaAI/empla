@@ -66,13 +66,13 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
 
   // Pre-fill role description when role changes, but only if the current
   // value is empty or still matches the previous role's default.
-  // Skip auto-fill for "custom" role — user must provide their own description.
+  // For "custom" role, clear the stale default so the user starts fresh.
   useEffect(() => {
     if (selectedRole === prevRoleRef.current) return;
     const currentDesc = getValues('roleDescription') ?? '';
     const prevDefault = ROLE_DESCRIPTIONS[prevRoleRef.current] ?? '';
-    if (selectedRole !== 'custom' && (!currentDesc || currentDesc === prevDefault)) {
-      setValue('roleDescription', ROLE_DESCRIPTIONS[selectedRole] ?? '');
+    if (!currentDesc || currentDesc === prevDefault) {
+      setValue('roleDescription', selectedRole === 'custom' ? '' : (ROLE_DESCRIPTIONS[selectedRole] ?? ''));
     }
     prevRoleRef.current = selectedRole;
   }, [selectedRole, setValue, getValues]);

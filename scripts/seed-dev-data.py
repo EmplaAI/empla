@@ -31,7 +31,15 @@ logger = logging.getLogger(__name__)
 
 
 async def seed() -> None:
-    """Create dev tenant, admin user, and SalesAE employee if they don't exist."""
+    """Create dev tenant, admin user, and SalesAE employee if they don't exist.
+
+    Connects to the database configured via environment variables, creates
+    the required entities idempotently (skipping any that already exist),
+    and commits the transaction.
+
+    Raises:
+        Exception: Re-raises any database error after rolling back.
+    """
     async with get_db() as db:
         try:
             # Check if dev tenant already exists

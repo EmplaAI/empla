@@ -44,8 +44,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Re-add goal_type CHECK constraint and narrow column.
 
-    Migrates any non-standard goal types to 'achievement' and truncates
-    long values before narrowing the column and re-adding the constraint.
+    Replaces any non-standard goal_type values with 'achievement', narrows
+    the column to VARCHAR(20), and re-adds the CHECK constraint.
     """
     op.execute(
         "UPDATE employee_goals SET goal_type = 'achievement' "

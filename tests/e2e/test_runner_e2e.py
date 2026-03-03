@@ -157,7 +157,7 @@ class TestRunnerSmoke:
 
     @pytest.mark.asyncio
     async def test_sales_ae_runs_one_bdi_cycle_with_llm(
-        self, tenant_and_user: tuple[Tenant, User], db_cleanup: list[UUID]
+        self, tenant_and_user: tuple[Tenant, User]
     ) -> None:
         """
         Verify a SalesAE can start, run one BDI cycle, and stop cleanly.
@@ -214,9 +214,7 @@ class TestRunnerSmoke:
                 await employee.stop()
 
     @pytest.mark.asyncio
-    async def test_loop_llm_service_is_not_none(
-        self, tenant_and_user: tuple[Tenant, User], db_cleanup: list[UUID]
-    ) -> None:
+    async def test_loop_llm_service_is_not_none(self, tenant_and_user: tuple[Tenant, User]) -> None:
         """
         Directly verify that _init_loop wires llm_service into the loop.
 
@@ -254,7 +252,6 @@ class TestRunnerSmoke:
     async def test_freeform_goal_types_persisted_in_db(
         self,
         tenant_and_user: tuple[Tenant, User],
-        db_cleanup: list[UUID],
         shared_engine: AsyncEngine,
     ) -> None:
         """
@@ -314,7 +311,7 @@ class TestRunnerSmoke:
 
     @pytest.mark.asyncio
     async def test_employee_start_stop_lifecycle(
-        self, tenant_and_user: tuple[Tenant, User], db_cleanup: list[UUID]
+        self, tenant_and_user: tuple[Tenant, User]
     ) -> None:
         """Verify clean start → stop lifecycle with mocked LLM."""
         tenant, _ = tenant_and_user

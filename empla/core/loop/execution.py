@@ -313,6 +313,7 @@ class ProactiveExecutionLoop:
         self.llm_service = llm_service
         self._status_checker = status_checker
         self._hooks = hooks or HookRegistry()
+        self._identity = identity
         if identity is not None:
             self._identity_prompt: str | None = identity.to_system_prompt()
             logger.debug(
@@ -348,6 +349,27 @@ class ProactiveExecutionLoop:
                 "config": self.config.model_dump(),
             },
         )
+
+    async def _refresh_identity_prompt(self) -> None:
+        """Recompute _identity_prompt with current goals from the GoalSystem."""
+        if self._identity is None:
+            return
+        try:
+            active_goals = await self.goals.get_active_goals()
+            goals_data = [
+                {
+                    "description": getattr(g, "description", "Unknown goal"),
+                    "priority": getattr(g, "priority", "?"),
+                }
+                for g in active_goals
+            ]
+            self._identity.goals_summary = self._identity._format_goals(goals_data)
+            self._identity_prompt = self._identity.to_system_prompt()
+        except Exception:
+            logger.debug(
+                "Failed to refresh identity goals; using cached prompt",
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     async def start(self) -> None:
         """
@@ -681,6 +703,7 @@ class ProactiveExecutionLoop:
         """
         cycle_start = time.time()
         self.cycle_count += 1
+        await self._refresh_identity_prompt()
 
         logger.debug(
             f"Single cycle {self.cycle_count} starting",
@@ -1022,6 +1045,9 @@ class ProactiveExecutionLoop:
                     situation_analysis=situation_analysis,
                     active_goals=active_goals,
                 )
+                # Goals changed — refresh identity prompt so subsequent LLM calls
+                # reflect the current goal set.
+                await self._refresh_identity_prompt()
 
             # ============ STEP 4: Generate Plans for Goals Without Intentions ============
             await self._generate_plans_for_unplanned_goals(
@@ -1175,8 +1201,10 @@ Analyze this situation and provide recommendations."""
         try:
             await self.goals.rollback()
         except Exception:
-            logger.debug(
-                "Goals session rollback also failed", extra={"employee_id": str(self.employee.id)}
+            logger.error(
+                "Goals session rollback also failed",
+                extra={"employee_id": str(self.employee.id)},
+                exc_info=True,
             )
 
     async def _manage_goals_from_analysis(

@@ -97,8 +97,9 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
     const config: Record<string, unknown> = {
       ...((employee.config as Record<string, unknown>) ?? {}),
     };
-    if (data.roleDescription) {
-      config.role_description = data.roleDescription;
+    const trimmedDescription = data.roleDescription?.trim();
+    if (trimmedDescription) {
+      config.role_description = trimmedDescription;
     } else {
       delete config.role_description;
     }
