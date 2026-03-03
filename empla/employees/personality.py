@@ -222,25 +222,43 @@ class Personality(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Personality":
-        """Create from dictionary.
+        """Create a Personality from a dictionary.
 
-        Handles preset resolution: if ``data`` contains only a ``preset``
+        Handles preset resolution: if *data* contains only a ``preset``
         key, the matching pre-built template is returned.  Otherwise the
         dict is validated directly against the Personality schema.
 
+        Args:
+            data: Dictionary of personality fields, or ``{"preset": "<name>"}``
+                to load a pre-built template.
+
+        Returns:
+            A Personality instance.
+
         Raises:
-            TypeError: If *data* is not a dict.
+            TypeError: If *data* is not a dict or the preset value is not a string.
         """
         if not isinstance(data, dict):
             raise TypeError(f"Expected dict for Personality.from_dict, got {type(data).__name__}")
         if set(data.keys()) == {"preset"}:
-            return cls.from_preset(data["preset"])
+            preset_value = data["preset"]
+            if not isinstance(preset_value, str):
+                raise TypeError(f"Expected str for preset name, got {type(preset_value).__name__}")
+            return cls.from_preset(preset_value)
         return cls.model_validate(data)
 
     @classmethod
     def from_preset(cls, preset_name: str) -> "Personality":
-        """Return the pre-built Personality for *preset_name*, or default traits."""
-        # Import-time references aren't available yet; use lazy lookup.
+        """Return a deep copy of the pre-built Personality for a preset name.
+
+        Args:
+            preset_name: One of ``"sales_ae"``, ``"csm"``, or ``"pm"``.
+                Unknown names return default traits.
+
+        Returns:
+            A new Personality instance (deep-copied from the template, or
+            default-constructed for unknown presets).
+        """
         presets: dict[str, Personality] = {
             "sales_ae": SALES_AE_PERSONALITY,
             "csm": CSM_PERSONALITY,
