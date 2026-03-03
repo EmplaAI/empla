@@ -157,6 +157,7 @@ async def run_employee(
             if db_employee.personality is not None
             else None,
             goals=goal_configs,
+            role_description=db_config.get("role_description"),
             llm=LLMSettings(**(db_config.get("llm") or {})),
             loop=LoopSettings(**(db_config.get("loop") or {})),
             metadata=db_config.get("metadata") or {},

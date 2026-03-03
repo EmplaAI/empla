@@ -21,6 +21,7 @@ Example:
     ... )
 """
 
+import copy
 from enum import Enum
 from typing import Any
 
@@ -226,7 +227,12 @@ class Personality(BaseModel):
         Handles preset resolution: if ``data`` contains only a ``preset``
         key, the matching pre-built template is returned.  Otherwise the
         dict is validated directly against the Personality schema.
+
+        Raises:
+            TypeError: If *data* is not a dict.
         """
+        if not isinstance(data, dict):
+            raise TypeError(f"Expected dict for Personality.from_dict, got {type(data).__name__}")
         if set(data.keys()) == {"preset"}:
             return cls.from_preset(data["preset"])
         return cls.model_validate(data)
@@ -240,7 +246,8 @@ class Personality(BaseModel):
             "csm": CSM_PERSONALITY,
             "pm": PM_PERSONALITY,
         }
-        return presets.get(preset_name, cls())
+        preset = presets.get(preset_name)
+        return copy.deepcopy(preset) if preset is not None else cls()
 
 
 # Pre-built personality templates for common roles
