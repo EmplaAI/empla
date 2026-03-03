@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { PERSONALITY_PRESETS } from './constants';
+import { PERSONALITY_PRESETS, PERSONALITY_PRESET_VALUES } from './constants';
 
 const editSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(200),
@@ -32,7 +32,7 @@ const editSchema = z.object({
   lifecycleStage: z.enum(['shadow', 'supervised', 'autonomous'] as const),
   capabilities: z.string(),
   roleDescription: z.string().optional(),
-  personalityPreset: z.string().optional(),
+  personalityPreset: z.enum(PERSONALITY_PRESET_VALUES as unknown as [string, ...string[]]).optional(),
 });
 
 type EditFormData = z.infer<typeof editSchema>;
@@ -104,10 +104,10 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
       delete config.role_description;
     }
 
-    const personality: Record<string, unknown> | undefined =
+    const personality: Record<string, unknown> =
       data.personalityPreset && data.personalityPreset !== 'default'
         ? { preset: data.personalityPreset }
-        : undefined;
+        : {};
 
     try {
       await updateEmployee.mutateAsync({
@@ -118,7 +118,7 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
           lifecycleStage: data.lifecycleStage,
           capabilities,
           config,
-          ...(personality ? { personality } : {}),
+          personality,
         },
       });
 

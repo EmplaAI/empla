@@ -366,9 +366,10 @@ class ProactiveExecutionLoop:
             self._identity.goals_summary = self._identity._format_goals(goals_data)
             self._identity_prompt = self._identity.to_system_prompt()
         except Exception:
-            logger.debug(
+            logger.warning(
                 "Failed to refresh identity goals; using cached prompt",
                 extra={"employee_id": str(self.employee.id)},
+                exc_info=True,
             )
 
     async def start(self) -> None:
@@ -443,6 +444,7 @@ class ProactiveExecutionLoop:
             try:
                 cycle_start = time.time()
                 self.cycle_count += 1
+                await self._refresh_identity_prompt()
 
                 logger.debug(
                     f"Loop cycle {self.cycle_count} starting",

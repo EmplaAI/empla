@@ -16,3 +16,5 @@ export const PERSONALITY_PRESETS = [
   { value: 'pm', label: 'Product Manager' },
   { value: 'custom', label: 'Custom' },
 ] as const;
+
+export const PERSONALITY_PRESET_VALUES = PERSONALITY_PRESETS.map((p) => p.value);

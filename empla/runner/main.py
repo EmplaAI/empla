@@ -153,7 +153,7 @@ async def run_employee(
             email=db_employee.email,
             tenant_id=db_employee.tenant_id,
             capabilities=db_employee.capabilities,
-            personality=Personality(**db_employee.personality)
+            personality=Personality.from_dict(db_employee.personality)
             if db_employee.personality is not None
             else None,
             goals=goal_configs,

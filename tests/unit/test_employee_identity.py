@@ -79,6 +79,24 @@ class TestEmployeeIdentityBuild:
 
         assert identity.personality_prompt == "balanced and professional"
 
+    def test_build_whitespace_role_description_falls_back(self) -> None:
+        identity = EmployeeIdentity.build(
+            name="Test",
+            role="sales_ae",
+            role_description="   ",
+        )
+
+        assert identity.role_description == ROLE_DESCRIPTIONS["sales_ae"]
+
+    def test_build_whitespace_personality_prompt_falls_back(self) -> None:
+        identity = EmployeeIdentity.build(
+            name="Test",
+            role="csm",
+            personality_prompt="   ",
+        )
+
+        assert identity.personality_prompt == "balanced and professional"
+
 
 class TestEmployeeIdentityPrompt:
     """Tests for EmployeeIdentity.to_system_prompt()."""

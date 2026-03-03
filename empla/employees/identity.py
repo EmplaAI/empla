@@ -83,24 +83,43 @@ class EmployeeIdentity(BaseModel):
         """
         role_title = ROLE_TITLES.get(role, role.replace("_", " ").title())
 
-        effective_description = role_description or ROLE_DESCRIPTIONS.get(
+        stripped_desc = role_description.strip() if role_description else ""
+        effective_description = stripped_desc or ROLE_DESCRIPTIONS.get(
             role, f"You work as a {role_title}."
         )
 
         goals_summary = cls._format_goals(goals)
+
+        # Strip "Personality: " prefix if already present (Personality.to_system_prompt()
+        # includes it, but EmployeeIdentity.to_system_prompt() adds its own header).
+        stripped_personality = personality_prompt.strip() if personality_prompt else ""
+        effective_personality = stripped_personality or "balanced and professional"
+        if effective_personality.startswith("Personality: "):
+            effective_personality = effective_personality[len("Personality: ") :]
 
         return cls(
             name=name,
             role=role,
             role_title=role_title,
             role_description=effective_description,
-            personality_prompt=personality_prompt or "balanced and professional",
+            personality_prompt=effective_personality,
             goals_summary=goals_summary,
             capabilities=capabilities or [],
         )
 
     @staticmethod
     def _format_goals(goals: list[dict[str, object]] | None) -> str:
+        """Format goal dicts into a bullet-list string for LLM context.
+
+        Args:
+            goals: List of dicts, each with ``"description"`` (str) and
+                optionally ``"priority"`` (int, 1-10). ``None`` or empty
+                list yields a fallback message.
+
+        Returns:
+            Newline-separated string of ``- [priority/10] description``
+            lines, or ``"No specific goals set."`` when empty.
+        """
         if not goals:
             return "No specific goals set."
         lines = []

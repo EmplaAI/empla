@@ -252,7 +252,6 @@ class TestRunnerSmoke:
     async def test_freeform_goal_types_persisted_in_db(
         self,
         tenant_and_user: tuple[Tenant, User],
-        shared_engine: AsyncEngine,
     ) -> None:
         """
         Verify that goals with free-form types are actually persisted in the DB.

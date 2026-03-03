@@ -16,14 +16,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ROLE_DESCRIPTIONS, PERSONALITY_PRESETS } from './constants';
+import { ROLE_DESCRIPTIONS, PERSONALITY_PRESETS, PERSONALITY_PRESET_VALUES } from './constants';
 
 const formSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
   role: z.enum(['sales_ae', 'csm', 'pm', 'sdr', 'recruiter', 'custom'] as const),
   roleDescription: z.string().optional(),
-  personalityPreset: z.string().optional(),
+  personalityPreset: z.enum(PERSONALITY_PRESET_VALUES as unknown as [string, ...string[]]).optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;

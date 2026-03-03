@@ -223,6 +223,19 @@ class EmployeeConfig(BaseModel):
             raise ValueError("Employee role cannot be empty or whitespace only")
         return stripped
 
+    @field_validator("role_description")
+    @classmethod
+    def validate_role_description(cls, v: str | None) -> str | None:
+        """Strip whitespace; return None if empty; enforce max length."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped:
+            return None
+        if len(stripped) > 1000:
+            raise ValueError("Role description must be at most 1000 characters")
+        return stripped
+
     @field_validator("capabilities")
     @classmethod
     def validate_capabilities(cls, v: list[str]) -> list[str]:

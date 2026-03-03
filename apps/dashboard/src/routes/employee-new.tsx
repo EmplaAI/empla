@@ -18,8 +18,9 @@ export function EmployeeNewPage() {
   }) => {
     try {
       const config: Record<string, unknown> = {};
-      if (data.roleDescription) {
-        config.role_description = data.roleDescription;
+      const trimmedDescription = data.roleDescription?.trim();
+      if (trimmedDescription) {
+        config.role_description = trimmedDescription;
       }
 
       const personality: Record<string, unknown> | undefined =

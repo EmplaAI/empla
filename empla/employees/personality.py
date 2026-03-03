@@ -24,7 +24,7 @@ Example:
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Tone(str, Enum):
@@ -136,6 +136,8 @@ class Personality(BaseModel):
         decision_style: Decision-making preferences
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     # Big Five traits (0-1 scale)
     openness: float = Field(default=0.5, ge=0.0, le=1.0, description="Innovation vs tradition")
     conscientiousness: float = Field(
@@ -219,8 +221,26 @@ class Personality(BaseModel):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Personality":
-        """Create from dictionary."""
+        """Create from dictionary.
+
+        Handles preset resolution: if ``data`` contains only a ``preset``
+        key, the matching pre-built template is returned.  Otherwise the
+        dict is validated directly against the Personality schema.
+        """
+        if set(data.keys()) == {"preset"}:
+            return cls.from_preset(data["preset"])
         return cls.model_validate(data)
+
+    @classmethod
+    def from_preset(cls, preset_name: str) -> "Personality":
+        """Return the pre-built Personality for *preset_name*, or default traits."""
+        # Import-time references aren't available yet; use lazy lookup.
+        presets: dict[str, Personality] = {
+            "sales_ae": SALES_AE_PERSONALITY,
+            "csm": CSM_PERSONALITY,
+            "pm": PM_PERSONALITY,
+        }
+        return presets.get(preset_name, cls())
 
 
 # Pre-built personality templates for common roles
