@@ -879,6 +879,7 @@ class DigitalEmployee(ABC):
             intentions=self._intentions,  # type: ignore[arg-type]
             memory=self._memory,
             capability_registry=self._capabilities,
+            llm_service=self._llm,
             config=loop_config,
             status_checker=status_checker,
             hooks=self._hooks,

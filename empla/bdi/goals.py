@@ -53,6 +53,10 @@ class GoalSystem:
         self.employee_id = employee_id
         self.tenant_id = tenant_id
 
+    async def rollback(self) -> None:
+        """Rollback the underlying session after a failed operation."""
+        await self.session.rollback()
+
     async def add_goal(
         self,
         goal_type: str,
