@@ -143,6 +143,10 @@ class GoalSystemProtocol(Protocol):
         """Update goal priority"""
         ...
 
+    async def rollback(self) -> None:
+        """Rollback the underlying session after a failed operation."""
+        ...
+
 
 class IntentionStackProtocol(Protocol):
     """Protocol for IntentionStack component"""
@@ -1142,7 +1146,7 @@ Analyze this situation and provide recommendations."""
     async def _safe_rollback_goals(self) -> None:
         """Attempt to rollback the goals session after a failed flush."""
         try:
-            await self.goals.session.rollback()
+            await self.goals.rollback()
         except Exception:
             logger.debug(
                 "Goals session rollback also failed", extra={"employee_id": str(self.employee.id)}
