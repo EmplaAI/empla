@@ -193,6 +193,12 @@ class EmployeeConfig(BaseModel):
     # LLM settings
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
+    # Role description (overrides default for the role)
+    role_description: str | None = Field(
+        default=None,
+        description="Custom role description; overrides the built-in default for this role",
+    )
+
     # Additional config
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -235,11 +241,14 @@ class EmployeeConfig(BaseModel):
         - capabilities: Stored in employee.capabilities column
         - personality: Stored in employee.personality column
         """
-        return {
+        config: dict[str, Any] = {
             "loop": self.loop.model_dump(),
             "llm": self.llm.model_dump(),
             "metadata": self.metadata,
         }
+        if self.role_description is not None:
+            config["role_description"] = self.role_description
+        return config
 
     def to_db_personality(self) -> dict[str, Any]:
         """Convert personality to database-storable dict."""

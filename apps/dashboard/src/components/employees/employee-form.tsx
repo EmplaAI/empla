@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -6,6 +7,7 @@ import type { EmployeeRole } from '@empla/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -14,11 +16,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { ROLE_DESCRIPTIONS, PERSONALITY_PRESETS } from './constants';
 
 const formSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
   role: z.enum(['sales_ae', 'csm', 'pm', 'sdr', 'recruiter', 'custom'] as const),
+  roleDescription: z.string().optional(),
+  personalityPreset: z.string().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -43,6 +48,7 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
     handleSubmit,
     setValue,
     watch,
+    getValues,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -50,10 +56,26 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
       name: '',
       email: '',
       role: 'sales_ae',
+      roleDescription: ROLE_DESCRIPTIONS['sales_ae'] ?? '',
+      personalityPreset: 'default',
     },
   });
 
   const selectedRole = watch('role');
+  const prevRoleRef = useRef(selectedRole);
+
+  // Pre-fill role description when role changes, but only if the current
+  // value is empty or still matches the previous role's default.
+  // Skip auto-fill for "custom" role — user must provide their own description.
+  useEffect(() => {
+    if (selectedRole === prevRoleRef.current) return;
+    const currentDesc = getValues('roleDescription') ?? '';
+    const prevDefault = ROLE_DESCRIPTIONS[prevRoleRef.current] ?? '';
+    if (selectedRole !== 'custom' && (!currentDesc || currentDesc === prevDefault)) {
+      setValue('roleDescription', ROLE_DESCRIPTIONS[selectedRole] ?? '');
+    }
+    prevRoleRef.current = selectedRole;
+  }, [selectedRole, setValue, getValues]);
 
   const onFormSubmit = async (data: FormData) => {
     try {
@@ -137,10 +159,57 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
             )}
           </div>
 
-          {/* Role description */}
+          {/* Role summary */}
           <div className="rounded-lg border border-border bg-muted/30 p-4">
             <p className="text-sm text-muted-foreground">
               {roles.find((r) => r.value === selectedRole)?.description}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+        <CardHeader>
+          <CardTitle className="font-display">Identity & Personality</CardTitle>
+          <CardDescription>
+            Customize how this employee describes itself and behaves
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Role Description */}
+          <div className="space-y-2">
+            <Label htmlFor="roleDescription">Role Description</Label>
+            <Textarea
+              id="roleDescription"
+              placeholder="Describe what this employee does..."
+              className="bg-background/50 min-h-[100px]"
+              {...register('roleDescription')}
+            />
+            <p className="text-xs text-muted-foreground">
+              This description is included in every LLM prompt so the employee knows its purpose.
+            </p>
+          </div>
+
+          {/* Personality Preset */}
+          <div className="space-y-2">
+            <Label htmlFor="personalityPreset">Personality Preset</Label>
+            <Select
+              value={watch('personalityPreset') ?? 'default'}
+              onValueChange={(value) => setValue('personalityPreset', value)}
+            >
+              <SelectTrigger className="bg-background/50">
+                <SelectValue placeholder="Select a preset" />
+              </SelectTrigger>
+              <SelectContent>
+                {PERSONALITY_PRESETS.map((preset) => (
+                  <SelectItem key={preset.value} value={preset.value}>
+                    {preset.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Controls communication style, risk tolerance, and decision-making traits.
             </p>
           </div>
         </CardContent>

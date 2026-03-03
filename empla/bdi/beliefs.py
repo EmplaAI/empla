@@ -245,6 +245,7 @@ class BeliefSystem:
     async def update_beliefs(
         self,
         observations: list["Observation"],
+        identity_context: str | None = None,
     ) -> list[BeliefChangeResult]:
         """
         Update beliefs based on a list of observations.
@@ -254,6 +255,9 @@ class BeliefSystem:
 
         Args:
             observations: List of observations from perception phase
+            identity_context: Optional identity system prompt (name, role,
+                personality, goals) prepended to the LLM prompt for
+                personalized belief extraction.
 
         Returns:
             List of BeliefChangeResult objects indicating what beliefs changed
@@ -274,6 +278,7 @@ class BeliefSystem:
                 update_results = await self.extract_beliefs_from_observation(
                     observation=observation,
                     llm_service=self._llm_service,
+                    identity_context=identity_context,
                 )
 
                 # Convert BeliefUpdateResults to BeliefChangeResult objects
@@ -713,6 +718,7 @@ class BeliefSystem:
         self,
         observation: "Observation",
         llm_service: "LLMService",
+        identity_context: str | None = None,
     ) -> list[BeliefUpdateResult]:
         """
         Extract structured beliefs from an observation using LLM.
@@ -727,6 +733,8 @@ class BeliefSystem:
         Args:
             observation: Observation to extract beliefs from
             llm_service: LLM service for structured extraction
+            identity_context: Optional identity system prompt prepended to
+                the LLM prompt for personalized belief extraction.
 
         Returns:
             List of BeliefUpdateResult containing beliefs and update metadata
@@ -757,9 +765,7 @@ class BeliefSystem:
             meaningful beliefs. Raw unstructured text may need preprocessing.
         """
         # Build prompt for LLM
-        system_prompt = """You are an AI assistant helping a digital employee extract structured beliefs from observations.
-
-Your task: Analyze the observation and extract factual beliefs in Subject-Predicate-Object format.
+        base_instructions = """Extract structured beliefs from this observation in Subject-Predicate-Object format.
 
 Guidelines:
 1. Extract FACTUAL beliefs only (not assumptions or speculation)
@@ -780,6 +786,12 @@ Examples:
 - Subject: "John Smith", Predicate: "sentiment", Object: {"sentiment": "positive", "reason": "expressed enthusiasm"}
 - Subject: "Q4 Campaign", Predicate: "priority", Object: {"priority": "high", "deadline": "2025-12-31"}
 """
+
+        system_prompt = (
+            f"{identity_context}\n\n{base_instructions}"
+            if identity_context
+            else f"You are a digital employee.\n\n{base_instructions}"
+        )
 
         user_prompt = f"""Observation Type: {observation.observation_type}
 Source: {observation.source}
