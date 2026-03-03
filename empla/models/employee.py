@@ -212,9 +212,9 @@ class EmployeeGoal(TenantScopedModel):
 
     # Goal definition
     goal_type: Mapped[str] = mapped_column(
-        String(20),
+        String(50),
         nullable=False,
-        comment="Type of goal (achievement, maintenance, prevention)",
+        comment="Goal type label (e.g. achievement, opportunity, problem)",
     )
 
     description: Mapped[str] = mapped_column(
@@ -277,10 +277,6 @@ class EmployeeGoal(TenantScopedModel):
         CheckConstraint(
             "status IN ('active', 'in_progress', 'completed', 'abandoned', 'blocked')",
             name="ck_employee_goals_status",
-        ),
-        CheckConstraint(
-            "goal_type IN ('achievement', 'maintenance', 'prevention')",
-            name="ck_employee_goals_goal_type",
         ),
         Index(
             "idx_goals_employee",

@@ -1039,7 +1039,9 @@ class ProactiveExecutionLoop:
                 return enabled(self.employee.id)
             return []
         except Exception as e:
-            logger.debug(f"Failed to get capabilities: {e}")
+            logger.warning(
+                f"Failed to get capabilities: {e}", extra={"employee_id": str(self.employee.id)}
+            )
             return []
 
     async def _analyze_situation_with_llm(
@@ -1137,6 +1139,15 @@ Analyze this situation and provide recommendations."""
 
         return "\n".join(lines)
 
+    async def _safe_rollback_goals(self) -> None:
+        """Attempt to rollback the goals session after a failed flush."""
+        try:
+            await self.goals.session.rollback()
+        except Exception:
+            logger.debug(
+                "Goals session rollback also failed", extra={"employee_id": str(self.employee.id)}
+            )
+
     async def _manage_goals_from_analysis(
         self,
         situation_analysis: SituationAnalysis,
@@ -1162,7 +1173,15 @@ Analyze this situation and provide recommendations."""
                         extra={"employee_id": str(self.employee.id)},
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to create goal for opportunity: {e}")
+                    logger.error(
+                        f"Failed to create goal for opportunity: {e}",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                    # A failed flush invalidates the session — rollback
+                    # and stop trying to create more goals this cycle.
+                    await self._safe_rollback_goals()
+                    return
 
         # Create goals for critical problems
         for problem in situation_analysis.problems[:2]:  # Limit to top 2
@@ -1182,7 +1201,13 @@ Analyze this situation and provide recommendations."""
                         extra={"employee_id": str(self.employee.id)},
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to create goal for problem: {e}")
+                    logger.error(
+                        f"Failed to create goal for problem: {e}",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                    await self._safe_rollback_goals()
+                    return
 
     async def _generate_plans_for_unplanned_goals(
         self,
@@ -1192,7 +1217,7 @@ Analyze this situation and provide recommendations."""
     ) -> None:
         """Generate plans for goals that don't have intentions."""
         if not self.llm_service:
-            logger.debug("No LLM service, skipping plan generation")
+            logger.warning("No LLM service, skipping plan generation")
             return
 
         for goal in goals[:5]:  # Limit to top 5 goals
@@ -1205,7 +1230,12 @@ Analyze this situation and provide recommendations."""
                 existing_intentions = await self.intentions.get_intentions_for_goal(goal_id)
                 if existing_intentions:
                     continue  # Already has a plan
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"Failed to check existing intentions for goal {goal_id}: {e}",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
                 continue
 
             # Generate plan for this goal
@@ -1250,7 +1280,10 @@ Analyze this situation and provide recommendations."""
                     importance=0.6,
                 )
         except Exception as e:
-            logger.debug(f"Failed to record strategic planning episode: {e}")
+            logger.warning(
+                f"Failed to record strategic planning episode: {e}",
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     # ========================================================================
     # Phase 3: Intention Execution
@@ -1611,7 +1644,11 @@ Analyze this situation and provide recommendations."""
                     cap = get_cap(cap_type)
                     if cap:
                         return cap
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    f"Failed to get capability '{cap_type}': {e}",
+                    extra={"employee_id": str(self.employee.id)},
+                )
                 continue
 
         # Fallback: infer capability from action name
@@ -1634,8 +1671,11 @@ Analyze this situation and provide recommendations."""
                 get_cap = getattr(self.capability_registry, "get_capability", None)
                 if get_cap:
                     return get_cap(inferred_type)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"Failed to get inferred capability '{inferred_type}': {e}",
+                    extra={"employee_id": str(self.employee.id)},
+                )
 
         return None
 
@@ -1884,7 +1924,10 @@ Analyze this situation and provide recommendations."""
                     else 0.8,  # Failures more important to remember
                 )
         except Exception as e:
-            logger.debug(f"Failed to record execution episode: {e}")
+            logger.warning(
+                f"Failed to record execution episode: {e}",
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     async def _update_procedural_memory(self, result: IntentionResult) -> None:
         """Update procedural memory based on execution outcome."""
@@ -1937,7 +1980,10 @@ Analyze this situation and provide recommendations."""
                 )
 
         except Exception as e:
-            logger.debug(f"Failed to update procedural memory: {e}")
+            logger.warning(
+                f"Failed to update procedural memory: {e}",
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     async def _update_effectiveness_beliefs(self, result: IntentionResult) -> None:
         """Update beliefs about what actions are effective."""
@@ -1962,7 +2008,10 @@ Analyze this situation and provide recommendations."""
                     )
 
         except Exception as e:
-            logger.debug(f"Failed to update effectiveness beliefs: {e}")
+            logger.warning(
+                f"Failed to update effectiveness beliefs: {e}",
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     def should_run_deep_reflection(self) -> bool:
         """
@@ -2076,7 +2125,9 @@ Analyze this situation and provide recommendations."""
                     for ep in episodes
                 ]
         except Exception as e:
-            logger.debug(f"Failed to get recent episodes: {e}")
+            logger.warning(
+                f"Failed to get recent episodes: {e}", extra={"employee_id": str(self.employee.id)}
+            )
         return []
 
     async def _analyze_patterns_with_llm(
@@ -2129,7 +2180,9 @@ Analyze the patterns and provide brief recommendations."""
                 )
 
         except Exception as e:
-            logger.debug(f"LLM pattern analysis failed: {e}")
+            logger.warning(
+                f"LLM pattern analysis failed: {e}", extra={"employee_id": str(self.employee.id)}
+            )
 
     async def _maintain_memory_health(self) -> None:
         """Perform memory maintenance: reinforce and decay."""
@@ -2151,4 +2204,6 @@ Analyze the patterns and provide brief recommendations."""
                     extra={"employee_id": str(self.employee.id)},
                 )
         except Exception as e:
-            logger.debug(f"Memory maintenance failed: {e}")
+            logger.warning(
+                f"Memory maintenance failed: {e}", extra={"employee_id": str(self.employee.id)}
+            )
