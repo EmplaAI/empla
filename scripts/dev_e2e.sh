@@ -55,8 +55,7 @@ uv run uvicorn empla.api.main:app --reload --port 8000 &
 # Start dashboard if available
 if [ -d "apps/dashboard" ]; then
     echo -e "${GREEN}Starting dashboard on :3000...${NC}"
-    cd apps/dashboard && pnpm dev &
-    cd ../..
+    (cd apps/dashboard && pnpm dev) &
 fi
 
 echo -e "${GREEN}Ready! Open http://localhost:3000${NC}"

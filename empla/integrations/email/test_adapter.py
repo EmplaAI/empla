@@ -42,6 +42,8 @@ class TestEmailAdapter(EmailAdapter):
 
     async def initialize(self, credentials: dict[str, Any]) -> None:
         """Initialize HTTP client (no real auth needed for test server)."""
+        if self._client is not None:
+            await self._client.aclose()
         self._client = httpx.AsyncClient(base_url=self._base_url, timeout=10.0)
 
     @property
@@ -61,6 +63,8 @@ class TestEmailAdapter(EmailAdapter):
         params: dict[str, Any] = {"max_results": max_results}
         if unread_only:
             params["unread"] = "true"
+        if since is not None:
+            params["since"] = since.isoformat()
 
         resp = await self.client.get("/emails", params=params)
         resp.raise_for_status()

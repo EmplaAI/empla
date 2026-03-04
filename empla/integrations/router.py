@@ -16,6 +16,7 @@ Example:
     >>> router.get_tool_schemas()
 """
 
+import inspect
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -79,6 +80,9 @@ class IntegrationRouter:
             return
 
         if self._adapter_factory:
+            # Shut down existing adapter before creating a new one
+            if self._adapter is not None and hasattr(self._adapter, "shutdown"):
+                await self._adapter.shutdown()
             factory_kwargs = {k: v for k, v in config.items() if k != "credentials"}
             self._adapter = self._adapter_factory(**factory_kwargs)
             if hasattr(self._adapter, "initialize"):
@@ -88,6 +92,13 @@ class IntegrationRouter:
         """Connect to MCP server and discover tools."""
         from empla.core.tools.mcp_bridge import MCPBridge, MCPServerConfig
         from empla.core.tools.registry import ToolRegistry
+
+        # Disconnect existing MCP bridge if re-initializing
+        if hasattr(self, "_mcp_bridge"):
+            await self._mcp_bridge.disconnect_all()
+
+        # Clear previously discovered MCP tools to avoid duplicates
+        self._tools = [t for t in self._tools if t["func"] is not None]
 
         mcp_config = MCPServerConfig(name=self.name, **self._mcp_config)
 
@@ -147,6 +158,8 @@ class IntegrationRouter:
         """
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            if not inspect.iscoroutinefunction(func):
+                raise TypeError(f"Tool function '{func.__name__}' must be async (use 'async def')")
             tool_name = f"{self.name}.{name or func.__name__}"
             tool_desc = description or func.__doc__ or f"Tool: {tool_name}"
             schema = _build_parameters_schema(func)

@@ -861,6 +861,15 @@ class ProactiveExecutionLoop:
                         self.employee.id, tc.name, tc.arguments
                     )
                     result_output = result.output if hasattr(result, "output") else result
+                    result_error = getattr(result, "error", None)
+                    result_success = getattr(result, "success", True)
+
+                    obs_content: dict[str, Any] = {
+                        "tool_result": result_output,
+                        "arguments": tc.arguments,
+                    }
+                    if result_error:
+                        obs_content["error"] = result_error
 
                     observations.append(
                         Observation(
@@ -868,19 +877,19 @@ class ProactiveExecutionLoop:
                             tenant_id=self.employee.tenant_id,
                             observation_type=tc.name,
                             source=source,
-                            content={"tool_result": result_output, "arguments": tc.arguments},
+                            content=obs_content,
                             priority=5,
                             requires_action=False,
                         )
                     )
 
-                    result_content = json.dumps(
-                        {
-                            "success": getattr(result, "success", True),
-                            "output": result_output,
-                        },
-                        default=str,
-                    )
+                    result_payload: dict[str, Any] = {
+                        "success": result_success,
+                        "output": result_output,
+                    }
+                    if result_error:
+                        result_payload["error"] = result_error
+                    result_content = json.dumps(result_payload, default=str)
                 except Exception as e:
                     logger.error(
                         f"Tool call {tc.name} failed during perception: {e}",
@@ -945,7 +954,8 @@ class ProactiveExecutionLoop:
                 priority = getattr(g, "priority", "?")
                 lines.append(f"- [{priority}] {desc}")
             return "\n".join(lines)
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to format goals for perception: %s", e)
             return "Unable to load goals."
 
     async def _format_recent_beliefs_for_perception(self) -> str:
@@ -961,7 +971,8 @@ class ProactiveExecutionLoop:
                 confidence = getattr(b, "confidence", "?")
                 lines.append(f"- {subject}.{predicate} (confidence: {confidence})")
             return "\n".join(lines)
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to format beliefs for perception: %s", e)
             return "Unable to load beliefs."
 
     # ========================================================================
@@ -1677,11 +1688,12 @@ Analyze this situation and provide recommendations."""
         if self.tool_router:
             return await self._execute_step_via_tool_router(action_name, parameters, step_index)
 
-        # No tool router available
-        logger.debug("No tool router, simulating step success")
+        # No tool router available — step cannot actually execute
+        logger.warning("No tool router available, step cannot execute")
         return {
-            "success": True,
+            "success": False,
             "simulated": True,
+            "error": "No tool router available",
             "action": action_name,
             "step_index": step_index,
         }

@@ -470,8 +470,8 @@ class TestAgenticPerception:
             tool_schemas = tool_router.get_all_tool_schemas(mock_employee.id)
             result = await loop._perceive_agentic(tool_schemas)
 
-            # The LLM should have made at least one tool call
-            assert len(result.observations) >= 0  # LLM may or may not call tools
+            # Verify perception completed and returned a valid result
+            assert result.observations is not None
             assert result.perception_duration_ms >= 0
         finally:
             await llm_service.close()

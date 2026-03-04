@@ -103,11 +103,13 @@ SAMPLE_TOOL_SCHEMAS = [
 
 
 def _make_tool_router(
-    schemas: list[dict] = SAMPLE_TOOL_SCHEMAS,
+    schemas: list[dict] | None = None,
     execute_result: ActionResult | None = None,
     execute_side_effect: list | Exception | None = None,
 ) -> MagicMock:
     """Create a mock ToolRouter."""
+    if schemas is None:
+        schemas = SAMPLE_TOOL_SCHEMAS
     tool_router = MagicMock(spec=ToolRouter)
     tool_router.get_all_tool_schemas = MagicMock(return_value=schemas)
     if execute_side_effect is not None:

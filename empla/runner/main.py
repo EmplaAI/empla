@@ -28,7 +28,6 @@ from empla.employees.config import EmployeeConfig, GoalConfig, LLMSettings, Loop
 from empla.employees.personality import Personality
 from empla.employees.registry import get_employee_class
 from empla.integrations.email.tools import router as email_router_template
-from empla.integrations.router import IntegrationRouter
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
 from empla.runner.health import HealthServer
@@ -76,24 +75,13 @@ async def _setup_dev_integrations(employee: Any) -> None:
 
     Registers email (via test adapter), calendar, and CRM integrations
     backed by the test servers.
-    """
-    from empla.integrations.email.factory import create_email_adapter
 
-    # Email via test adapter
-    email_router = IntegrationRouter("email", adapter_factory=create_email_adapter)
-    # Re-register the tools from the template
-    for tool_info in email_router_template._tools:
-        # Rebind tool functions to the new router's adapter
-        email_router._tools.append(
-            {
-                "name": tool_info["name"],
-                "description": tool_info["description"],
-                "schema": tool_info["schema"],
-                "func": tool_info["func"],
-                "impl": None,
-            }
-        )
-    await email_router.initialize(
+    Uses the module-level email_router_template directly (tool functions
+    are closures over it), so we initialize that router with the test adapter.
+    """
+    # Initialize the template router with test adapter — the tool functions
+    # are closures over email_router_template.adapter, so this makes them work.
+    await email_router_template.initialize(
         {
             "provider": "test",
             "email_address": employee.email,
@@ -103,7 +91,7 @@ async def _setup_dev_integrations(employee: Any) -> None:
 
     # Register on the employee's tool router
     if employee._tool_router is not None:
-        employee._tool_router.register_integration(email_router)
+        employee._tool_router.register_integration(email_router_template)
         logger.info("Dev integrations registered: email (test)")
 
 

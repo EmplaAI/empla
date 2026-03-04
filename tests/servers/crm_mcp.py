@@ -84,7 +84,7 @@ def update_deal(
 ) -> dict[str, Any]:
     """Update a deal's stage or value."""
     if deal_id not in deals:
-        return {"error": f"Deal {deal_id} not found"}
+        raise ValueError(f"Deal {deal_id} not found")
     deal = deals[deal_id]
     if stage is not None:
         deal["stage"] = stage

@@ -36,8 +36,11 @@ TOOL_EVENT_MAP: dict[str, str] = {
     "email.forward_email": ActivityEventType.EMAIL_SENT,
     "email.get_unread_emails": ActivityEventType.EMAIL_RECEIVED,
     "calendar.create_event": ActivityEventType.MEETING_SCHEDULED,
+    "calendar.get_upcoming_events": ActivityEventType.CALENDAR_CHECKED,
+    "calendar.list_events": ActivityEventType.CALENDAR_CHECKED,
     "crm.create_deal": ActivityEventType.DEAL_CREATED,
     "crm.update_deal": ActivityEventType.DEAL_UPDATED,
+    "crm.get_pipeline_metrics": ActivityEventType.CRM_CHECKED,
 }
 
 
