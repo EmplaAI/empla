@@ -684,6 +684,7 @@ class IntentionStack:
         beliefs: list["Belief"],
         llm_service: "LLMService",
         capabilities: list[str] | None = None,
+        identity_context: str | None = None,
     ) -> list[EmployeeIntention]:
         """
         Generate a plan to achieve a goal using LLM.
@@ -698,6 +699,8 @@ class IntentionStack:
             beliefs: Current beliefs about the world (context for planning)
             llm_service: LLM service for plan generation
             capabilities: Available capabilities (None = use all employee capabilities)
+            identity_context: Optional identity system prompt prepended to
+                the LLM prompt for personalized plan generation.
 
         Returns:
             List of EmployeeIntentions that were created (in execution order)
@@ -728,9 +731,7 @@ class IntentionStack:
             and there's no learned strategy in procedural memory.
         """
         # Build comprehensive system prompt
-        system_prompt = """You are an AI assistant helping a digital employee generate an action plan to achieve a goal.
-
-Your task: Analyze the goal, current beliefs (context), and available capabilities, then generate a structured plan with multiple intentions.
+        base_instructions = """Analyze the goal, current beliefs (context), and available capabilities, then generate a structured plan with multiple intentions.
 
 Guidelines:
 1. Break down the goal into concrete, executable intentions
@@ -761,6 +762,12 @@ Examples:
   Plan: 1) Identify target accounts (tactic), 2) Launch outreach campaign (strategy)
   Dependencies: 2 depends on 1
 """
+
+        system_prompt = (
+            f"{identity_context}\n\n{base_instructions}"
+            if identity_context
+            else f"You are a digital employee.\n\n{base_instructions}"
+        )
 
         # Format beliefs for prompt
         beliefs_text = self._format_beliefs_for_prompt(beliefs)

@@ -16,7 +16,9 @@ Login credentials (dashboard):
 import asyncio
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -30,9 +32,24 @@ from empla.models.tenant import Tenant, User
 logger = logging.getLogger(__name__)
 
 
-async def seed() -> None:
-    """Create dev tenant, admin user, and SalesAE employee if they don't exist."""
-    async with get_db() as db:
+async def seed(
+    db_factory: Callable[..., Any] | None = None,
+) -> None:
+    """Create dev tenant, admin user, and SalesAE employee if they don't exist.
+
+    Connects to the database configured via environment variables, creates
+    the required entities idempotently (skipping any that already exist),
+    and commits the transaction.
+
+    Args:
+        db_factory: Async context-manager factory returning an ``AsyncSession``.
+            Defaults to :func:`empla.models.database.get_db`.
+
+    Raises:
+        Exception: Re-raises any database error after rolling back.
+    """
+    factory = db_factory or get_db
+    async with factory() as db:
         try:
             # Check if dev tenant already exists
             result = await db.execute(select(Tenant).where(Tenant.slug == "empla-dev"))
@@ -74,17 +91,19 @@ async def seed() -> None:
             else:
                 logger.info(f"User already exists: {user.name} ({user.email})")
 
-            # Check if SalesAE employee already exists
+            # Check if employee already exists (by tenant + email, not role)
             result = await db.execute(
                 select(Employee).where(
                     Employee.tenant_id == tenant.id,
-                    Employee.role == "sales_ae",
                     Employee.email == "jordan.chen@empla.dev",
                 )
             )
             employee = result.scalar_one_or_none()
 
-            if employee is None:
+            if employee is not None and employee.role != "sales_ae":
+                employee.role = "sales_ae"
+                logger.info(f"Updated employee role to sales_ae: {employee.name}")
+            elif employee is None:
                 employee = Employee(
                     tenant_id=tenant.id,
                     name="Jordan Chen",

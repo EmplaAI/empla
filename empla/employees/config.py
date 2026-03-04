@@ -193,6 +193,12 @@ class EmployeeConfig(BaseModel):
     # LLM settings
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
+    # Role description (overrides default for the role)
+    role_description: str | None = Field(
+        default=None,
+        description="Custom role description; overrides the built-in default for this role",
+    )
+
     # Additional config
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -217,6 +223,19 @@ class EmployeeConfig(BaseModel):
             raise ValueError("Employee role cannot be empty or whitespace only")
         return stripped
 
+    @field_validator("role_description")
+    @classmethod
+    def validate_role_description(cls, v: str | None) -> str | None:
+        """Strip whitespace; return None if empty; enforce max length."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped:
+            return None
+        if len(stripped) > 1000:
+            raise ValueError("Role description must be at most 1000 characters")
+        return stripped
+
     @field_validator("capabilities")
     @classmethod
     def validate_capabilities(cls, v: list[str]) -> list[str]:
@@ -235,11 +254,14 @@ class EmployeeConfig(BaseModel):
         - capabilities: Stored in employee.capabilities column
         - personality: Stored in employee.personality column
         """
-        return {
+        config: dict[str, Any] = {
             "loop": self.loop.model_dump(),
             "llm": self.llm.model_dump(),
             "metadata": self.metadata,
         }
+        if self.role_description is not None:
+            config["role_description"] = self.role_description
+        return config
 
     def to_db_personality(self) -> dict[str, Any]:
         """Convert personality to database-storable dict."""

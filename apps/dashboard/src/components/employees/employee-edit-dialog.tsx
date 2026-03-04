@@ -8,6 +8,7 @@ import { useUpdateEmployee, type Employee, type LifecycleStage } from '@empla/re
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -23,12 +24,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { PERSONALITY_PRESETS, PERSONALITY_PRESET_VALUES } from './constants';
 
 const editSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(200),
   email: z.string().email('Invalid email address'),
   lifecycleStage: z.enum(['shadow', 'supervised', 'autonomous'] as const),
   capabilities: z.string(),
+  roleDescription: z.string().optional(),
+  personalityPreset: z.enum(PERSONALITY_PRESET_VALUES as unknown as [string, ...string[]]).optional(),
 });
 
 type EditFormData = z.infer<typeof editSchema>;
@@ -62,6 +66,8 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
       email: employee.email,
       lifecycleStage: employee.lifecycleStage,
       capabilities: employee.capabilities.join(', '),
+      roleDescription: (employee.config as Record<string, unknown>)?.role_description as string ?? '',
+      personalityPreset: employee.personality?.preset as string ?? 'default',
     },
   });
 
@@ -73,6 +79,8 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
         email: employee.email,
         lifecycleStage: employee.lifecycleStage,
         capabilities: employee.capabilities.join(', '),
+        roleDescription: (employee.config as Record<string, unknown>)?.role_description as string ?? '',
+        personalityPreset: employee.personality?.preset as string ?? 'default',
       });
     }
     prevOpenRef.current = open;
@@ -86,6 +94,21 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
       .map((c) => c.trim())
       .filter(Boolean);
 
+    const config: Record<string, unknown> = {
+      ...((employee.config as Record<string, unknown>) ?? {}),
+    };
+    const trimmedDescription = data.roleDescription?.trim();
+    if (trimmedDescription) {
+      config.role_description = trimmedDescription;
+    } else {
+      delete config.role_description;
+    }
+
+    const personality: Record<string, unknown> =
+      data.personalityPreset && data.personalityPreset !== 'default'
+        ? { preset: data.personalityPreset }
+        : {};
+
     try {
       await updateEmployee.mutateAsync({
         id: employee.id,
@@ -94,6 +117,8 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
           email: data.email,
           lifecycleStage: data.lifecycleStage,
           capabilities,
+          config,
+          personality,
         },
       });
 
@@ -176,6 +201,40 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
               {...register('capabilities')}
             />
             <p className="text-xs text-muted-foreground">Comma-separated list</p>
+          </div>
+
+          {/* Role Description */}
+          <div className="space-y-2">
+            <Label htmlFor="edit-roleDescription">Role Description</Label>
+            <Textarea
+              id="edit-roleDescription"
+              placeholder="Describe what this employee does..."
+              className="bg-background/50 min-h-[80px]"
+              {...register('roleDescription')}
+            />
+            <p className="text-xs text-muted-foreground">
+              Included in every LLM prompt so the employee knows its purpose.
+            </p>
+          </div>
+
+          {/* Personality Preset */}
+          <div className="space-y-2">
+            <Label htmlFor="edit-personalityPreset">Personality Preset</Label>
+            <Select
+              value={watch('personalityPreset') ?? 'default'}
+              onValueChange={(value) => setValue('personalityPreset', value)}
+            >
+              <SelectTrigger id="edit-personalityPreset" className="bg-background/50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PERSONALITY_PRESETS.map((preset) => (
+                  <SelectItem key={preset.value} value={preset.value}>
+                    {preset.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <DialogFooter>

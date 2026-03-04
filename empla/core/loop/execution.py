@@ -38,6 +38,7 @@ from empla.core.loop.models import (
 from empla.models.employee import Employee
 
 if TYPE_CHECKING:
+    from empla.employees.identity import EmployeeIdentity
     from empla.llm import LLMService
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,9 @@ class BeliefChange(Protocol):
 class BeliefSystemProtocol(Protocol):
     """Protocol for BeliefSystem component"""
 
-    async def update_beliefs(self, observations: list[Observation]) -> list[BeliefChange]:
+    async def update_beliefs(
+        self, observations: list[Observation], identity_context: str | None = None
+    ) -> list[BeliefChange]:
         """Update beliefs based on observations"""
         ...
 
@@ -181,6 +184,7 @@ class IntentionStackProtocol(Protocol):
         beliefs: list[Any],
         llm_service: Any,
         capabilities: list[str] | None = None,
+        identity_context: str | None = None,
     ) -> list[Any]:
         """Generate a plan for a goal using LLM"""
         ...
@@ -269,6 +273,7 @@ class ProactiveExecutionLoop:
         status_checker: Callable[[Employee], Awaitable[None]] | None = None,
         hooks: HookRegistry | None = None,
         tool_router: ToolSourceProtocol | None = None,
+        identity: "EmployeeIdentity | None" = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
@@ -291,6 +296,9 @@ class ProactiveExecutionLoop:
             tool_router: Optional unified tool source that combines capabilities + standalone tools.
                 When provided, used for tool discovery and execution instead
                 of capability_registry directly.
+            identity: Optional EmployeeIdentity providing name, role, personality,
+                and goals context. When set, its system prompt is prepended to
+                every LLM call so the model knows who it is acting as.
 
         Notes:
             Initializes internal timing/state (cycle interval, error backoff, counters, and last-run timestamps) and logs startup metadata including whether a capability registry is present.
@@ -305,6 +313,19 @@ class ProactiveExecutionLoop:
         self.llm_service = llm_service
         self._status_checker = status_checker
         self._hooks = hooks or HookRegistry()
+        self._identity = identity
+        if identity is not None:
+            self._identity_prompt: str | None = identity.to_system_prompt()
+            logger.debug(
+                "Identity context loaded for LLM prompts",
+                extra={"employee_id": str(employee.id), "identity_role": identity.role},
+            )
+        else:
+            self._identity_prompt = None
+            logger.warning(
+                "No identity context provided; LLM calls will use generic prompts",
+                extra={"employee_id": str(employee.id)},
+            )
 
         # Configuration
         self.config = config or LoopConfig()
@@ -328,6 +349,28 @@ class ProactiveExecutionLoop:
                 "config": self.config.model_dump(),
             },
         )
+
+    async def _refresh_identity_prompt(self) -> None:
+        """Recompute _identity_prompt with current goals from the GoalSystem."""
+        if self._identity is None:
+            return
+        try:
+            active_goals = await self.goals.get_active_goals()
+            goals_data = [
+                {
+                    "description": getattr(g, "description", "Unknown goal"),
+                    "priority": getattr(g, "priority", "?"),
+                }
+                for g in active_goals
+            ]
+            self._identity.goals_summary = self._identity._format_goals(goals_data)
+            self._identity_prompt = self._identity.to_system_prompt()
+        except Exception:
+            logger.warning(
+                "Failed to refresh identity goals; using cached prompt",
+                extra={"employee_id": str(self.employee.id)},
+                exc_info=True,
+            )
 
     async def start(self) -> None:
         """
@@ -401,6 +444,7 @@ class ProactiveExecutionLoop:
             try:
                 cycle_start = time.time()
                 self.cycle_count += 1
+                await self._refresh_identity_prompt()
 
                 logger.debug(
                     f"Loop cycle {self.cycle_count} starting",
@@ -568,7 +612,9 @@ class ProactiveExecutionLoop:
             observations=perception_result.observations,
         )
 
-        changed_beliefs = await self.beliefs.update_beliefs(perception_result.observations)
+        changed_beliefs = await self.beliefs.update_beliefs(
+            perception_result.observations, identity_context=self._identity_prompt
+        )
 
         await self._hooks.emit(
             HOOK_AFTER_BELIEF_UPDATE,
@@ -659,6 +705,7 @@ class ProactiveExecutionLoop:
         """
         cycle_start = time.time()
         self.cycle_count += 1
+        await self._refresh_identity_prompt()
 
         logger.debug(
             f"Single cycle {self.cycle_count} starting",
@@ -1000,6 +1047,9 @@ class ProactiveExecutionLoop:
                     situation_analysis=situation_analysis,
                     active_goals=active_goals,
                 )
+                # Goals changed — refresh identity prompt so subsequent LLM calls
+                # reflect the current goal set.
+                await self._refresh_identity_prompt()
 
             # ============ STEP 4: Generate Plans for Goals Without Intentions ============
             await self._generate_plans_for_unplanned_goals(
@@ -1068,14 +1118,19 @@ class ProactiveExecutionLoop:
         beliefs_text = self._format_beliefs_for_llm(beliefs)
         goals_text = self._format_goals_for_llm(goals)
 
-        system_prompt = """You are an AI assistant analyzing the situation for a digital employee.
-Analyze their current beliefs (world model) and goals to identify:
+        base_prompt = """Analyze your current beliefs (world model) and goals to identify:
 1. Gaps between current state and desired outcomes
 2. Opportunities that could be pursued
 3. Problems requiring immediate attention
-4. What they should focus on next
+4. What you should focus on next
 
 Be specific and actionable in your analysis."""
+
+        system_prompt = (
+            f"{self._identity_prompt}\n\n{base_prompt}"
+            if self._identity_prompt
+            else f"You are a digital employee.\n\n{base_prompt}"
+        )
 
         user_prompt = f"""Current Beliefs (World Model):
 {beliefs_text}
@@ -1148,8 +1203,10 @@ Analyze this situation and provide recommendations."""
         try:
             await self.goals.rollback()
         except Exception:
-            logger.debug(
-                "Goals session rollback also failed", extra={"employee_id": str(self.employee.id)}
+            logger.error(
+                "Goals session rollback also failed",
+                extra={"employee_id": str(self.employee.id)},
+                exc_info=True,
             )
 
     async def _manage_goals_from_analysis(
@@ -1249,6 +1306,7 @@ Analyze this situation and provide recommendations."""
                     beliefs=beliefs,
                     llm_service=self.llm_service,
                     capabilities=capabilities,
+                    identity_context=self._identity_prompt,
                 )
                 if new_intentions:
                     logger.info(
@@ -1841,12 +1899,14 @@ Analyze this situation and provide recommendations."""
 
     def _build_execution_system_prompt(self) -> str:
         """Build system prompt for agentic execution."""
-        return (
-            "You are executing a task for a digital employee. "
+        execution_instructions = (
             "Use the available tools to accomplish the intention. "
             "Call tools as needed, adapt based on results, and stop when done. "
             "Be efficient — don't make unnecessary tool calls."
         )
+        if self._identity_prompt:
+            return f"{self._identity_prompt}\n\n{execution_instructions}"
+        return f"You are a digital employee. {execution_instructions}"
 
     def _build_intention_prompt(self, intention: Any) -> str:
         """Build user prompt from intention context."""
@@ -2150,11 +2210,17 @@ Analyze this situation and provide recommendations."""
             ]
         )
 
-        system_prompt = """You are analyzing a digital employee's recent execution history.
+        base_prompt = """Analyze your recent execution history.
 Identify patterns in what succeeded and failed. Focus on:
 1. Common factors in successes
 2. Common factors in failures
 3. Recommended improvements"""
+
+        system_prompt = (
+            f"{self._identity_prompt}\n\n{base_prompt}"
+            if self._identity_prompt
+            else f"You are a digital employee.\n\n{base_prompt}"
+        )
 
         user_prompt = f"""Recent execution history (success rate: {success_rate:.1%}):
 

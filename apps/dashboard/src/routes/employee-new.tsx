@@ -9,12 +9,31 @@ export function EmployeeNewPage() {
   const navigate = useNavigate();
   const createEmployee = useCreateEmployee();
 
-  const handleSubmit = async (data: { name: string; email: string; role: string }) => {
+  const handleSubmit = async (data: {
+    name: string;
+    email: string;
+    role: string;
+    roleDescription?: string;
+    personalityPreset?: string;
+  }) => {
     try {
+      const config: Record<string, unknown> = {};
+      const trimmedDescription = data.roleDescription?.trim();
+      if (trimmedDescription) {
+        config.role_description = trimmedDescription;
+      }
+
+      const personality: Record<string, unknown> | undefined =
+        data.personalityPreset && data.personalityPreset !== 'default'
+          ? { preset: data.personalityPreset }
+          : undefined;
+
       const employee = await createEmployee.mutateAsync({
         name: data.name,
         email: data.email,
         role: data.role as 'sales_ae' | 'csm' | 'pm' | 'sdr' | 'recruiter' | 'custom',
+        ...(Object.keys(config).length > 0 ? { config } : {}),
+        ...(personality ? { personality } : {}),
       });
 
       toast.success('Employee created', {

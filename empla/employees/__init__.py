@@ -73,6 +73,9 @@ from empla.employees.exceptions import (
     LLMGenerationError,
 )
 
+# Identity
+from empla.employees.identity import ROLE_DESCRIPTIONS, ROLE_TITLES, EmployeeIdentity
+
 # Personality
 from empla.employees.personality import (
     # Pre-built personalities
@@ -102,6 +105,8 @@ __all__ = [
     "CSM_PERSONALITY",
     "PM_DEFAULT_GOALS",
     "PM_PERSONALITY",
+    "ROLE_DESCRIPTIONS",
+    "ROLE_TITLES",
     "SALES_AE_DEFAULT_GOALS",
     "SALES_AE_PERSONALITY",
     "CommunicationStyle",
@@ -111,6 +116,7 @@ __all__ = [
     "EmployeeConfig",
     "EmployeeConfigError",
     "EmployeeError",
+    "EmployeeIdentity",
     "EmployeeNotStartedError",
     "EmployeeShutdownError",
     "EmployeeStartupError",

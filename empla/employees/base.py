@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -47,6 +48,7 @@ from empla.employees.exceptions import (
     EmployeeNotStartedError,
     EmployeeStartupError,
 )
+from empla.employees.identity import EmployeeIdentity
 from empla.employees.personality import Personality
 from empla.llm import LLMService
 from empla.models.database import get_engine, get_sessionmaker
@@ -847,6 +849,21 @@ class DigitalEmployee(ABC):
 
         logger.debug(f"Created {len(goals)} default goals")
 
+    def _build_identity(self) -> EmployeeIdentity:
+        """Build identity context from employee config for LLM prompts."""
+        goals_data = [
+            {"description": g.description, "priority": g.priority}
+            for g in (self.config.goals or self.default_goals)
+        ]
+        return EmployeeIdentity.build(
+            name=self.config.name,
+            role=self.config.role,
+            role_description=self.config.role_description,
+            personality_prompt=self.personality.to_system_prompt(),
+            goals=goals_data,
+            capabilities=self.config.capabilities or self.default_capabilities,
+        )
+
     async def _init_loop(
         self,
         status_checker: Callable[[EmployeeModel], Awaitable[None]] | None = None,
@@ -872,6 +889,17 @@ class DigitalEmployee(ABC):
             deep_reflection_interval_hours=self.config.loop.reflection_interval_hours,
         )
 
+        # Build identity context for LLM prompts
+        identity = None
+        try:
+            identity = self._build_identity()
+        except (ValidationError, ValueError, TypeError) as e:
+            logger.warning(
+                f"Failed to build identity for {self.config.name}, "
+                f"LLM prompts will use generic context: {e}",
+                extra={"employee_id": str(self._employee_id), "role": self.config.role},
+            )
+
         self._loop = ProactiveExecutionLoop(
             employee=self._db_employee,
             beliefs=self._beliefs,  # type: ignore[arg-type]
@@ -884,6 +912,7 @@ class DigitalEmployee(ABC):
             status_checker=status_checker,
             hooks=self._hooks,
             tool_router=self._tool_router,
+            identity=identity,
         )
 
         logger.debug("Initialized proactive loop with ToolRouter")
