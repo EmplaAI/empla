@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useUpdateEmployee, type Employee, type LifecycleStage } from '@empla/react';
+import { useUpdateEmployee, useRoles, type Employee, type LifecycleStage } from '@empla/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { PERSONALITY_PRESETS, PERSONALITY_PRESET_VALUES } from './constants';
+import { buildPersonalityPresets } from './constants';
 
 const editSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(200),
@@ -32,7 +32,7 @@ const editSchema = z.object({
   lifecycleStage: z.enum(['shadow', 'supervised', 'autonomous'] as const),
   capabilities: z.string(),
   roleDescription: z.string().optional(),
-  personalityPreset: z.enum(PERSONALITY_PRESET_VALUES as unknown as [string, ...string[]]).optional(),
+  personalityPreset: z.string().optional(),
 });
 
 type EditFormData = z.infer<typeof editSchema>;
@@ -51,6 +51,9 @@ interface EmployeeEditDialogProps {
 
 export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEditDialogProps) {
   const updateEmployee = useUpdateEmployee();
+  const { data: rolesData, isLoading: rolesLoading } = useRoles();
+  const apiRoles = rolesData?.roles ?? [];
+  const personalityPresets = useMemo(() => buildPersonalityPresets(apiRoles), [apiRoles]);
 
   const {
     register,
@@ -223,12 +226,13 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
             <Select
               value={watch('personalityPreset') ?? 'default'}
               onValueChange={(value) => setValue('personalityPreset', value)}
+              disabled={rolesLoading}
             >
               <SelectTrigger id="edit-personalityPreset" className="bg-background/50">
-                <SelectValue />
+                <SelectValue placeholder={rolesLoading ? 'Loading…' : undefined} />
               </SelectTrigger>
               <SelectContent>
-                {PERSONALITY_PRESETS.map((preset) => (
+                {personalityPresets.map((preset) => (
                   <SelectItem key={preset.value} value={preset.value}>
                     {preset.label}
                   </SelectItem>

@@ -4,9 +4,10 @@
  * List of employees with filtering, pagination, and optional controls.
  */
 
-import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, type CSSProperties, type ReactNode } from 'react';
 
 import { useEmployees } from '../hooks/useEmployees';
+import { useRoles } from '../hooks/useRoles';
 import type { Employee, EmployeeRole, EmployeeStatus } from '../types';
 
 import { EmployeeCard, EmployeeCardSkeleton } from './EmployeeCard';
@@ -324,14 +325,17 @@ export function EmployeeFilters({
     { value: 'terminated', label: 'Terminated' },
   ];
 
-  const roles: Array<{ value: EmployeeRole; label: string }> = [
-    { value: 'sales_ae', label: 'Sales AE' },
-    { value: 'csm', label: 'Customer Success' },
-    { value: 'pm', label: 'Product Manager' },
-    { value: 'sdr', label: 'Sales Development' },
-    { value: 'recruiter', label: 'Recruiter' },
-    { value: 'custom', label: 'Custom' },
-  ];
+  const { data: rolesData, isLoading: rolesLoading, isError: rolesError } = useRoles();
+  const roles = useMemo(() => {
+    if (!rolesData?.roles) {
+      return undefined;
+    }
+    const items: Array<{ value: EmployeeRole; label: string }> = rolesData.roles.map(
+      (r) => ({ value: r.code as EmployeeRole, label: r.title })
+    );
+    items.push({ value: 'custom', label: 'Custom' });
+    return items;
+  }, [rolesData]);
 
   return (
     <div className={className} style={containerStyle}>
@@ -352,9 +356,12 @@ export function EmployeeFilters({
         value={role || ''}
         onChange={(e) => onRoleChange?.(e.target.value as EmployeeRole || undefined)}
         style={selectStyle}
+        disabled={rolesLoading || rolesError}
       >
-        <option value="">All Roles</option>
-        {roles.map((r) => (
+        <option value="">
+          {rolesLoading ? 'Loading roles…' : rolesError ? 'Failed to load roles' : 'All Roles'}
+        </option>
+        {roles?.map((r) => (
           <option key={r.value} value={r.value}>
             {r.label}
           </option>

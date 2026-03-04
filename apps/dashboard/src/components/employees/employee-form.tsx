@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2 } from 'lucide-react';
-import type { EmployeeRole } from '@empla/react';
+import { useRoles } from '@empla/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,26 +16,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { ROLE_DESCRIPTIONS, PERSONALITY_PRESETS, PERSONALITY_PRESET_VALUES } from './constants';
+import { buildRoleDescriptions, buildPersonalityPresets } from './constants';
 
 const formSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
-  role: z.enum(['sales_ae', 'csm', 'pm', 'sdr', 'recruiter', 'custom'] as const),
+  role: z.string().min(1, 'Role is required'),
   roleDescription: z.string().optional(),
-  personalityPreset: z.enum(PERSONALITY_PRESET_VALUES as unknown as [string, ...string[]]).optional(),
+  personalityPreset: z.string().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
-
-const roles: { value: EmployeeRole; label: string; description: string }[] = [
-  { value: 'sales_ae', label: 'Sales AE', description: 'Account Executive for sales' },
-  { value: 'csm', label: 'Customer Success', description: 'Customer relationship manager' },
-  { value: 'pm', label: 'Product Manager', description: 'Product development lead' },
-  { value: 'sdr', label: 'Sales Development', description: 'Lead generation specialist' },
-  { value: 'recruiter', label: 'Recruiter', description: 'Talent acquisition' },
-  { value: 'custom', label: 'Custom', description: 'Custom role configuration' },
-];
 
 interface EmployeeFormProps {
   onSubmit: (data: FormData) => Promise<void>;
@@ -43,6 +34,23 @@ interface EmployeeFormProps {
 }
 
 export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
+  const { data: rolesData } = useRoles();
+  const apiRoles = rolesData?.roles ?? [];
+
+  const roleDescriptions = useMemo(() => buildRoleDescriptions(apiRoles), [apiRoles]);
+  const personalityPresets = useMemo(() => buildPersonalityPresets(apiRoles), [apiRoles]);
+
+  // Build role options from API, always include "custom" at the end
+  const roles = useMemo(() => {
+    const items = apiRoles.map((r) => ({
+      value: r.code,
+      label: r.title,
+      description: r.shortDescription,
+    }));
+    items.push({ value: 'custom', label: 'Custom', description: 'Custom role configuration' });
+    return items;
+  }, [apiRoles]);
+
   const {
     register,
     handleSubmit,
@@ -56,7 +64,7 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
       name: '',
       email: '',
       role: 'sales_ae',
-      roleDescription: ROLE_DESCRIPTIONS['sales_ae'] ?? '',
+      roleDescription: roleDescriptions['sales_ae'] ?? '',
       personalityPreset: 'default',
     },
   });
@@ -64,18 +72,31 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
   const selectedRole = watch('role');
   const prevRoleRef = useRef(selectedRole);
 
+  // Populate roleDescription once roleDescriptions loads from the API.
+  // Without this, the field is empty on first render because useForm
+  // defaultValues are evaluated before the async data arrives.
+  const initializedRef = useRef(false);
+  useEffect(() => {
+    if (initializedRef.current || !Object.keys(roleDescriptions).length) return;
+    const currentDesc = getValues('roleDescription') ?? '';
+    if (!currentDesc) {
+      setValue('roleDescription', roleDescriptions[selectedRole] ?? '');
+    }
+    initializedRef.current = true;
+  }, [roleDescriptions, selectedRole, getValues, setValue]);
+
   // Pre-fill role description when role changes, but only if the current
   // value is empty or still matches the previous role's default.
   // For "custom" role, clear the stale default so the user starts fresh.
   useEffect(() => {
     if (selectedRole === prevRoleRef.current) return;
     const currentDesc = getValues('roleDescription') ?? '';
-    const prevDefault = ROLE_DESCRIPTIONS[prevRoleRef.current] ?? '';
+    const prevDefault = roleDescriptions[prevRoleRef.current] ?? '';
     if (!currentDesc || currentDesc === prevDefault) {
-      setValue('roleDescription', selectedRole === 'custom' ? '' : (ROLE_DESCRIPTIONS[selectedRole] ?? ''));
+      setValue('roleDescription', selectedRole === 'custom' ? '' : (roleDescriptions[selectedRole] ?? ''));
     }
     prevRoleRef.current = selectedRole;
-  }, [selectedRole, setValue, getValues]);
+  }, [selectedRole, setValue, getValues, roleDescriptions]);
 
   const onFormSubmit = async (data: FormData) => {
     try {
@@ -139,7 +160,7 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
             <Label htmlFor="role">Role</Label>
             <Select
               value={selectedRole}
-              onValueChange={(value: EmployeeRole) => setValue('role', value)}
+              onValueChange={(value) => setValue('role', value)}
             >
               <SelectTrigger className="bg-background/50">
                 <SelectValue placeholder="Select a role" />
@@ -201,7 +222,7 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
                 <SelectValue placeholder="Select a preset" />
               </SelectTrigger>
               <SelectContent>
-                {PERSONALITY_PRESETS.map((preset) => (
+                {personalityPresets.map((preset) => (
                   <SelectItem key={preset.value} value={preset.value}>
                     {preset.label}
                   </SelectItem>

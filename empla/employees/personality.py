@@ -22,10 +22,13 @@ Example:
 """
 
 import copy
+import logging
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+logger = logging.getLogger(__name__)
 
 
 class Tone(str, Enum):
@@ -137,7 +140,7 @@ class Personality(BaseModel):
         decision_style: Decision-making preferences
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     # Big Five traits (0-1 scale)
     openness: float = Field(default=0.5, ge=0.0, le=1.0, description="Innovation vs tradition")
@@ -252,92 +255,44 @@ class Personality(BaseModel):
         """Return a deep copy of the pre-built Personality for a preset name.
 
         Args:
-            preset_name: One of ``"sales_ae"``, ``"csm"``, or ``"pm"``.
+            preset_name: A role code (e.g. ``"sales_ae"``, ``"csm"``, ``"pm"``).
                 Unknown names return default traits.
 
         Returns:
-            A new Personality instance (deep-copied from the template, or
-            default-constructed for unknown presets).
+            A new Personality instance (deep-copied from the catalog template,
+            or default-constructed for unknown presets).
         """
-        presets: dict[str, Personality] = {
-            "sales_ae": SALES_AE_PERSONALITY,
-            "csm": CSM_PERSONALITY,
-            "pm": PM_PERSONALITY,
-        }
-        preset = presets.get(preset_name)
-        return copy.deepcopy(preset) if preset is not None else cls()
+        from empla.employees.catalog import get_role
+
+        role = get_role(preset_name)
+        if role is None:
+            logger.warning("Unknown personality preset %r, returning defaults", preset_name)
+            return cls()
+        return copy.deepcopy(role.personality)
 
 
-# Pre-built personality templates for common roles
-SALES_AE_PERSONALITY = Personality(
-    openness=0.7,
-    conscientiousness=0.8,
-    extraversion=0.9,
-    agreeableness=0.6,
-    neuroticism=0.3,
-    communication=CommunicationStyle(
-        tone=Tone.ENTHUSIASTIC,
-        formality=Formality.PROFESSIONAL_CASUAL,
-        verbosity=Verbosity.BALANCED,
-    ),
-    decision_style=DecisionStyle(
-        risk_tolerance=0.7,
-        decision_speed=0.8,
-        data_vs_intuition=0.6,
-        collaborative=0.5,
-    ),
-    proactivity=0.9,
-    persistence=0.8,
-    attention_to_detail=0.6,
-)
-
-CSM_PERSONALITY = Personality(
-    openness=0.6,
-    conscientiousness=0.9,
-    extraversion=0.7,
-    agreeableness=0.9,
-    neuroticism=0.2,
-    communication=CommunicationStyle(
-        tone=Tone.SUPPORTIVE,
-        formality=Formality.PROFESSIONAL,
-        verbosity=Verbosity.DETAILED,
-    ),
-    decision_style=DecisionStyle(
-        risk_tolerance=0.4,
-        decision_speed=0.6,
-        data_vs_intuition=0.7,
-        collaborative=0.8,
-    ),
-    proactivity=0.8,
-    persistence=0.9,
-    attention_to_detail=0.8,
-)
-
-PM_PERSONALITY = Personality(
-    openness=0.8,
-    conscientiousness=0.8,
-    extraversion=0.6,
-    agreeableness=0.7,
-    neuroticism=0.3,
-    communication=CommunicationStyle(
-        tone=Tone.PROFESSIONAL,
-        formality=Formality.PROFESSIONAL,
-        verbosity=Verbosity.BALANCED,
-    ),
-    decision_style=DecisionStyle(
-        risk_tolerance=0.5,
-        decision_speed=0.5,
-        data_vs_intuition=0.7,
-        collaborative=0.7,
-    ),
-    proactivity=0.8,
-    persistence=0.7,
-    attention_to_detail=0.7,
-)
+# Backwards-compat aliases — prefer ROLE_CATALOG for new code.
+# These are lazily resolved to avoid a circular import
+# (config → personality → catalog → config).
+_COMPAT_ALIASES: dict[str, str] = {
+    "SALES_AE_PERSONALITY": "sales_ae",
+    "CSM_PERSONALITY": "csm",
+    "PM_PERSONALITY": "pm",
+}
 
 
-__all__ = [
-    # Templates
+def __getattr__(name: str) -> Any:
+    if name in _COMPAT_ALIASES:
+        from empla.employees.catalog import ROLE_CATALOG
+
+        role = ROLE_CATALOG.get(_COMPAT_ALIASES[name])
+        if role is None:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        return copy.deepcopy(role.personality)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [  # noqa: F822 — lazy attrs via __getattr__
     "CSM_PERSONALITY",
     "PM_PERSONALITY",
     "SALES_AE_PERSONALITY",

@@ -19,23 +19,15 @@ Example:
 
 from pydantic import BaseModel, Field
 
-# Human-readable titles for built-in roles
-ROLE_TITLES: dict[str, str] = {
-    "sales_ae": "Sales Account Executive",
-    "csm": "Customer Success Manager",
-    "pm": "Product Manager",
-    "sdr": "Sales Development Representative",
-    "recruiter": "Recruiter",
-}
+from empla.employees.catalog import (
+    ROLE_CATALOG,
+    get_role_description,
+    get_role_title,
+)
 
-# One-line descriptions for built-in roles
-ROLE_DESCRIPTIONS: dict[str, str] = {
-    "sales_ae": ("You build and manage sales pipeline, prospect new accounts, and close revenue."),
-    "csm": ("You ensure customer success through onboarding, health monitoring, and retention."),
-    "pm": ("You drive product strategy, prioritize features, and ship high-impact releases."),
-    "sdr": ("You generate qualified leads through outbound prospecting and inbound qualification."),
-    "recruiter": ("You source, screen, and hire top talent to build high-performing teams."),
-}
+# Backwards-compat re-exports (derived from catalog)
+ROLE_TITLES: dict[str, str] = {code: r.title for code, r in ROLE_CATALOG.items()}
+ROLE_DESCRIPTIONS: dict[str, str] = {code: r.description for code, r in ROLE_CATALOG.items()}
 
 
 class EmployeeIdentity(BaseModel):
@@ -81,12 +73,10 @@ class EmployeeIdentity(BaseModel):
             goals: List of dicts with at least "description" and optionally "priority".
             capabilities: List of capability names.
         """
-        role_title = ROLE_TITLES.get(role, role.replace("_", " ").title())
+        role_title = get_role_title(role)
 
         stripped_desc = role_description.strip() if role_description else ""
-        effective_description = stripped_desc or ROLE_DESCRIPTIONS.get(
-            role, f"You work as a {role_title}."
-        )
+        effective_description = stripped_desc or get_role_description(role)
 
         goals_summary = cls._format_goals(goals)
 

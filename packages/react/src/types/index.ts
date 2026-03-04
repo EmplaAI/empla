@@ -150,6 +150,23 @@ export interface LoginResponse {
 }
 
 // =========================================================================
+// Role Definition Types
+// =========================================================================
+
+/**
+ * Pre-defined employee role from the catalog API.
+ */
+export interface RoleDefinition {
+  code: string;
+  title: string;
+  description: string;
+  shortDescription: string;
+  defaultCapabilities: string[];
+  hasImplementation: boolean;
+  hasPersonalityPreset: boolean;
+}
+
+// =========================================================================
 // Integration Types
 // =========================================================================
 

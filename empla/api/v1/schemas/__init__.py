@@ -22,6 +22,10 @@ from empla.api.v1.schemas.integration import (
     IntegrationUpdate,
     ServiceAccountSetup,
 )
+from empla.api.v1.schemas.roles import (
+    RoleDefinitionResponse,
+    RoleListResponse,
+)
 
 __all__ = [
     "AuthorizationUrlRequest",
@@ -37,5 +41,7 @@ __all__ = [
     "IntegrationListResponse",
     "IntegrationResponse",
     "IntegrationUpdate",
+    "RoleDefinitionResponse",
+    "RoleListResponse",
     "ServiceAccountSetup",
 ]

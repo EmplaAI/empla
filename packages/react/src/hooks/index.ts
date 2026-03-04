@@ -29,6 +29,11 @@ export {
 } from './useIntegrations';
 
 export {
+  roleKeys,
+  useRoles,
+} from './useRoles';
+
+export {
   mcpServerKeys,
   useCreateMCPServer,
   useDeleteMCPServer,

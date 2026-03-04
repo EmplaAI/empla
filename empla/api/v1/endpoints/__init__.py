@@ -10,6 +10,7 @@ from empla.api.v1.endpoints import (
     employee_control,
     employees,
     integrations,
+    roles,
 )
 
-__all__ = ["activity", "auth", "employee_control", "employees", "integrations"]
+__all__ = ["activity", "auth", "employee_control", "employees", "integrations", "roles"]
