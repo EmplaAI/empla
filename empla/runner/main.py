@@ -16,6 +16,7 @@ import json
 import logging
 import signal
 import sys
+from typing import Any
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -26,6 +27,8 @@ from sqlalchemy.orm import selectinload
 from empla.employees.config import EmployeeConfig, GoalConfig, LLMSettings, LoopSettings
 from empla.employees.personality import Personality
 from empla.employees.registry import get_employee_class
+from empla.integrations.email.tools import router as email_router_template
+from empla.integrations.router import IntegrationRouter
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
 from empla.runner.health import HealthServer
@@ -68,10 +71,47 @@ async def _set_db_status(
         await session.commit()
 
 
+async def _setup_dev_integrations(employee: Any) -> None:
+    """Set up test integrations for --dev mode.
+
+    Registers email (via test adapter), calendar, and CRM integrations
+    backed by the test servers.
+    """
+    from empla.integrations.email.factory import create_email_adapter
+
+    # Email via test adapter
+    email_router = IntegrationRouter("email", adapter_factory=create_email_adapter)
+    # Re-register the tools from the template
+    for tool_info in email_router_template._tools:
+        # Rebind tool functions to the new router's adapter
+        email_router._tools.append(
+            {
+                "name": tool_info["name"],
+                "description": tool_info["description"],
+                "schema": tool_info["schema"],
+                "func": tool_info["func"],
+                "impl": None,
+            }
+        )
+    await email_router.initialize(
+        {
+            "provider": "test",
+            "email_address": employee.email,
+            "base_url": "http://localhost:9100",
+        }
+    )
+
+    # Register on the employee's tool router
+    if employee._tool_router is not None:
+        employee._tool_router.register_integration(email_router)
+        logger.info("Dev integrations registered: email (test)")
+
+
 async def run_employee(
     employee_id: UUID,
     tenant_id: UUID,
     health_port: int,
+    dev: bool = False,
 ) -> None:
     """
     Main entry point for running a single employee process.
@@ -80,6 +120,7 @@ async def run_employee(
         employee_id: UUID of the employee to run
         tenant_id: UUID of the tenant
         health_port: Port for the health check HTTP server
+        dev: If True, register test integrations (email, calendar, CRM)
     """
     logger.info(
         f"Starting employee runner: employee={employee_id}, tenant={tenant_id}, "
@@ -222,7 +263,10 @@ async def run_employee(
     try:
         # Start employee in a task so we can cancel on signal
         async def _run() -> None:
-            await employee.start(run_loop=True, status_checker=status_checker)
+            await employee.start(run_loop=False, status_checker=status_checker)
+            if dev:
+                await _setup_dev_integrations(employee)
+            await employee._run_loop()
 
         employee_task = asyncio.create_task(_run())
         signal_task = asyncio.create_task(stop_event.wait())

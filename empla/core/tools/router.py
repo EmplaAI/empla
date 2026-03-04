@@ -1,21 +1,17 @@
 """
 empla.core.tools.router - Unified Tool Router
 
-Drop-in wrapper that combines CapabilityRegistry + ToolRegistry behind the same
-interface the agentic execution loop already uses:
+Combines ToolRegistry + IntegrationRouters behind a single interface:
   - get_all_tool_schemas(employee_id)
   - execute_tool_call(employee_id, tool_name, arguments)
-  - perceive_all(employee_id)
-
-The loop code changes minimally — swap capability_registry for tool_router.
+  - get_enabled_capabilities(employee_id)
 """
 
 import logging
 from typing import Any
 from uuid import UUID
 
-from empla.capabilities.base import ActionResult, Observation
-from empla.capabilities.registry import CapabilityRegistry
+from empla.capabilities.base import ActionResult
 
 from .base import ToolImplementation
 from .registry import ToolRegistry
@@ -23,33 +19,98 @@ from .registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
+class _IntegrationToolImpl:
+    """Wraps an IntegrationRouter tool as a ToolImplementation."""
+
+    def __init__(self, router: Any, tool_name: str) -> None:
+        self._router = router
+        self._tool_name = tool_name
+
+    async def _execute(self, params: dict[str, Any]) -> Any:
+        return await self._router.execute_tool(self._tool_name, params)
+
+
 class ToolRouter:
     """
-    Unified interface that merges tools from CapabilityRegistry (heavyweight
-    capabilities) and ToolRegistry (lightweight @tool functions + MCP tools).
+    Unified interface that merges tools from ToolRegistry (standalone @tool
+    functions + MCP tools) and IntegrationRouters.
 
-    Provides the same interface the agentic loop calls:
+    Provides the interface the agentic loop calls:
     - get_all_tool_schemas(employee_id) -> list[dict]
     - execute_tool_call(employee_id, tool_name, arguments) -> ActionResult
-    - perceive_all(employee_id) -> list[Observation]
     - get_enabled_capabilities(employee_id) -> list[str]
 
     Example:
-        >>> router = ToolRouter(capability_registry, tool_registry)
+        >>> router = ToolRouter()
+        >>> router.register_integration(email_router)
         >>> schemas = router.get_all_tool_schemas(employee_id)
-        >>> result = await router.execute_tool_call(employee_id, "web_search", {"query": "AI"})
+        >>> result = await router.execute_tool_call(employee_id, "email.send_email", {...})
     """
 
     def __init__(
         self,
-        capability_registry: CapabilityRegistry,
         tool_registry: ToolRegistry | None = None,
     ) -> None:
-        self._capability_registry = capability_registry
         self._tool_registry = tool_registry if tool_registry is not None else ToolRegistry()
+        self._integrations: dict[str, Any] = {}
+
+    def register_integration(self, router: Any) -> None:
+        """Register all tools from an IntegrationRouter.
+
+        Tools are registered in the ToolRegistry so they appear in
+        get_all_tool_schemas() and can be executed via execute_tool_call().
+
+        Args:
+            router: IntegrationRouter instance with tool definitions.
+        """
+        from empla.core.tools.base import Tool
+
+        for tool_info in router._tools:
+            tool = Tool(
+                name=tool_info["name"],
+                description=tool_info["description"],
+                parameters_schema=tool_info["schema"],
+            )
+            impl = _IntegrationToolImpl(router, tool_info["name"])
+            self._tool_registry.register_tool(tool, impl)
+
+        self._integrations[router.name] = router
+        logger.info(
+            f"Registered integration '{router.name}' with {len(router._tools)} tools",
+            extra={"integration": router.name},
+        )
+
+    async def initialize_integrations(self, configs: dict[str, dict[str, Any]]) -> None:
+        """Initialize all registered integrations with their configs.
+
+        Args:
+            configs: Dict mapping integration name to config dict.
+                Only integrations with matching keys are initialized.
+        """
+        for name, router in self._integrations.items():
+            if name in configs:
+                try:
+                    await router.initialize(configs[name])
+                    logger.info(f"Initialized integration: {name}")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to initialize integration '{name}': {e}",
+                        exc_info=True,
+                    )
+
+    async def shutdown_integrations(self) -> None:
+        """Shutdown all registered integrations."""
+        for name, router in self._integrations.items():
+            try:
+                await router.shutdown()
+            except Exception as e:
+                logger.error(
+                    f"Error shutting down integration '{name}': {e}",
+                    exc_info=True,
+                )
 
     def get_all_tool_schemas(self, employee_id: UUID) -> list[dict[str, Any]]:
-        """Merge schemas from capabilities + standalone tools.
+        """Get all tool schemas from standalone tools + integrations.
 
         Args:
             employee_id: Employee to collect schemas for
@@ -57,21 +118,12 @@ class ToolRouter:
         Returns:
             Combined list of tool schemas for LLM function calling
         """
-        # Capability tools (email.send_email, workspace.read_file, etc.)
-        schemas = self._capability_registry.get_all_tool_schemas(employee_id)
-
-        # Standalone tools (web_search, enrich_company, MCP tools, etc.)
-        schemas.extend(self._tool_registry.get_all_tool_schemas())
-
-        return schemas
+        return self._tool_registry.get_all_tool_schemas()
 
     async def execute_tool_call(
         self, employee_id: UUID, tool_name: str, arguments: dict[str, Any]
     ) -> ActionResult:
-        """Route tool call to the right source.
-
-        Checks ToolRegistry first (standalone tools), then falls back to
-        CapabilityRegistry (capability-based tools with dotted names).
+        """Route tool call to the right implementation.
 
         Args:
             employee_id: Employee executing the tool call
@@ -81,7 +133,6 @@ class ToolRouter:
         Returns:
             ActionResult from execution
         """
-        # Check standalone tool registry first
         tool = self._tool_registry.get_tool_by_name(tool_name)
         if tool is not None:
             impl = self._tool_registry.get_implementation(tool.tool_id)
@@ -97,8 +148,10 @@ class ToolRouter:
                 error=f"Tool '{tool_name}' has no implementation",
             )
 
-        # Fall back to capability registry (dotted names like "email.send_email")
-        return await self._capability_registry.execute_tool_call(employee_id, tool_name, arguments)
+        return ActionResult(
+            success=False,
+            error=f"Unknown tool: {tool_name}",
+        )
 
     async def _execute_standalone_tool(
         self, tool_name: str, impl: ToolImplementation, arguments: dict[str, Any]
@@ -118,18 +171,11 @@ class ToolRouter:
                 error=f"{type(e).__name__}: {e}",
             )
 
-    async def perceive_all(self, employee_id: UUID) -> list[Observation]:
-        """Delegate perception to capability registry.
-
-        Standalone tools don't perceive — only capabilities do.
-        """
-        return await self._capability_registry.perceive_all(employee_id)
-
     def get_enabled_capabilities(self, employee_id: UUID) -> list[str]:
-        """Delegate to capability registry."""
-        return self._capability_registry.get_enabled_capabilities(employee_id)
+        """Return registered integration names."""
+        return list(self._integrations.keys())
 
     def __repr__(self) -> str:
-        cap_count = len(self._capability_registry.get_registered_types())
         tool_count = len(self._tool_registry)
-        return f"ToolRouter(capabilities={cap_count}, standalone_tools={tool_count})"
+        integration_count = len(self._integrations)
+        return f"ToolRouter(standalone_tools={tool_count}, integrations={integration_count})"

@@ -328,12 +328,10 @@ class TestMCPBridgeWithMocks:
 class TestMCPBridgeWithRouter:
     async def test_mcp_tools_appear_in_router(self):
         """Verify MCP-registered tools show up via ToolRouter."""
-        from empla.capabilities.registry import CapabilityRegistry
         from empla.core.tools.router import ToolRouter
 
-        cap_registry = CapabilityRegistry()
         tool_registry = ToolRegistry()
-        router = ToolRouter(cap_registry, tool_registry)
+        router = ToolRouter(tool_registry)
         bridge = MCPBridge(tool_registry)
 
         # Simulate registering MCP tools
@@ -360,12 +358,10 @@ class TestMCPBridgeWithRouter:
 
     async def test_mcp_tool_execution_through_router(self):
         """Verify MCP tools can be executed via ToolRouter."""
-        from empla.capabilities.registry import CapabilityRegistry
         from empla.core.tools.router import ToolRouter
 
-        cap_registry = CapabilityRegistry()
         tool_registry = ToolRegistry()
-        router = ToolRouter(cap_registry, tool_registry)
+        router = ToolRouter(tool_registry)
         bridge = MCPBridge(tool_registry)
 
         # Simulate an MCP tool
