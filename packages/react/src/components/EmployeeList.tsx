@@ -325,14 +325,17 @@ export function EmployeeFilters({
     { value: 'terminated', label: 'Terminated' },
   ];
 
-  const { data: rolesData } = useRoles();
+  const { data: rolesData, isLoading: rolesLoading } = useRoles();
   const roles = useMemo(() => {
-    const items: Array<{ value: EmployeeRole; label: string }> = (rolesData?.roles ?? []).map(
+    if (rolesLoading || !rolesData?.roles) {
+      return undefined;
+    }
+    const items: Array<{ value: EmployeeRole; label: string }> = rolesData.roles.map(
       (r) => ({ value: r.code as EmployeeRole, label: r.title })
     );
     items.push({ value: 'custom', label: 'Custom' });
     return items;
-  }, [rolesData]);
+  }, [rolesData, rolesLoading]);
 
   return (
     <div className={className} style={containerStyle}>
@@ -353,9 +356,10 @@ export function EmployeeFilters({
         value={role || ''}
         onChange={(e) => onRoleChange?.(e.target.value as EmployeeRole || undefined)}
         style={selectStyle}
+        disabled={!roles}
       >
-        <option value="">All Roles</option>
-        {roles.map((r) => (
+        <option value="">{roles ? 'All Roles' : 'Loading roles…'}</option>
+        {roles?.map((r) => (
           <option key={r.value} value={r.value}>
             {r.label}
           </option>

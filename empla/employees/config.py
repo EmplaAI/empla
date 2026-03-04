@@ -281,6 +281,18 @@ _GOAL_ALIASES: dict[str, str] = {
 
 
 def __getattr__(name: str) -> Any:
+    """Lazily resolve backwards-compat goal aliases from ``ROLE_CATALOG``.
+
+    Args:
+        name: Attribute name, e.g. ``"SALES_AE_DEFAULT_GOALS"``.
+
+    Returns:
+        A new ``list`` of ``GoalConfig`` from ``role.default_goals``.
+
+    Raises:
+        AttributeError: If *name* is not a known alias or the
+            corresponding role is missing from ``ROLE_CATALOG``.
+    """
     if name in _GOAL_ALIASES:
         from empla.employees.catalog import ROLE_CATALOG
 

@@ -1,6 +1,7 @@
 """Tests for empla.employees.catalog — Role Catalog (single source of truth)."""
 
 import pytest
+from pydantic import ValidationError
 
 from empla.employees.catalog import (
     ROLE_CATALOG,
@@ -36,7 +37,7 @@ class TestRoleCatalogStructure:
 
     def test_role_definition_is_frozen(self) -> None:
         role = ROLE_CATALOG["sales_ae"]
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             role.code = "modified"  # type: ignore[misc]
 
     def test_each_role_has_required_fields(self) -> None:

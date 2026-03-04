@@ -27,7 +27,8 @@ from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
 from empla.employees.personality import Personality
 
 _ROLE = get_role("csm")
-assert _ROLE is not None, "csm role missing from ROLE_CATALOG"
+if _ROLE is None:
+    raise RuntimeError("csm role missing from ROLE_CATALOG")
 
 logger = logging.getLogger(__name__)
 

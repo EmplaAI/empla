@@ -34,7 +34,8 @@ from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
 from empla.employees.personality import Personality
 
 _ROLE = get_role("sales_ae")
-assert _ROLE is not None, "sales_ae role missing from ROLE_CATALOG"
+if _ROLE is None:
+    raise RuntimeError("sales_ae role missing from ROLE_CATALOG")
 
 logger = logging.getLogger(__name__)
 

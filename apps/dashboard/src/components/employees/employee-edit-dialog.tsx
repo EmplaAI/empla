@@ -51,7 +51,7 @@ interface EmployeeEditDialogProps {
 
 export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEditDialogProps) {
   const updateEmployee = useUpdateEmployee();
-  const { data: rolesData } = useRoles();
+  const { data: rolesData, isLoading: rolesLoading } = useRoles();
   const apiRoles = rolesData?.roles ?? [];
   const personalityPresets = useMemo(() => buildPersonalityPresets(apiRoles), [apiRoles]);
 
@@ -226,9 +226,10 @@ export function EmployeeEditDialog({ employee, open, onOpenChange }: EmployeeEdi
             <Select
               value={watch('personalityPreset') ?? 'default'}
               onValueChange={(value) => setValue('personalityPreset', value)}
+              disabled={rolesLoading}
             >
               <SelectTrigger id="edit-personalityPreset" className="bg-background/50">
-                <SelectValue />
+                <SelectValue placeholder={rolesLoading ? 'Loading…' : undefined} />
               </SelectTrigger>
               <SelectContent>
                 {personalityPresets.map((preset) => (

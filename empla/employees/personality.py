@@ -140,7 +140,7 @@ class Personality(BaseModel):
         decision_style: Decision-making preferences
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     # Big Five traits (0-1 scale)
     openness: float = Field(default=0.5, ge=0.0, le=1.0, description="Innovation vs tradition")
