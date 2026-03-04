@@ -23,12 +23,18 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from empla.core.tools.mcp_bridge import MCPServerConfig
 from empla.employees.config import EmployeeConfig, GoalConfig, LLMSettings, LoopSettings
 from empla.employees.personality import Personality
 from empla.employees.registry import get_employee_class
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
 from empla.runner.health import HealthServer
+from empla.services.integrations import (
+    MCPIntegrationService,
+    NoKeysConfiguredError,
+    get_token_manager,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +186,45 @@ async def run_employee(
 
     employee = employee_class(config)
 
+    # Load MCP server configs from DB
+    mcp_configs: list[MCPServerConfig] = []
+    try:
+        token_manager = get_token_manager()
+        async with session_factory() as session:
+            mcp_service = MCPIntegrationService(session, token_manager)
+            raw_configs = await mcp_service.get_active_mcp_servers(tenant_id)
+        for entry in raw_configs:
+            try:
+                mcp_configs.append(MCPServerConfig.model_validate(entry))
+            except Exception as exc:
+                logger.warning(
+                    "Skipping invalid MCP server config for employee %s: %s — %s",
+                    employee_id,
+                    entry.get("name", "<unknown>"),
+                    exc,
+                    extra={"employee_id": str(employee_id), "tenant_id": str(tenant_id)},
+                )
+        if mcp_configs:
+            logger.info(
+                "Loaded %d MCP server config(s) for employee %s",
+                len(mcp_configs),
+                employee_id,
+                extra={"employee_id": str(employee_id), "tenant_id": str(tenant_id)},
+            )
+    except NoKeysConfiguredError:
+        logger.warning(
+            "No encryption keys configured — skipping MCP server loading for employee %s",
+            employee_id,
+            extra={"employee_id": str(employee_id), "tenant_id": str(tenant_id)},
+        )
+    except Exception:
+        logger.warning(
+            "Failed to load MCP server configs for employee %s, starting without MCP tools",
+            employee_id,
+            exc_info=True,
+            extra={"employee_id": str(employee_id), "tenant_id": str(tenant_id)},
+        )
+
     # Start health server
     health = HealthServer(employee_id=employee_id, port=health_port)
     await health.start()
@@ -222,7 +267,11 @@ async def run_employee(
     try:
         # Start employee in a task so we can cancel on signal
         async def _run() -> None:
-            await employee.start(run_loop=True, status_checker=status_checker)
+            await employee.start(
+                run_loop=True,
+                status_checker=status_checker,
+                mcp_configs=mcp_configs or None,
+            )
 
         employee_task = asyncio.create_task(_run())
         signal_task = asyncio.create_task(stop_event.wait())
