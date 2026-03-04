@@ -94,6 +94,9 @@ export {
   useCredentials,
   useProviders,
   useRevokeCredential,
+  // Roles
+  roleKeys,
+  useRoles,
   // MCP Servers
   mcpServerKeys,
   useCreateMCPServer,
@@ -166,6 +169,7 @@ export type {
   MCPTransport,
   PaginatedResponse,
   ProviderInfo,
+  RoleDefinition,
 } from './types';
 
 // API Client (for advanced usage)

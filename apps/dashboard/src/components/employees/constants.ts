@@ -1,20 +1,35 @@
-// Default role descriptions matching the backend ROLE_DESCRIPTIONS
-export const ROLE_DESCRIPTIONS: Record<string, string> = {
-  sales_ae:
-    'You build and manage sales pipeline, prospect new accounts, and close revenue.',
-  csm: 'You ensure customer success through onboarding, health monitoring, and retention.',
-  pm: 'You drive product strategy, prioritize features, and ship high-impact releases.',
-  sdr: 'You generate qualified leads through outbound prospecting and inbound qualification.',
-  recruiter:
-    'You source, screen, and hire top talent to build high-performing teams.',
-};
+// Static UI constants that don't come from the API.
+// Role data (descriptions, personality presets) is now served by GET /v1/roles
+// and consumed via the useRoles() hook.
 
-export const PERSONALITY_PRESETS = [
-  { value: 'default', label: 'Role Default' },
-  { value: 'sales_ae', label: 'Sales AE' },
-  { value: 'csm', label: 'Customer Success' },
-  { value: 'pm', label: 'Product Manager' },
-  { value: 'custom', label: 'Custom' },
-] as const;
+import type { RoleDefinition } from '@empla/react';
 
-export const PERSONALITY_PRESET_VALUES = PERSONALITY_PRESETS.map((p) => p.value);
+/**
+ * Build a role-description lookup map from API role data.
+ */
+export function buildRoleDescriptions(roles: RoleDefinition[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const r of roles) {
+    map[r.code] = r.description;
+  }
+  return map;
+}
+
+/**
+ * Build personality preset options from API role data.
+ * Includes "default" and "custom" bookends plus every role that has a preset.
+ */
+export function buildPersonalityPresets(
+  roles: RoleDefinition[],
+): { value: string; label: string }[] {
+  const presets: { value: string; label: string }[] = [
+    { value: 'default', label: 'Role Default' },
+  ];
+  for (const r of roles) {
+    if (r.hasPersonalityPreset) {
+      presets.push({ value: r.code, label: r.title });
+    }
+  }
+  presets.push({ value: 'custom', label: 'Custom' });
+  return presets;
+}

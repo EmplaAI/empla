@@ -50,6 +50,9 @@ Quick Start:
 # Base classes
 from empla.employees.base import DigitalEmployee, MemorySystem
 
+# Catalog (single source of truth for roles)
+from empla.employees.catalog import ROLE_CATALOG, RoleDefinition, get_role, list_roles
+
 # Configuration
 from empla.employees.config import (
     # Default goals
@@ -105,6 +108,7 @@ __all__ = [
     "CSM_PERSONALITY",
     "PM_DEFAULT_GOALS",
     "PM_PERSONALITY",
+    "ROLE_CATALOG",
     "ROLE_DESCRIPTIONS",
     "ROLE_TITLES",
     "SALES_AE_DEFAULT_GOALS",
@@ -127,9 +131,12 @@ __all__ = [
     "LoopSettings",
     "MemorySystem",
     "Personality",
+    "RoleDefinition",
     "SalesAE",
     "Tone",
     "Verbosity",
     "get_employee_class",
+    "get_role",
     "get_supported_roles",
+    "list_roles",
 ]

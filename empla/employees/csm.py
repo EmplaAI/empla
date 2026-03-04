@@ -16,13 +16,18 @@ Example:
     >>> await employee.start()
 """
 
+import copy
 import logging
 from typing import Any
 
 from empla.employees.base import DigitalEmployee
-from empla.employees.config import CSM_DEFAULT_GOALS, GoalConfig
+from empla.employees.catalog import get_role
+from empla.employees.config import GoalConfig
 from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
-from empla.employees.personality import CSM_PERSONALITY, Personality
+from empla.employees.personality import Personality
+
+_ROLE = get_role("csm")
+assert _ROLE is not None, "csm role missing from ROLE_CATALOG"
 
 logger = logging.getLogger(__name__)
 
@@ -66,17 +71,17 @@ class CustomerSuccessManager(DigitalEmployee):
     @property
     def default_personality(self) -> Personality:
         """CSM personality profile."""
-        return CSM_PERSONALITY
+        return copy.deepcopy(_ROLE.personality)
 
     @property
     def default_goals(self) -> list[GoalConfig]:
         """Default goals for CSM."""
-        return CSM_DEFAULT_GOALS
+        return list(_ROLE.default_goals)
 
     @property
     def default_capabilities(self) -> list[str]:
         """Default capabilities for CSM."""
-        return ["email", "calendar", "crm"]
+        return list(_ROLE.default_capabilities)
 
     async def on_start(self) -> None:
         """

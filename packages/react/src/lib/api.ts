@@ -26,6 +26,7 @@ import type {
   MCPServerUpdate,
   PaginatedResponse,
   ProviderInfo,
+  RoleDefinition,
 } from '../types';
 
 /**
@@ -187,6 +188,36 @@ export function createApiClient(config: ApiClientConfig) {
       userName: response.user_name,
       tenantName: response.tenant_name,
       role: response.role,
+    };
+  }
+
+  // =========================================================================
+  // Role Endpoints
+  // =========================================================================
+
+  async function listRoles(): Promise<{ roles: RoleDefinition[] }> {
+    const response = await request<{
+      roles: Array<{
+        code: string;
+        title: string;
+        description: string;
+        short_description: string;
+        default_capabilities: string[];
+        has_implementation: boolean;
+        has_personality_preset: boolean;
+      }>;
+    }>('/v1/roles');
+
+    return {
+      roles: response.roles.map((r) => ({
+        code: r.code,
+        title: r.title,
+        description: r.description,
+        shortDescription: r.short_description,
+        defaultCapabilities: r.default_capabilities,
+        hasImplementation: r.has_implementation,
+        hasPersonalityPreset: r.has_personality_preset,
+      })),
     };
   }
 
@@ -794,6 +825,7 @@ export function createApiClient(config: ApiClientConfig) {
   return {
     setAuthToken,
     login,
+    listRoles,
     listEmployees,
     getEmployee,
     createEmployee,

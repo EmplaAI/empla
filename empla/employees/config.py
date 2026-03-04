@@ -270,71 +270,31 @@ class EmployeeConfig(BaseModel):
         return {}
 
 
-# Role-specific default configurations
-SALES_AE_DEFAULT_GOALS = [
-    GoalConfig(
-        description="Maintain 3x pipeline coverage",
-        goal_type="maintenance",
-        priority=9,
-        target={"metric": "pipeline_coverage", "value": 3.0},
-    ),
-    GoalConfig(
-        description="Respond to leads within 4 hours",
-        goal_type="maintenance",
-        priority=8,
-        target={"metric": "lead_response_time_hours", "value": 4},
-    ),
-    GoalConfig(
-        description="Achieve 25% win rate",
-        goal_type="achievement",
-        priority=7,
-        target={"metric": "win_rate", "value": 0.25},
-    ),
-]
-
-CSM_DEFAULT_GOALS = [
-    GoalConfig(
-        description="Maintain 95% customer retention",
-        goal_type="maintenance",
-        priority=10,
-        target={"metric": "retention_rate", "value": 0.95},
-    ),
-    GoalConfig(
-        description="Achieve NPS score above 50",
-        goal_type="achievement",
-        priority=8,
-        target={"metric": "nps", "value": 50},
-    ),
-    GoalConfig(
-        description="Complete onboarding within 5 days",
-        goal_type="achievement",
-        priority=7,
-        target={"metric": "onboarding_days", "value": 5},
-    ),
-]
-
-PM_DEFAULT_GOALS = [
-    GoalConfig(
-        description="Ship 3 high-impact features per quarter",
-        goal_type="achievement",
-        priority=8,
-        target={"metric": "features_shipped", "value": 3, "period": "quarter"},
-    ),
-    GoalConfig(
-        description="Improve user satisfaction by 10%",
-        goal_type="achievement",
-        priority=7,
-        target={"metric": "satisfaction_improvement", "value": 0.10},
-    ),
-]
+# Backwards-compat aliases — prefer ROLE_CATALOG for new code.
+# These are lazily resolved to avoid a circular import
+# (config → personality → catalog → config).
+_GOAL_ALIASES: dict[str, str] = {
+    "SALES_AE_DEFAULT_GOALS": "sales_ae",
+    "CSM_DEFAULT_GOALS": "csm",
+    "PM_DEFAULT_GOALS": "pm",
+}
 
 
-__all__ = [
-    # Default goals
+def __getattr__(name: str) -> Any:
+    if name in _GOAL_ALIASES:
+        from empla.employees.catalog import ROLE_CATALOG
+
+        role = ROLE_CATALOG.get(_GOAL_ALIASES[name])
+        if role is None:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        return list(role.default_goals)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [  # noqa: F822 — lazy attrs via __getattr__
     "CSM_DEFAULT_GOALS",
     "PM_DEFAULT_GOALS",
     "SALES_AE_DEFAULT_GOALS",
-    # Config classes
     "EmployeeConfig",
     "GoalConfig",
     "LLMSettings",
