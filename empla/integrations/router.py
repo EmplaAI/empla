@@ -100,7 +100,9 @@ class IntegrationRouter:
         # Clear previously discovered MCP tools to avoid duplicates
         self._tools = [t for t in self._tools if t["func"] is not None]
 
-        mcp_config = MCPServerConfig(name=self.name, **self._mcp_config)
+        # Merge stored MCP config with runtime overrides from initialize()
+        merged = {**self._mcp_config, **config}
+        mcp_config = MCPServerConfig(name=self.name, **merged)
 
         # Use a temporary registry to discover tools, then copy them
         temp_registry = ToolRegistry()

@@ -180,8 +180,10 @@ if __name__ == "__main__":
         import sys
 
         for line in sys.stdin:
+            msg_id = None
             try:
                 msg = json.loads(line.strip())
+                msg_id = msg.get("id")
                 if msg.get("method") == "tools/list":
                     result = {"tools": TOOLS}
                 elif msg.get("method") == "tools/call":
@@ -198,8 +200,15 @@ if __name__ == "__main__":
                     }
                 else:
                     result = {}
-                response = {"jsonrpc": "2.0", "id": msg.get("id"), "result": result}
+                response = {"jsonrpc": "2.0", "id": msg_id, "result": result}
                 sys.stdout.write(json.dumps(response) + "\n")
                 sys.stdout.flush()
             except Exception as e:
                 sys.stderr.write(f"Error: {e}\n")
+                error_response = {
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "error": {"code": -32603, "message": str(e)},
+                }
+                sys.stdout.write(json.dumps(error_response) + "\n")
+                sys.stdout.flush()

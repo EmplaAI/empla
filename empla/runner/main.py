@@ -73,9 +73,7 @@ async def _set_db_status(
 async def _setup_dev_integrations(employee: Any) -> None:
     """Set up test integrations for --dev mode.
 
-    Registers email (via test adapter), calendar, and CRM integrations
-    backed by the test servers.
-
+    Registers the email integration backed by the test email server.
     Uses the module-level email_router_template directly (tool functions
     are closures over it), so we initialize that router with the test adapter.
     """
@@ -108,7 +106,7 @@ async def run_employee(
         employee_id: UUID of the employee to run
         tenant_id: UUID of the tenant
         health_port: Port for the health check HTTP server
-        dev: If True, register test integrations (email, calendar, CRM)
+        dev: If True, register test integrations (email via test adapter)
     """
     logger.info(
         f"Starting employee runner: employee={employee_id}, tenant={tenant_id}, "

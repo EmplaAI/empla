@@ -25,11 +25,33 @@ echo -e "${BLUE}Starting empla E2E development environment...${NC}"
 # Cleanup function
 cleanup() {
     echo -e "\n${BLUE}Shutting down all servers...${NC}"
-    kill $(jobs -p) 2>/dev/null
-    wait 2>/dev/null
+    PIDS="$(jobs -p 2>/dev/null || true)"
+    if [ -n "$PIDS" ]; then
+        kill $PIDS 2>/dev/null || true
+        wait 2>/dev/null || true
+    fi
     echo -e "${GREEN}All servers stopped.${NC}"
 }
 trap cleanup EXIT INT TERM
+
+# Wait for a port to become ready
+wait_for_port() {
+    local port=$1
+    local name=$2
+    local retries=20
+    local i=0
+    while [ $i -lt $retries ]; do
+        if curl -sf "http://127.0.0.1:${port}/" >/dev/null 2>&1 || \
+           curl -sf "http://127.0.0.1:${port}/state" >/dev/null 2>&1 || \
+           curl -sf "http://127.0.0.1:${port}/tools" >/dev/null 2>&1; then
+            return 0
+        fi
+        i=$((i + 1))
+        sleep 0.3
+    done
+    echo -e "\033[0;31mTimeout waiting for ${name} on port ${port}\033[0m"
+    return 1
+}
 
 # Start test servers
 echo -e "${GREEN}Starting test email server on :9100...${NC}"
@@ -41,8 +63,11 @@ uv run python -m tests.servers.calendar_mcp --http --port 9101 &
 echo -e "${GREEN}Starting CRM MCP server on :9102...${NC}"
 uv run python -m tests.servers.crm_mcp --http --port 9102 &
 
-# Wait for servers to start
-sleep 2
+# Wait for servers to become ready
+echo -e "${BLUE}Waiting for servers to be ready...${NC}"
+wait_for_port 9100 "email server"
+wait_for_port 9101 "calendar MCP"
+wait_for_port 9102 "CRM MCP"
 
 # Seed scenario data
 echo -e "${GREEN}Seeding scenario data...${NC}"

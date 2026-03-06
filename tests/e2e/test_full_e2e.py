@@ -94,7 +94,7 @@ class TestIntegrationRouter:
         mock_adapter.initialize = AsyncMock()
         mock_adapter.shutdown = AsyncMock()
 
-        def factory(**kwargs: Any) -> MagicMock:
+        def factory(**_kwargs: Any) -> MagicMock:
             return mock_adapter
 
         router = IntegrationRouter("svc", adapter_factory=factory)
@@ -252,6 +252,7 @@ class TestEmailServerIntegration:
         """Start test email server in-process."""
         import asyncio
 
+        import httpx
         import uvicorn
 
         from tests.servers.email_server import app, store
@@ -263,8 +264,17 @@ class TestEmailServerIntegration:
         server = uvicorn.Server(config)
 
         task = asyncio.create_task(server.serve())
-        # Wait for server to be ready
-        await asyncio.sleep(0.3)
+
+        # Poll until the server is ready
+        async with httpx.AsyncClient() as client:
+            for _ in range(30):
+                try:
+                    resp = await client.get("http://127.0.0.1:9199/state", timeout=0.5)
+                    if resp.status_code == 200:
+                        break
+                except httpx.ConnectError:
+                    pass
+                await asyncio.sleep(0.1)
 
         yield store
 
@@ -295,9 +305,9 @@ class TestEmailServerIntegration:
             assert "message_id" in result.data
 
             # Load an inbox email
-            from tests.servers.email_server import EmailMessage, store
+            from tests.servers.email_server import EmailMessage
 
-            store.add_email(
+            email_server.add_email(
                 EmailMessage(
                     id="test-001",
                     from_addr="external@example.com",

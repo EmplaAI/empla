@@ -137,7 +137,29 @@ class ActivityRecorder:
         result = kwargs.get("result")
         tool_calls = kwargs.get("tool_calls", [])
 
-        if intention is not None:
+        # When the hook only passes result (IntentionResult), extract info from it
+        if intention is None and result is not None:
+            success = getattr(result, "success", False)
+            intention_id = str(getattr(result, "intention_id", ""))
+            outcome = getattr(result, "outcome", {}) or {}
+            desc = outcome.get("message", "Intention executed")
+            tool_calls_made = outcome.get("tool_calls_made", 0)
+            event_type = (
+                ActivityEventType.INTENTION_COMPLETED
+                if success
+                else ActivityEventType.INTENTION_FAILED
+            )
+            await self._record(
+                event_type=event_type,
+                description=f"{'Completed' if success else 'Failed'}: {desc[:200]}",
+                data={
+                    "intention_id": intention_id,
+                    "success": success,
+                    "tool_calls_made": tool_calls_made,
+                },
+                importance=0.7 if success else 0.8,
+            )
+        elif intention is not None:
             desc = getattr(intention, "description", "Unknown intention")
             success = result.success if result else False
             event_type = (
