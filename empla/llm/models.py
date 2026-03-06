@@ -4,6 +4,7 @@ Shared LLM models and types.
 This module defines common data models used across all LLM providers.
 """
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal
 
@@ -129,3 +130,102 @@ class LLMResponse(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+
+# ============================================================================
+# Routing Types
+# ============================================================================
+
+
+class TaskType(str, Enum):
+    """Type of LLM task — used by the router to select the appropriate model tier."""
+
+    BELIEF_EXTRACTION = "belief_extraction"
+    PLAN_GENERATION = "plan_generation"
+    SITUATION_ANALYSIS = "situation_analysis"
+    GOAL_MANAGEMENT = "goal_management"
+    AGENTIC_EXECUTION = "agentic_execution"
+    REFLECTION = "reflection"
+    GENERAL = "general"
+
+
+@dataclass(slots=True)
+class TaskContext:
+    """Context for a single LLM call — used by LLMRouter to select the model.
+
+    Using @dataclass(slots=True) (not Pydantic) to minimize validation and
+    memory overhead on the hot path.
+    """
+
+    task_type: TaskType = TaskType.GENERAL
+    priority: int = 5  # 1-10
+    estimated_input_tokens: int = 0
+    requires_tool_use: bool = False
+    requires_structured_output: bool = False
+    latency_sensitive: bool = False
+    quality_threshold: float = 0.5  # 0.0-1.0; ≥0.9 triggers premium tier
+    retry_count: int = 0
+
+
+class RouterDecision(BaseModel):
+    """Decision made by LLMRouter for a single call."""
+
+    model_key: str
+    tier: int
+    reason: str
+    fallback_model_key: str | None = None
+
+
+class ModelTier:
+    """Model tier definitions by cost/capability.
+
+    Tier lists use tuples (immutable) to prevent accidental mutation.
+    Capability sets use frozensets for O(1) membership tests.
+    """
+
+    TIER_1: tuple[str, ...] = ("gemini-3-flash-preview",)
+    TIER_2: tuple[str, ...] = ("gemini-2.0-flash", "gpt-4o-mini")
+    TIER_3: tuple[str, ...] = ("gemini-1.5-pro", "gpt-4o")
+    TIER_4: tuple[str, ...] = ("claude-sonnet-4", "claude-opus-4")
+
+    # Models with ≥1M context window — preferred for long-context calls
+    LONG_CONTEXT_MODELS: frozenset[str] = frozenset({"gemini-1.5-pro"})
+
+    # Models with reliable tool/function calling support
+    TOOL_CALL_PREFERRED: frozenset[str] = frozenset(
+        {
+            "gemini-2.0-flash",
+            "gpt-4o-mini",
+            "gemini-1.5-pro",
+            "gpt-4o",
+            "claude-sonnet-4",
+            "claude-opus-4",
+        }
+    )
+
+    # Models with reliable structured output (JSON mode / constrained decoding)
+    STRUCTURED_OUTPUT_RELIABLE: frozenset[str] = frozenset(
+        {
+            "gemini-2.0-flash",
+            "gpt-4o-mini",
+            "gemini-1.5-pro",
+            "gpt-4o",
+            "claude-sonnet-4",
+            "claude-opus-4",
+        }
+    )
+
+    @classmethod
+    def get_tier_models(cls, tier: int) -> tuple[str, ...]:
+        """Return ordered tuple of model keys for the given tier number."""
+        match tier:
+            case 1:
+                return cls.TIER_1
+            case 2:
+                return cls.TIER_2
+            case 3:
+                return cls.TIER_3
+            case 4:
+                return cls.TIER_4
+            case _:
+                return ()

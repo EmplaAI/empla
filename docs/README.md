@@ -79,6 +79,7 @@ docs/
 - bdi-engine.md
 - memory-system.md
 - proactive-loop.md
+- llm-routing.md
 - employee-lifecycle.md
 - human-digital-interaction.md
 - multi-agent-collaboration.md
