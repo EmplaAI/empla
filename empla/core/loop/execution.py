@@ -35,6 +35,7 @@ from empla.core.loop.models import (
     Observation,
     PerceptionResult,
 )
+from empla.llm.models import TaskContext, TaskType
 from empla.models.employee import Employee
 
 if TYPE_CHECKING:
@@ -577,6 +578,10 @@ class ProactiveExecutionLoop:
         Raises:
             Exception: Propagated from any phase failure.
         """
+        # Reset per-cycle budget tracking for the router
+        if self.llm_service and self.llm_service._router:
+            self.llm_service._router.reset_cycle_budget()
+
         employee_id = self.employee.id
 
         # ============ PERCEIVE ============
@@ -1148,6 +1153,12 @@ Analyze this situation and provide recommendations."""
                 system=system_prompt,
                 response_format=SituationAnalysis,
                 temperature=0.3,
+                task_context=TaskContext(
+                    task_type=TaskType.SITUATION_ANALYSIS,
+                    priority=7,
+                    requires_structured_output=True,
+                    quality_threshold=0.8,
+                ),
             )
             return cast(SituationAnalysis, analysis)
         except Exception as e:
@@ -1770,16 +1781,28 @@ Analyze this situation and provide recommendations."""
 
         max_iterations = 10
         tool_calls_made: list[dict[str, Any]] = []
+        # Track only LLM call failures (not successful iterations requesting more tools)
+        # so retry_count correctly reflects how many times the LLM itself failed.
+        llm_call_failures = 0
 
         for iteration in range(max_iterations):
+            agentic_ctx = TaskContext(
+                task_type=TaskType.AGENTIC_EXECUTION,
+                priority=getattr(intention, "priority", 5),
+                requires_tool_use=True,
+                latency_sensitive=True,
+                retry_count=llm_call_failures,
+            )
             try:
                 response = await self.llm_service.generate_with_tools(
                     messages=messages,
                     tools=tool_schemas,
                     tool_choice="auto",
                     temperature=0.2,
+                    task_context=agentic_ctx,
                 )
             except Exception as e:
+                llm_call_failures += 1
                 logger.error(
                     f"LLM generate_with_tools failed during agentic execution: {e}",
                     extra={
@@ -2234,6 +2257,11 @@ Analyze the patterns and provide brief recommendations."""
                 system=system_prompt,
                 temperature=0.3,
                 max_tokens=500,
+                task_context=TaskContext(
+                    task_type=TaskType.REFLECTION,
+                    priority=3,
+                    quality_threshold=0.4,
+                ),
             )
 
             # Store analysis in episodic memory
