@@ -9,6 +9,7 @@ live in types.py and are importable from both layers.
 from empla.integrations.email.base import EmailAdapter
 from empla.integrations.email.factory import UnknownEmailProviderError, create_email_adapter
 from empla.integrations.email.gmail import GmailEmailAdapter
+from empla.integrations.email.test_adapter import TestEmailAdapter
 from empla.integrations.email.types import Attachment, Email, EmailPriority, EmailProvider
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "EmailPriority",
     "EmailProvider",
     "GmailEmailAdapter",
+    "TestEmailAdapter",
     "UnknownEmailProviderError",
     "create_email_adapter",
 ]

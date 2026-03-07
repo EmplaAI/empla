@@ -53,6 +53,7 @@ from empla.employees.personality import Personality
 from empla.llm import LLMService
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
+from empla.services.activity_recorder import ActivityRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,7 @@ class DigitalEmployee(ABC):
         self._tool_router: ToolRouter | None = None
         self._mcp_bridge: MCPBridge | None = None
         self._loop: ProactiveExecutionLoop | None = None
+        self._activity_recorder: ActivityRecorder | None = None
         self._db_employee: EmployeeModel | None = None
 
         # Lifecycle hooks
@@ -877,11 +879,11 @@ class DigitalEmployee(ABC):
         assert self._memory is not None, "MemorySystem not initialized"
         assert self._capabilities is not None, "CapabilityRegistry not initialized"
 
-        # Create ToolRouter to unify capabilities + standalone tools
+        # Create ToolRouter for standalone tools + integrations
         # Reuse existing registry if MCP servers already initialized it
         if self._tool_registry is None:
             self._tool_registry = ToolRegistry()
-        self._tool_router = ToolRouter(self._capabilities, self._tool_registry)
+        self._tool_router = ToolRouter(self._tool_registry)
 
         loop_config = LoopConfig(
             cycle_interval_seconds=self.config.loop.cycle_interval_seconds,
@@ -906,7 +908,6 @@ class DigitalEmployee(ABC):
             goals=self._goals,
             intentions=self._intentions,  # type: ignore[arg-type]
             memory=self._memory,
-            capability_registry=self._capabilities,
             llm_service=self._llm,
             config=loop_config,
             status_checker=status_checker,
@@ -914,6 +915,15 @@ class DigitalEmployee(ABC):
             tool_router=self._tool_router,
             identity=identity,
         )
+
+        # Wire up activity recorder for dashboard feed
+        if self._session is not None and self._employee_id is not None:
+            self._activity_recorder = ActivityRecorder(
+                session=self._session,
+                tenant_id=self._tenant_id,
+                employee_id=self._employee_id,
+            )
+            self._activity_recorder.register(self._hooks)
 
         logger.debug("Initialized proactive loop with ToolRouter")
 

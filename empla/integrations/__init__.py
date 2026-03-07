@@ -6,8 +6,12 @@ and credential management (Layer 3).
 
 Capabilities delegate to adapters via ABCs. Adapters call provider APIs
 and return lightweight AdapterResult dataclasses.
+
+IntegrationRouter provides a FastAPI-style pattern for defining
+integration tools in a single file.
 """
 
 from empla.integrations.base import AdapterResult
+from empla.integrations.router import IntegrationRouter
 
-__all__ = ["AdapterResult"]
+__all__ = ["AdapterResult", "IntegrationRouter"]
