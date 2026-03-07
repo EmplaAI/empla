@@ -14,6 +14,7 @@ These tests require:
 - Test email server NOT required (in-process testing via TestEmailAdapter)
 """
 
+import contextlib
 import logging
 import os
 from typing import Any
@@ -266,15 +267,23 @@ class TestEmailServerIntegration:
         task = asyncio.create_task(server.serve())
 
         # Poll until the server is ready
+        server_ready = False
         async with httpx.AsyncClient() as client:
             for _ in range(30):
                 try:
                     resp = await client.get("http://127.0.0.1:9199/state", timeout=0.5)
                     if resp.status_code == 200:
+                        server_ready = True
                         break
                 except httpx.ConnectError:
                     pass
                 await asyncio.sleep(0.1)
+
+        if not server_ready:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            pytest.fail("Test email server failed to start on port 9199")
 
         yield store
 

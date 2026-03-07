@@ -1784,6 +1784,7 @@ Analyze this situation and provide recommendations."""
                     "success": False,
                     "error": f"LLM call failed: {e}",
                     "tool_calls_made": len(tool_calls_made),
+                    "tools_used": [tc["tool"] for tc in tool_calls_made],
                     "agentic": True,
                 }
 
@@ -1794,12 +1795,14 @@ Analyze this situation and provide recommendations."""
                         "success": False,
                         "error": "Empty assistant response",
                         "tool_calls_made": len(tool_calls_made),
+                        "tools_used": [tc["tool"] for tc in tool_calls_made],
                         "agentic": True,
                     }
                 return {
                     "success": True,
                     "message": response.content,
                     "tool_calls_made": len(tool_calls_made),
+                    "tools_used": [tc["tool"] for tc in tool_calls_made],
                     "agentic": True,
                 }
 
@@ -1821,6 +1824,7 @@ Analyze this situation and provide recommendations."""
                     "success": False,
                     "error": "No tool executor configured",
                     "tool_calls_made": 0,
+                    "tools_used": [],
                     "agentic": True,
                 }
             for tool_call in response.tool_calls:
@@ -1885,6 +1889,7 @@ Analyze this situation and provide recommendations."""
             "success": False,
             "error": f"Agentic execution exhausted iteration budget (max_iterations={max_iterations})",
             "tool_calls_made": len(tool_calls_made),
+            "tools_used": [tc["tool"] for tc in tool_calls_made],
             "agentic": True,
         }
 

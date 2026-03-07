@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import signal
 import sys
 from typing import Any
@@ -76,14 +77,18 @@ async def _setup_dev_integrations(employee: Any) -> None:
     Registers the email integration backed by the test email server.
     Uses the module-level email_router_template directly (tool functions
     are closures over it), so we initialize that router with the test adapter.
+
+    Note: Safe to use module-level singleton because each employee runs in
+    its own process via run_employee().
     """
     # Initialize the template router with test adapter — the tool functions
     # are closures over email_router_template.adapter, so this makes them work.
+    base_url = os.getenv("EMPLA_TEST_EMAIL_URL", "http://localhost:9100")
     await email_router_template.initialize(
         {
             "provider": "test",
             "email_address": employee.email,
-            "base_url": "http://localhost:9100",
+            "base_url": base_url,
         }
     )
 

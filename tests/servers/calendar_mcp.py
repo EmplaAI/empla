@@ -30,7 +30,11 @@ def get_upcoming_events(hours: int = 24) -> list[dict[str, Any]]:
     cutoff = now + timedelta(hours=hours)
     upcoming = []
     for event in events.values():
-        start = datetime.fromisoformat(event["start"])
+        try:
+            start = datetime.fromisoformat(event["start"])
+        except (ValueError, KeyError):
+            logger.warning("Skipping event with invalid/missing start: %s", event.get("id"))
+            continue
         if now <= start <= cutoff:
             upcoming.append(event)
     upcoming.sort(key=lambda e: e["start"])

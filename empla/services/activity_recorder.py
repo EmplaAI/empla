@@ -159,6 +159,9 @@ class ActivityRecorder:
                 },
                 importance=0.7 if success else 0.8,
             )
+            # Extract tool names from outcome when tool_calls not passed via kwargs
+            if not tool_calls:
+                tool_calls = [{"tool": name} for name in outcome.get("tools_used", [])]
         elif intention is not None:
             desc = getattr(intention, "description", "Unknown intention")
             success = result.success if result else False

@@ -83,7 +83,11 @@ if [ -d "apps/dashboard" ]; then
     (cd apps/dashboard && pnpm dev) &
 fi
 
-echo -e "${GREEN}Ready! Open http://localhost:3000${NC}"
+if [ -d "apps/dashboard" ]; then
+    echo -e "${GREEN}Ready! Open http://localhost:3000${NC}"
+else
+    echo -e "${GREEN}Ready! (No dashboard found at apps/dashboard)${NC}"
+fi
 echo -e "${BLUE}Test servers:${NC}"
 echo -e "  Email:    http://localhost:9100/state"
 echo -e "  Calendar: http://localhost:9101/tools"
