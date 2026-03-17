@@ -282,16 +282,16 @@ class TestGoalProgressViaLLM:
 
 
 # ============================================================================
-# Tests: Heuristic fallback
+# Tests: LLM unavailable / error
 # ============================================================================
 
 
-class TestGoalProgressHeuristicFallback:
-    """Test heuristic fallback when LLM is unavailable."""
+class TestGoalProgressLLMUnavailable:
+    """Test behavior when LLM is unavailable or fails."""
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_heuristic_when_no_llm(self) -> None:
-        """Uses heuristic when llm_service is None."""
+    async def test_no_llm_returns_empty_and_logs_error(self) -> None:
+        """Returns empty progress when llm_service is None."""
         goal = MockGoal(target={"metric": "pipeline_coverage", "value": 3.0})
 
         beliefs = [
@@ -305,12 +305,11 @@ class TestGoalProgressHeuristicFallback:
         loop = _make_loop(llm_service=None)
         result = await loop._evaluate_goals_progress([goal], beliefs)
 
-        assert str(goal.id) in result
-        assert result[str(goal.id)]["pipeline_coverage"] == 3.5
+        assert result == {}
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_heuristic_on_llm_error(self) -> None:
-        """Falls back to heuristic when LLM call fails."""
+    async def test_llm_error_returns_empty_and_logs_error(self) -> None:
+        """Returns empty progress when LLM call fails (will retry next cycle)."""
         goal = MockGoal(target={"metric": "pipeline_coverage", "value": 3.0})
 
         beliefs = [
@@ -325,26 +324,6 @@ class TestGoalProgressHeuristicFallback:
         llm.generate_structured = AsyncMock(side_effect=RuntimeError("LLM down"))
 
         loop = _make_loop(llm_service=llm)
-        result = await loop._evaluate_goals_progress([goal], beliefs)
-
-        # Should still get heuristic result
-        assert str(goal.id) in result
-        assert result[str(goal.id)]["pipeline_coverage"] == 2.8
-
-    @pytest.mark.asyncio
-    async def test_heuristic_no_match_returns_empty(self) -> None:
-        """Heuristic returns empty when beliefs don't match metric pattern."""
-        goal = MockGoal(target={"metric": "deals_closed", "value": 10})
-
-        beliefs = [
-            MockBeliefChange(
-                subject="weather",
-                predicate="forecast",
-                belief_object={"value": "sunny"},
-            )
-        ]
-
-        loop = _make_loop(llm_service=None)
         result = await loop._evaluate_goals_progress([goal], beliefs)
 
         assert result == {}

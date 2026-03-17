@@ -1073,7 +1073,7 @@ class ProactiveExecutionLoop:
         """Evaluate progress for all pursuing goals using LLM-driven analysis.
 
         Batches all goals into a single LLM call that interprets changed beliefs
-        in context. Falls back to heuristic matching when LLM is unavailable.
+        in context. Returns empty if LLM is unavailable (will retry next cycle).
 
         Args:
             goals: All pursuing goals (filtered internally to those with numeric targets).
@@ -1116,27 +1116,25 @@ class ProactiveExecutionLoop:
             )
         goals_text = "\n".join(goal_lines)
 
-        # Try LLM-driven evaluation
-        if self.llm_service is not None:
-            try:
-                return await self._evaluate_goals_progress_via_llm(
-                    evaluable_goals, beliefs_text, goals_text
-                )
-            except Exception as e:
-                logger.warning(
-                    "LLM goal evaluation failed, falling back to heuristic: %s",
-                    e,
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
+        if self.llm_service is None:
+            logger.error(
+                "LLM service unavailable, cannot evaluate goal progress (will retry next cycle)",
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return {}
 
-        # Heuristic fallback
-        result: dict[str, dict[str, Any]] = {}
-        for goal in evaluable_goals:
-            progress = self._evaluate_goal_progress_heuristic(goal, changed_beliefs)
-            if progress:
-                result[str(goal.id)] = progress
-        return result
+        try:
+            return await self._evaluate_goals_progress_via_llm(
+                evaluable_goals, beliefs_text, goals_text
+            )
+        except Exception as e:
+            logger.error(
+                "LLM goal evaluation failed (will retry next cycle): %s",
+                e,
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return {}
 
     async def _evaluate_goals_progress_via_llm(
         self,
@@ -1224,69 +1222,6 @@ Only include goals where you can determine a numeric value."""
             extra={"employee_id": str(self.employee.id)},
         )
         return result
-
-    def _evaluate_goal_progress_heuristic(
-        self,
-        goal: Any,
-        changed_beliefs: list[BeliefChange],
-    ) -> dict[str, Any]:
-        """Heuristic fallback for goal progress evaluation.
-
-        Splits the metric name on the first underscore into subject and predicate
-        patterns (e.g. "pipeline_coverage" -> subject="pipeline", predicate="coverage"),
-        then matches both against belief changes via substring containment.
-        Less accurate than LLM evaluation but works without an LLM service.
-
-        Args:
-            goal: The goal to evaluate progress for.
-            changed_beliefs: Belief changes from this cycle.
-
-        Returns:
-            Progress dict, empty if no matching beliefs found.
-        """
-        target = getattr(goal, "target", {}) or {}
-        metric = target.get("metric", "")
-
-        if not metric:
-            return {}
-
-        parts = metric.lower().split("_", 1)
-        if len(parts) < 2:
-            subject_pattern = parts[0]
-            predicate_pattern = parts[0]
-        else:
-            subject_pattern = parts[0]
-            predicate_pattern = parts[1]
-
-        for belief_change in changed_beliefs:
-            subject_match = subject_pattern in belief_change.subject.lower()
-            predicate_match = predicate_pattern in belief_change.predicate.lower()
-
-            if subject_match and predicate_match:
-                belief = getattr(belief_change, "belief", None)
-                if belief is not None:
-                    belief_object = getattr(belief, "object", {}) or {}
-                    value = belief_object.get("value")
-
-                    if value is not None:
-                        logger.debug(
-                            "Heuristic goal progress: %s=%s from belief %s/%s",
-                            metric,
-                            value,
-                            belief_change.subject,
-                            belief_change.predicate,
-                            extra={
-                                "employee_id": str(self.employee.id),
-                                "goal_id": str(goal.id),
-                            },
-                        )
-                        return {
-                            metric: value,
-                            "last_belief_update": belief_change.subject,
-                            "belief_confidence": belief_change.new_confidence,
-                        }
-
-        return {}
 
     async def _check_goal_achievement(
         self,
