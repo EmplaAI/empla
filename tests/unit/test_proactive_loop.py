@@ -63,6 +63,7 @@ class MockGoalSystem:
     """Mock GoalSystem for testing"""
 
     def __init__(self):
+        self.get_goal = AsyncMock(return_value=None)
         self.get_active_goals = AsyncMock(return_value=[])
         self.get_pursuing_goals = AsyncMock(return_value=[])
         self.update_goal_progress = AsyncMock()

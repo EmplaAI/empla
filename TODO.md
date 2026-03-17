@@ -1,6 +1,6 @@
 # empla - Roadmap
 
-> **Updated:** 2026-03-16
+> **Updated:** 2026-03-17
 > **Strategy:** The brain works. Now make it solid — clean up dead code,
 > complete the agentic loop, wire goal achievement, activate learning.
 > Platform solidification before new integrations.
@@ -137,4 +137,4 @@ dashboard feed
 
 ---
 
-**Last Updated:** 2026-03-16
+**Last Updated:** 2026-03-17

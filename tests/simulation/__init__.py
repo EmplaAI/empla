@@ -9,7 +9,7 @@ Components:
 - test_autonomous_behaviors.py: E2E test scenarios
 
 Usage:
-    from tests.simulation import SimulatedEnvironment
+    from tests.simulation import SimulatedEmail, SimulatedEnvironment
 
     # Create simulated world
     env = SimulatedEnvironment()

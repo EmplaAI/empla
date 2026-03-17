@@ -327,7 +327,7 @@ class TestSalesAECreation:
     """Test SalesAE creation and basic lifecycle."""
 
     @pytest.mark.asyncio
-    async def test_sales_ae_creation(self, sales_config):
+    async def test_sales_ae_creation(self, sales_config) -> None:
         """Test SalesAE can be created with config."""
         employee = SalesAE(sales_config)
 
@@ -336,7 +336,7 @@ class TestSalesAECreation:
         assert not employee.is_running
 
     @pytest.mark.asyncio
-    async def test_stop_when_not_started(self, sales_config):
+    async def test_stop_when_not_started(self, sales_config) -> None:
         """Test stop() when employee was never started."""
         employee = SalesAE(sales_config)
 
@@ -353,7 +353,7 @@ class TestSalesAELifecycleWithMockedDeps:
     @pytest.mark.asyncio
     async def test_start_initializes_components(
         self, db_session, tenant, user, sales_config, llm_service
-    ):
+    ) -> None:
         """
         Test that start() initializes all components correctly.
         """
@@ -384,12 +384,11 @@ class TestSalesAELifecycleWithMockedDeps:
                         # Verify employee is running
                         assert employee.is_running
 
-                        # Verify BDI components initialized
-                        assert employee._beliefs is not None
-                        assert employee._goals is not None
-                        assert employee._intentions is not None
-                        assert employee._memory is not None
-                        assert employee._loop is not None
+                        # Verify BDI components initialized (public accessors)
+                        assert employee.beliefs is not None
+                        assert employee.goals is not None
+                        assert employee.intentions is not None
+                        assert employee.memory is not None
 
                     finally:
                         # Clean up

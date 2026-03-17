@@ -121,6 +121,10 @@ class BeliefSystemProtocol(Protocol):
 class GoalSystemProtocol(Protocol):
     """Protocol for GoalSystem component"""
 
+    async def get_goal(self, goal_id: Any) -> Any | None:
+        """Get a single goal by ID"""
+        ...
+
     async def get_active_goals(self) -> list[Any]:
         """Get all active goals"""
         ...
@@ -1178,8 +1182,8 @@ class ProactiveExecutionLoop:
 
         goal_type = getattr(goal, "goal_type", "")
 
-        if goal_type == "maintain":
-            # "maintain" goals stay active — log that target is met
+        if goal_type in ("maintain", "maintenance"):
+            # Ongoing goals stay active — log that target is met
             logger.info(
                 "Maintain goal target met: %s=%s (target=%s)",
                 metric,
@@ -1188,7 +1192,7 @@ class ProactiveExecutionLoop:
                 extra={
                     "employee_id": str(self.employee.id),
                     "goal_id": str(goal.id),
-                    "goal_type": "maintain",
+                    "goal_type": goal_type,
                 },
             )
             return
@@ -2105,7 +2109,15 @@ Analyze this situation and provide recommendations."""
 
             # Record procedure for successful executions
             if result.success and tools_used:
-                steps = [{"action": tool, "success": True} for tool in tools_used]
+                # Prefer per-tool results for accurate success/failure per step
+                tool_results = outcome.get("tool_results", [])
+                if tool_results:
+                    steps = [
+                        {"action": tr.get("tool", "unknown"), "success": tr.get("success", True)}
+                        for tr in tool_results
+                    ]
+                else:
+                    steps = [{"action": tool, "success": True} for tool in tools_used]
 
                 await self.memory.procedural.record_procedure(
                     procedure_type="intention_execution",
