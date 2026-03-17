@@ -1895,6 +1895,7 @@ Analyze this situation and provide recommendations."""
                         "error": "Empty assistant response",
                         "tool_calls_made": len(tool_calls_made),
                         "tools_used": [tc["tool"] for tc in tool_calls_made],
+                        "tool_results": tool_calls_made,
                         "agentic": True,
                     }
                 return {
@@ -2178,8 +2179,13 @@ Analyze this situation and provide recommendations."""
                         conditions["goal_type"] = goal_type
                     if goal_desc:
                         conditions["goal_description"] = goal_desc
-            except Exception:
-                pass  # Best-effort — don't break recording if lookup fails
+            except Exception as e:
+                logger.warning(
+                    "Failed to look up goal %s for procedure trigger conditions: %s",
+                    goal_id_str,
+                    e,
+                    extra={"employee_id": str(self.employee.id)},
+                )
         return conditions
 
     async def _update_effectiveness_beliefs(self, result: IntentionResult) -> None:
