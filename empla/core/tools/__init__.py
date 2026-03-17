@@ -41,7 +41,7 @@ Example Usage:
     ...     print(f"Failed: {result.error}")
 """
 
-from .base import Tool, ToolCapability, ToolExecutor, ToolImplementation, ToolResult
+from .base import ActionResult, Tool, ToolCapability, ToolExecutor, ToolImplementation, ToolResult
 from .decorator import collect_tools, tool
 from .executor import ToolExecutionEngine
 from .mcp_bridge import MCPBridge, MCPServerConfig
@@ -49,6 +49,7 @@ from .registry import ToolRegistry
 from .router import ToolRouter
 
 __all__ = [
+    "ActionResult",
     "MCPBridge",
     "MCPServerConfig",
     "Tool",

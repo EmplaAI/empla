@@ -21,7 +21,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_EMAIL_URL = "http://localhost:9100"
+DEFAULT_EMAIL_URL = "http://localhost:9110"
 DEFAULT_CALENDAR_URL = "http://localhost:9101"
 DEFAULT_CRM_URL = "http://localhost:9102"
 

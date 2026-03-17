@@ -8,8 +8,8 @@ These tests validate that the complete autonomous employee system works correctl
 - SIMULATED environment only (email, calendar, CRM - no real API calls)
 
 Test scenarios demonstrate autonomous behaviors like:
-- Sales AE: Detects low pipeline → Forms goal → Plans outreach → Executes → Improves pipeline
-- CSM: Detects at-risk customer → Forms intervention goal → Plans check-in → Executes → Updates health
+- Sales AE: Detects low pipeline -> Forms goal -> Plans outreach -> Executes -> Improves pipeline
+- CSM: Detects at-risk customer -> Forms intervention goal -> Plans check-in -> Executes -> Updates health
 
 This validates that the actual production code can autonomously:
 - Form beliefs from observations
@@ -18,11 +18,22 @@ This validates that the actual production code can autonomously:
 - Plan strategies to achieve goals
 - Execute plans
 - Learn from outcomes
+
+Note: The old simulated capabilities system (BaseCapability subclasses) has been
+removed. These tests now construct Observation objects directly from
+SimulatedEnvironment data rather than going through capability.perceive().
 """
+
+from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
+from uuid import UUID
+
+if TYPE_CHECKING:
+    from empla.core.loop.models import Observation
 
 import pytest
 from sqlalchemy import event
@@ -32,7 +43,6 @@ logger = logging.getLogger(__name__)
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
 from empla.bdi.beliefs import BeliefExtractionResult, ExtractedBelief
 from empla.bdi.intentions import GeneratedIntention, PlanGenerationResult
-from empla.capabilities import CAPABILITY_CALENDAR, CAPABILITY_CRM, CAPABILITY_EMAIL
 from empla.llm.models import LLMResponse, TokenUsage
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee
@@ -41,10 +51,10 @@ from tests.simulation import (
     CustomerHealth,
     DealStage,
     EmailPriority,
+    SimulatedCustomer,
     SimulatedDeal,
     SimulatedEmail,
     SimulatedEnvironment,
-    get_simulated_capabilities,
 )
 
 # Fixtures (same as test_bdi_integration.py)
@@ -253,6 +263,43 @@ def is_real_llm(llm_service) -> bool:
     return os.getenv("RUN_WITH_REAL_LLM", "0").lower() in ("1", "true", "yes")
 
 
+def _make_observation(
+    employee_id: UUID,
+    tenant_id: UUID,
+    observation_type: str,
+    source: str,
+    content: dict,
+    priority: int = 5,
+    requires_action: bool = False,
+) -> Observation:
+    """Create an Observation directly for testing (replaces capability.perceive()).
+
+    Args:
+        employee_id: Employee UUID that this observation belongs to.
+        tenant_id: Tenant UUID for multi-tenancy scoping.
+        observation_type: Category of observation (e.g., "email", "calendar", "crm").
+        source: Where the observation originated (e.g., "email_server", "crm_system").
+        content: Observation payload as a dict.
+        priority: Priority level 1-10 (default 5).
+        requires_action: Whether this observation requires the employee to act.
+
+    Returns:
+        Observation instance with timestamp set to datetime.now(UTC).
+    """
+    from empla.core.loop.models import Observation
+
+    return Observation(
+        employee_id=employee_id,
+        tenant_id=tenant_id,
+        observation_type=observation_type,
+        source=source,
+        content=content,
+        timestamp=datetime.now(UTC),
+        priority=priority,
+        requires_action=requires_action,
+    )
+
+
 # Test Scenarios
 
 
@@ -266,7 +313,7 @@ async def test_sales_ae_low_pipeline_autonomous_response(
     Scenario:
     1. Sales AE perceives low pipeline coverage (2.0x instead of 3.0x target)
     2. Forms belief: "Pipeline coverage is below target"
-    3. Recognizes problem → Creates goal: "Build pipeline to 3x"
+    3. Recognizes problem -> Creates goal: "Build pipeline to 3x"
     4. Plans strategy: Research accounts, send outreach
     5. Executes: Researches 10 accounts, sends 10 outreach emails
     6. Learns: Pipeline coverage improved, strategy worked
@@ -282,29 +329,26 @@ async def test_sales_ae_low_pipeline_autonomous_response(
     simulated_env.crm.set_pipeline_target(500000.0)  # $500K target
     simulated_env.crm.set_pipeline_coverage(2.0)  # Only 2.0x (below 3.0x target)
 
-    # Setup: Simulated capabilities
-    capabilities = get_simulated_capabilities(
-        tenant_id=tenant.id,
+    # Step 1: PERCEIVE - Build observation from simulated CRM state
+    pipeline_coverage = simulated_env.crm.get_pipeline_coverage()
+    assert pipeline_coverage < 3.0
+
+    low_pipeline_obs = _make_observation(
         employee_id=employee.id,
-        environment=simulated_env,
-        enabled_capabilities=["email", "crm"],
+        tenant_id=tenant.id,
+        observation_type="low_pipeline_coverage",
+        source="crm",
+        content={
+            "pipeline_coverage": pipeline_coverage,
+            "pipeline_value": simulated_env.crm.get_pipeline_value(),
+            "target": simulated_env.crm._pipeline_target,
+        },
+        priority=8,
+        requires_action=True,
     )
 
-    # Initialize capabilities
-    for cap in capabilities.values():
-        await cap.initialize()
-
-    # Step 1: PERCEIVE - Get observations from simulated CRM
-    crm_cap = capabilities[CAPABILITY_CRM]
-    observations = await crm_cap.perceive()
-
-    # Assert: Should detect low pipeline
-    assert len(observations) > 0
-    low_pipeline_obs = next(
-        (o for o in observations if o.observation_type == "low_pipeline_coverage"), None
-    )
     assert low_pipeline_obs is not None
-    assert low_pipeline_obs.priority >= 8  # High priority
+    assert low_pipeline_obs.priority >= 8
     assert low_pipeline_obs.content["pipeline_coverage"] == 2.0
 
     # Step 2: UPDATE BELIEFS - Extract beliefs from observation
@@ -345,18 +389,12 @@ async def test_sales_ae_low_pipeline_autonomous_response(
             )
         )
 
-    # Observations from capabilities are already in the unified format
-    # No conversion needed - can use directly
-    core_observation = low_pipeline_obs
-
     # Extract beliefs using real BeliefSystem
-    extracted_beliefs = await beliefs.extract_beliefs_from_observation(core_observation, mock_llm)
+    extracted_beliefs = await beliefs.extract_beliefs_from_observation(low_pipeline_obs, mock_llm)
 
     # Assert: Beliefs were formed
-    # When using real LLM, we can't predict exact beliefs, so be more flexible
     if is_real_llm(mock_llm):
         assert len(extracted_beliefs) > 0, "Real LLM should extract at least one belief"
-        # Just check that beliefs are related to pipeline
         belief_subjects = [b.belief.subject for b in extracted_beliefs]
         assert any("pipeline" in s.lower() for s in belief_subjects), (
             f"Expected pipeline-related beliefs, got: {belief_subjects}"
@@ -372,8 +410,6 @@ async def test_sales_ae_low_pipeline_autonomous_response(
         assert pipeline_belief.belief.confidence == 0.95
 
     # Step 3: FORM GOAL - Recognize problem and create goal
-    # In production, this would be done by strategic planning in ProactiveLoop
-    # For simulation, we do it manually to validate the BDI components
     goal = await goals.add_goal(
         goal_type="achievement",
         description="Build pipeline to 3x coverage",
@@ -381,13 +417,11 @@ async def test_sales_ae_low_pipeline_autonomous_response(
         target={"metric": "pipeline_coverage", "value": 3.0},
     )
 
-    # Assert: Goal was created
     assert goal is not None
     assert goal.status == "active"
     assert goal.priority == 9
 
     # Step 4: PLAN STRATEGY - Generate plan to achieve goal
-    # If using mock LLM, set up mock plan
     if not is_real_llm(mock_llm):
         plan_result = PlanGenerationResult(
             intentions=[
@@ -463,12 +497,10 @@ async def test_sales_ae_low_pipeline_autonomous_response(
 
     # Assert: Plan was generated
     if is_real_llm(mock_llm):
-        # Real LLM - just check that plan was generated with some intentions
         assert len(generated_intentions) > 0, "Real LLM should generate at least one intention"
         logger.info(f"Real LLM generated {len(generated_intentions)} intentions:")
         for intention in generated_intentions:
             logger.info(f"  - {intention.description}")
-        # Use first two intentions for rest of test (or first one twice if only one generated)
         research_intention = generated_intentions[0]
         outreach_intention = (
             generated_intentions[1] if len(generated_intentions) > 1 else generated_intentions[0]
@@ -480,10 +512,10 @@ async def test_sales_ae_low_pipeline_autonomous_response(
         outreach_intention = generated_intentions[1]
 
         assert research_intention.description == "Research 10 target accounts"
-        assert len(research_intention.dependencies) == 0  # No dependencies
+        assert len(research_intention.dependencies) == 0
 
         assert outreach_intention.description == "Send personalized outreach to 10 accounts"
-        assert len(outreach_intention.dependencies) == 1  # Depends on research
+        assert len(outreach_intention.dependencies) == 1
         assert outreach_intention.dependencies[0] == research_intention.id
 
     # Step 5: EXECUTE - Execute intentions
@@ -491,9 +523,9 @@ async def test_sales_ae_low_pipeline_autonomous_response(
     await intentions.start_intention(research_intention.id)
 
     # Simulate research execution - add accounts to CRM
-    for i in range(10):
-        from tests.simulation.environment import SimulatedContact
+    from tests.simulation.environment import SimulatedContact
 
+    for i in range(10):
         simulated_env.crm.add_contact(
             SimulatedContact(
                 name=f"Contact {i + 1}",
@@ -512,23 +544,14 @@ async def test_sales_ae_low_pipeline_autonomous_response(
     # Execute outreach intention (now that dependency is complete)
     await intentions.start_intention(outreach_intention.id)
 
-    # Simulate email sending via simulated email capability
-    email_cap = capabilities[CAPABILITY_EMAIL]
-
+    # Simulate email sending via simulated email system directly
     for i in range(10):
-        from empla.capabilities.base import Action
-
-        action = Action(
-            capability="email",
-            operation="send_email",
-            parameters={
-                "to": [f"contact{i + 1}@account{i + 1}.com"],
-                "subject": f"Interested in partnering with Account {i + 1}",
-                "body": f"Hi, I'd love to discuss how we can help Account {i + 1}...",
-            },
+        simulated_env.email.send_email(
+            to=[f"contact{i + 1}@account{i + 1}.com"],
+            subject=f"Interested in partnering with Account {i + 1}",
+            body=f"Hi, I'd love to discuss how we can help Account {i + 1}...",
         )
-        result = await email_cap.execute_action(action)
-        assert result.success is True
+    simulated_env.metrics.increment("emails_sent", 10)
 
     # Complete outreach intention
     await intentions.complete_intention(
@@ -619,7 +642,7 @@ async def test_csm_at_risk_customer_intervention(
     Scenario:
     1. CSM perceives at-risk customer (high churn risk, no recent contact)
     2. Forms belief: "Acme Corp is at risk of churning"
-    3. Recognizes problem → Creates goal: "Prevent Acme Corp churn"
+    3. Recognizes problem -> Creates goal: "Prevent Acme Corp churn"
     4. Plans intervention: Schedule check-in call, review usage, prepare resources
     5. Executes: Sends email, schedules meeting
     6. Learns: Customer responded, risk reduced
@@ -646,32 +669,36 @@ async def test_csm_at_risk_customer_intervention(
 
     simulated_env.crm.add_customer(at_risk_customer)
 
-    # Setup: Simulated capabilities
-    capabilities = get_simulated_capabilities(
-        tenant_id=tenant.id,
+    # Step 1: PERCEIVE - Build observation from simulated CRM state
+    at_risk_customers = simulated_env.crm.get_at_risk_customers()
+    assert len(at_risk_customers) > 0
+
+    customer = at_risk_customers[0]
+    at_risk_obs = _make_observation(
         employee_id=employee.id,
-        environment=simulated_env,
-        enabled_capabilities=["email", "calendar", "crm"],
+        tenant_id=tenant.id,
+        observation_type="customer_at_risk",
+        source="crm",
+        content={
+            "customer_id": customer.id,
+            "customer_name": customer.name,
+            "health": customer.health.value,
+            "churn_risk_score": customer.churn_risk_score,
+            "contract_value": customer.contract_value,
+            "last_contact_date": (
+                customer.last_contact_date.isoformat() if customer.last_contact_date else None
+            ),
+        },
+        priority=9,
+        requires_action=True,
     )
 
-    # Initialize capabilities
-    for cap in capabilities.values():
-        await cap.initialize()
-
-    # Step 1: PERCEIVE - Detect at-risk customer
-    crm_cap = capabilities[CAPABILITY_CRM]
-    observations = await crm_cap.perceive()
-
-    # Assert: Should detect at-risk customer
-    assert len(observations) > 0
-    at_risk_obs = next((o for o in observations if o.observation_type == "customer_at_risk"), None)
     assert at_risk_obs is not None
-    assert at_risk_obs.priority >= 9  # Very high priority
+    assert at_risk_obs.priority >= 9
     assert at_risk_obs.content["customer_name"] == "Acme Corp"
     assert at_risk_obs.content["churn_risk_score"] == 0.75
 
     # Step 2: UPDATE BELIEFS - Extract beliefs from observation
-    # If using mock LLM, set up mock response
     if not is_real_llm(mock_llm):
         extraction_result = BeliefExtractionResult(
             beliefs=[
@@ -727,17 +754,12 @@ async def test_csm_at_risk_customer_intervention(
             )
         )
 
-    # Observations from capabilities are already in the unified format
-    # No conversion needed - can use directly
-    core_observation = at_risk_obs
-
     # Extract beliefs
-    extracted_beliefs = await beliefs.extract_beliefs_from_observation(core_observation, mock_llm)
+    extracted_beliefs = await beliefs.extract_beliefs_from_observation(at_risk_obs, mock_llm)
 
     # Assert: Beliefs formed about customer risk
     if is_real_llm(mock_llm):
         assert len(extracted_beliefs) > 0, "Real LLM should extract at least one belief"
-        # Just check that beliefs are related to customer
         belief_subjects = [b.belief.subject for b in extracted_beliefs]
         assert any("acme" in s.lower() or "customer" in s.lower() for s in belief_subjects), (
             f"Expected customer-related beliefs, got: {belief_subjects}"
@@ -765,13 +787,11 @@ async def test_csm_at_risk_customer_intervention(
         },
     )
 
-    # Assert: Goal created with high priority
     assert goal is not None
     assert goal.status == "active"
     assert goal.priority == 10
 
     # Step 4: PLAN INTERVENTION - Generate intervention plan
-    # If using mock LLM, set up mock plan
     if not is_real_llm(mock_llm):
         plan_result = PlanGenerationResult(
             intentions=[
@@ -852,12 +872,10 @@ async def test_csm_at_risk_customer_intervention(
 
     # Assert: Intervention plan generated
     if is_real_llm(mock_llm):
-        # Real LLM - just check that plan was generated
         assert len(generated_intentions) > 0, "Real LLM should generate at least one intention"
         logger.info(f"Real LLM generated {len(generated_intentions)} intentions:")
         for intention in generated_intentions:
             logger.info(f"  - {intention.description}")
-        # Use first two intentions for rest of test (or first one twice if only one generated)
         email_intention = generated_intentions[0]
         meeting_intention = (
             generated_intentions[1] if len(generated_intentions) > 1 else generated_intentions[0]
@@ -870,27 +888,19 @@ async def test_csm_at_risk_customer_intervention(
 
         assert "check-in email" in email_intention.description.lower()
         assert "check-in call" in meeting_intention.description.lower()
-        assert meeting_intention.dependencies[0] == email_intention.id  # Depends on email
+        assert meeting_intention.dependencies[0] == email_intention.id
 
     # Step 5: EXECUTE - Execute intervention
     # Send email
     await intentions.start_intention(email_intention.id)
 
-    email_cap = capabilities[CAPABILITY_EMAIL]
-    from empla.capabilities.base import Action
-
-    email_action = Action(
-        capability="email",
-        operation="send_email",
-        parameters={
-            "to": ["ceo@acmecorp.com"],
-            "subject": "Checking in - How can we better support you?",
-            "body": "Hi, I wanted to personally check in and see how things are going with our product. I noticed you've had a few support tickets recently and wanted to make sure we're addressing everything. Would love to schedule a call to discuss. Best regards,",
-        },
+    # Simulate email sending via environment directly
+    simulated_env.email.send_email(
+        to=["ceo@acmecorp.com"],
+        subject="Checking in - How can we better support you?",
+        body="Hi, I wanted to personally check in and see how things are going with our product. I noticed you've had a few support tickets recently and wanted to make sure we're addressing everything. Would love to schedule a call to discuss. Best regards,",
     )
-
-    email_result = await email_cap.execute_action(email_action)
-    assert email_result.success is True
+    simulated_env.metrics.increment("emails_sent")
 
     await intentions.complete_intention(
         intention_id=email_intention.id, outcome={"email_sent": True}
@@ -899,22 +909,15 @@ async def test_csm_at_risk_customer_intervention(
     # Schedule meeting
     await intentions.start_intention(meeting_intention.id)
 
-    calendar_cap = capabilities[CAPABILITY_CALENDAR]
-    meeting_action = Action(
-        capability="calendar",
-        operation="create_event",
-        parameters={
-            "subject": "Partnership check-in with Acme Corp",
-            "start_time": datetime.now(UTC) + timedelta(days=2),
-            "end_time": datetime.now(UTC) + timedelta(days=2, minutes=30),
-            "attendees": ["ceo@acmecorp.com"],
-            "location": "Video call",
-            "description": "Review usage, address concerns, explore how we can better support your team",
-        },
+    simulated_env.calendar.create_event(
+        subject="Partnership check-in with Acme Corp",
+        start_time=datetime.now(UTC) + timedelta(days=2),
+        end_time=datetime.now(UTC) + timedelta(days=2, minutes=30),
+        attendees=["ceo@acmecorp.com"],
+        location="Video call",
+        description="Review usage, address concerns, explore how we can better support your team",
     )
-
-    meeting_result = await calendar_cap.execute_action(meeting_action)
-    assert meeting_result.success is True
+    simulated_env.metrics.increment("meetings_scheduled")
 
     await intentions.complete_intention(
         intention_id=meeting_intention.id, outcome={"meeting_scheduled": True}
@@ -938,13 +941,13 @@ async def test_csm_at_risk_customer_intervention(
         )
     )
 
-    # Perceive response
-    email_observations = await email_cap.perceive()
-    response_obs = next(
-        (o for o in email_observations if "Re: Checking in" in o.content.get("subject", "")),
+    # Check inbox for response
+    unread = simulated_env.email.get_unread_emails()
+    response_email = next(
+        (e for e in unread if "Re: Checking in" in e.subject),
         None,
     )
-    assert response_obs is not None
+    assert response_email is not None
 
     # Update customer health (simulating improved engagement)
     at_risk_customer.health = CustomerHealth.HEALTHY
@@ -993,7 +996,6 @@ async def test_csm_at_risk_customer_intervention(
 
     final_goal = await goals.get_goal(goal.id)
     assert final_goal.status == "completed"
-    # Note: final_progress is passed to complete_goal but stored in current_progress
     assert final_goal.current_progress["intervention_successful"] is True
 
     # Assert: Metrics show intervention work
@@ -1006,27 +1008,15 @@ async def test_csm_at_risk_customer_intervention(
 
 
 @pytest.mark.asyncio
-async def test_perception_with_simulated_capabilities(session, employee, tenant, simulated_env):
+async def test_perception_with_simulated_environment(session, employee, tenant, simulated_env):
     """
-    Test that simulated capabilities produce observations correctly.
+    Test that simulated environment can produce observation data correctly.
 
     This validates that:
-    - Simulated email capability perceives emails
-    - Simulated calendar capability perceives events
-    - Simulated CRM capability perceives pipeline/customer issues
+    - Simulated email system tracks received emails
+    - Simulated calendar system tracks events
+    - Simulated CRM system tracks pipeline/customer issues
     """
-    # Setup simulated capabilities
-    capabilities = get_simulated_capabilities(
-        tenant_id=tenant.id,
-        employee_id=employee.id,
-        environment=simulated_env,
-        enabled_capabilities=["email", "calendar", "crm"],
-    )
-
-    # Initialize
-    for cap in capabilities.values():
-        await cap.initialize()
-
     # Add test data to environment
     # 1. Email
     simulated_env.email.receive_email(
@@ -1050,28 +1040,194 @@ async def test_perception_with_simulated_capabilities(session, employee, tenant,
     # 3. CRM - low pipeline
     simulated_env.crm.set_pipeline_coverage(2.0)
 
-    # Perceive from all capabilities
-    email_obs = await capabilities[CAPABILITY_EMAIL].perceive()
-    calendar_obs = await capabilities[CAPABILITY_CALENDAR].perceive()
-    crm_obs = await capabilities[CAPABILITY_CRM].perceive()
+    # Verify environment state
+    unread = simulated_env.email.get_unread_emails()
+    assert len(unread) == 1
+    assert unread[0].subject == "Question about your product"
 
-    # Assert: All capabilities produced observations
-    assert len(email_obs) == 1
-    assert email_obs[0].observation_type == "new_email"
-    assert email_obs[0].source == "email"
-    assert "Question about your product" in email_obs[0].content["subject"]
+    upcoming = simulated_env.calendar.get_upcoming_events(hours=24)
+    assert len(upcoming) == 1
+    assert upcoming[0].subject == "Team standup"
 
-    assert len(calendar_obs) == 1
-    assert calendar_obs[0].observation_type == "upcoming_meeting"
-    assert calendar_obs[0].source == "calendar"
-    assert calendar_obs[0].content["subject"] == "Team standup"
-
-    assert len(crm_obs) == 1
-    assert crm_obs[0].observation_type == "low_pipeline_coverage"
-    assert crm_obs[0].source == "crm"
-    assert crm_obs[0].content["pipeline_coverage"] == 2.0
+    pipeline_coverage = simulated_env.crm.get_pipeline_coverage()
+    assert pipeline_coverage == 2.0
 
     await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_email_priority_routing_and_mark_as_read(simulated_env):
+    """Test email priority filtering and mark-as-read flow."""
+    env = simulated_env
+
+    # Receive emails with different priorities
+    env.email.receive_email(
+        SimulatedEmail(
+            from_address="vip@test.com",
+            to_addresses=["employee@company.com"],
+            subject="URGENT: Contract expiring",
+            body="Please review immediately.",
+            priority=EmailPriority.URGENT,
+        )
+    )
+    env.email.receive_email(
+        SimulatedEmail(
+            from_address="newsletter@test.com",
+            to_addresses=["employee@company.com"],
+            subject="Weekly digest",
+            body="This week's news.",
+            priority=EmailPriority.LOW,
+        )
+    )
+
+    unread = env.email.get_unread_emails()
+    assert len(unread) == 2
+
+    # Urgent email should be first in inbox order
+    urgent_email = [e for e in unread if e.priority == EmailPriority.URGENT]
+    assert len(urgent_email) == 1
+    assert urgent_email[0].subject == "URGENT: Contract expiring"
+
+    # Mark urgent email as read
+    assert env.email.mark_as_read(urgent_email[0].id) is True
+    assert len(env.email.get_unread_emails()) == 1
+
+    # Mark non-existent email returns False
+    assert env.email.mark_as_read("nonexistent-id") is False
+
+
+@pytest.mark.asyncio
+async def test_calendar_overlapping_and_past_events(simulated_env):
+    """Test overlapping events and past event filtering."""
+    env = simulated_env
+    now = datetime.now(UTC)
+
+    # Past event (should not appear in upcoming)
+    env.calendar.create_event(
+        subject="Yesterday's meeting",
+        start_time=now - timedelta(hours=25),
+        end_time=now - timedelta(hours=24),
+    )
+
+    # Overlapping events (both should appear)
+    env.calendar.create_event(
+        subject="Meeting A",
+        start_time=now + timedelta(hours=1),
+        end_time=now + timedelta(hours=2),
+    )
+    env.calendar.create_event(
+        subject="Meeting B",
+        start_time=now + timedelta(hours=1, minutes=30),
+        end_time=now + timedelta(hours=3),
+    )
+
+    upcoming = env.calendar.get_upcoming_events(hours=24)
+    assert len(upcoming) == 2
+    subjects = [e.subject for e in upcoming]
+    assert "Meeting A" in subjects
+    assert "Meeting B" in subjects
+    assert "Yesterday's meeting" not in subjects
+
+    # get_events with explicit range includes past
+    all_events = env.calendar.get_events(
+        start_time=now - timedelta(days=2), end_time=now + timedelta(days=1)
+    )
+    assert len(all_events) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("coverage", "expected"),
+    [
+        (0.0, 0.0),
+        (5.0, 5.0),
+        (0.5, 0.5),
+    ],
+)
+async def test_crm_pipeline_coverage_edge_cases(simulated_env, coverage, expected):
+    """Test CRM pipeline with zero and very high coverage values."""
+    env = simulated_env
+    env.crm.set_pipeline_coverage(coverage)
+    assert env.crm.get_pipeline_coverage() == pytest.approx(expected, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_crm_zero_target_pipeline(simulated_env):
+    """Test CRM pipeline coverage when target is zero (avoid division by zero)."""
+    env = simulated_env
+    env.crm.set_pipeline_target(0)
+    assert env.crm.get_pipeline_coverage() == 0.0
+
+
+@pytest.mark.asyncio
+async def test_crm_at_risk_customers(simulated_env):
+    """Test filtering at-risk customers from CRM."""
+    env = simulated_env
+    env.crm.add_customer(
+        SimulatedCustomer(name="Happy Corp", health=CustomerHealth.HEALTHY, contract_value=5000.0)
+    )
+    env.crm.add_customer(
+        SimulatedCustomer(name="Risky LLC", health=CustomerHealth.AT_RISK, contract_value=10000.0)
+    )
+    env.crm.add_customer(
+        SimulatedCustomer(name="Another Risk", health=CustomerHealth.AT_RISK, contract_value=2000.0)
+    )
+
+    at_risk = env.crm.get_at_risk_customers()
+    assert len(at_risk) == 2
+    assert all(c.health == CustomerHealth.AT_RISK for c in at_risk)
+
+
+@pytest.mark.asyncio
+async def test_crm_deals_by_stage(simulated_env):
+    """Test filtering deals by CRM stage."""
+    env = simulated_env
+    env.crm.add_deal(
+        SimulatedDeal(name="Deal A", value=50000, stage=DealStage.PROPOSAL, probability=0.5)
+    )
+    env.crm.add_deal(
+        SimulatedDeal(name="Deal B", value=30000, stage=DealStage.PROPOSAL, probability=0.3)
+    )
+    env.crm.add_deal(
+        SimulatedDeal(name="Deal C", value=20000, stage=DealStage.NEGOTIATION, probability=0.7)
+    )
+
+    proposals = env.crm.get_deals_by_stage(DealStage.PROPOSAL)
+    assert len(proposals) == 2
+
+    closed = env.crm.get_deals_by_stage(DealStage.CLOSED_WON)
+    assert len(closed) == 0
+
+
+@pytest.mark.asyncio
+async def test_email_thread_retrieval(simulated_env):
+    """Test email thread grouping."""
+    env = simulated_env
+    thread_id = "thread-123"
+
+    env.email.receive_email(
+        SimulatedEmail(
+            from_address="alice@test.com",
+            to_addresses=["employee@company.com"],
+            subject="Project update",
+            body="Here's the update.",
+            thread_id=thread_id,
+        )
+    )
+    env.email.send_email(
+        to=["alice@test.com"],
+        subject="Re: Project update",
+        body="Thanks for the update.",
+        thread_id=thread_id,
+    )
+
+    thread = env.email.get_thread(thread_id)
+    assert len(thread) == 2
+    # Thread should be sorted chronologically
+    assert thread[0].received_at <= thread[1].received_at
+
+    # Non-existent thread returns empty
+    assert env.email.get_thread("no-such-thread") == []
 
 
 if __name__ == "__main__":

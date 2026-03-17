@@ -183,7 +183,6 @@ class TestEmployeeWithMockedDependencies:
         assert employee._goals is None
         assert employee._intentions is None
         assert employee._memory is None
-        assert employee._capabilities is None
         assert employee._loop is None
 
     @pytest.mark.asyncio

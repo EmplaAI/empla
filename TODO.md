@@ -1,128 +1,140 @@
-# empla - Current Work Tracker
+# empla - Roadmap
 
-> **Purpose:** Track current priorities, state, and progress
-> **Updated:** 2026-02-20
-> **Roadmap:** See `docs/research/openclaw-inspired-roadmap.md` for full consolidated roadmap
-
----
-
-## Current State (2026-02-20)
-
-**Test Results:** 561 passed, 67.33% coverage
-**Employees:** SalesAE, CSM (deployable)
-**Capabilities:** Email (simulation), Workspace (full implementation)
-**LLM Service:** Multi-provider (Anthropic, OpenAI, Vertex)
-
-### Recently Completed
-- [x] CapabilityType enum → string constants migration (PR #35)
-- [x] WorkspaceCapability — Digital Desk Phase 1 (PR #36)
-  - 7 operations, path security, perception, simulation support
-  - 72 unit tests, 8 integration tests, 85.75% coverage
-- [x] OpenClaw analysis and consolidated roadmap
+> **Updated:** 2026-03-17
+> **Strategy:** The brain works. Now make it solid — clean up dead code,
+> complete the agentic loop, wire goal achievement, activate learning.
+> Platform solidification before new integrations.
 
 ---
 
-## Active Priorities
+## Current State
 
-### P0 — This Sprint
-
-1. [ ] **BDI Lifecycle Hooks** (Track C1)
-   - Hook registry with register/emit
-   - All BDI cycle phases emit hooks
-   - Foundation for health monitoring, manifests, extensibility
-
-2. [ ] **LLM Provider Failover** (Track B1)
-   - FailoverConfig: primary + fallback models
-   - ProviderHealth tracking with cooldowns
-   - Error classification (auth, rate-limit, timeout, billing)
-
-3. [ ] **Dual-Timeout Watchdog** (Track B2)
-   - Per-LLM-call timeout (60s)
-   - Per-cycle timeout (5 min)
-   - Tool loop detection (Track B3)
-
-4. [ ] **Exponential Loop Backoff** (Track B6)
-   - Cycle-level backoff on failure (1s → 2s → 4s → ... → 5min max)
-   - Reset on success, never permanently stop
-
-### P1 — Next Sprint
-
-5. [ ] **ComputeCapability** (Track A2)
-   - Subprocess sandbox (dev), Docker sandbox (production)
-   - Workspace mounted at /workspace
-   - Module blocklist for code-level security
-
-6. [ ] **Context Window Compaction** (Track B4)
-   - Token counting, auto-compaction at 80% limit
-   - Summary-based strategy
-
-7. [ ] **Microsoft Graph + Gmail Email Integration** (Track D3)
-   - OAuth2 flow, real fetch/send
-   - Replace EmailCapability placeholders
-
-8. [ ] **Employee Health Monitoring** (Track B5)
-   - HealthStatus model
-   - Loop, capability, LLM provider checks
-
-9. [ ] **Graceful Shutdown and State Persistence** (Track B8)
-   - Save BDI state on shutdown, resume on restart
-   - Process infrastructure (SIGTERM/SIGKILL, health checks) done (PR #37)
-
-10. [x] **Employee CLI Tool** (Track F1)
-    - `empla employee start/stop/status/list` (PR #37)
-
-11. [ ] **Real Observation Sources** (Track F2)
-    - Connect real perception to ProactiveExecutionLoop
-
-### P2 — Following Sprint
-
-12. [ ] **BrowserCapability** (Track A3)
-13. [ ] **Capability Manifests** (Track C2)
-14. [ ] **Calendar Capability** (Track D4)
-15. [ ] **Transcript Pruning** (Track C4)
-
-### P3 — Future
-
-16. [ ] **Slack/Teams Messaging** (Track D5)
-17. [ ] **Hot-Reload Config** (Track C5)
-18. [ ] **Product Manager Employee** (Track F3)
-19. [ ] **Developer Experience — Guides & Docs** (Track F4)
-20. [ ] **Active Hours Gating** (Track B7)
-21. [ ] **Subagent System** — Employees spawn sub-agents for delegated tasks
+Tests: 799 passed, 61% full-codebase coverage | Employees: SalesAE, CSM
+Working: BDI loop runs, LLM-driven perception (agentic tool checking), strategic
+planning generates goals, agentic execution calls tools via ToolRouter, MCP bridge
+connects external tool servers, activity recording feeds dashboard, goal
+achievement detection, procedural memory recording + maintenance.
+Dashboard: Employees, Activity, Integrations (OAuth + MCP servers), Settings
 
 ---
 
-## Completed Phases
+## Phase 3A: Platform Solidification
 
-### Phase 1 — Foundation (COMPLETE)
-- [x] Database schema with Alembic migrations
-- [x] Core Pydantic models
-- [x] BDI Engine (BeliefSystem, GoalSystem, IntentionStack)
-- [x] Memory Systems (Episodic, Semantic, Procedural, Working)
-- [x] Proactive Execution Loop
-- [x] LLM Service with multi-provider support
+The immediate priority. Make what exists actually work end-to-end before
+adding more integrations.
 
-### Phase 2.1 — Capability Framework (COMPLETE)
-- [x] BaseCapability with retry, error classification, PII-safe logging
-- [x] CapabilityRegistry lifecycle management
-- [x] Integration with ProactiveExecutionLoop
+### 1. ~~Remove old capabilities system~~ DONE
 
-### Phase 2.2 — Email Capability (CORE COMPLETE)
-- [x] EmailCapability with triage, composition, actions
-- [x] 22 unit tests, 95.80% coverage
-- [ ] Microsoft Graph API integration (P1)
+Deleted `empla/capabilities/base.py`, `registry.py`, `email.py`,
+`workspace.py`, `compute.py`. Moved `ActionResult` to
+`empla/core/tools/base.py`. Removed `CapabilityRegistry`,
+`_init_capabilities`, `capability_registry` param, and capability shutdown
+from `employees/base.py`. Kept `default_capabilities` as role metadata.
+Deleted 8 test files, updated remaining tests.
 
-### Phase 2.4 — Employees (COMPLETE)
-- [x] Base DigitalEmployee class
-- [x] SalesAE, CSM employees
-- [x] E2E simulation framework
+### 2. ~~Complete agentic execution~~ DONE
 
-### Digital Desk Phase 1 — Workspace (COMPLETE)
-- [x] WorkspaceCapability with 7 operations
-- [x] Path security, perception, simulation support
-- [x] 72 unit + 8 integration tests
+Removed rigid sequential step fallback (`_execute_plan_step`,
+`_execute_step_via_tool_router`) from `execution.py`.
+`_execute_intention_plan` now requires LLM + tools and returns clear errors
+when either is missing. Updated tests.
+
+### 3. Wire goal achievement — PARTIAL
+
+**Done:** Added `_check_goal_achievement()` to `execution.py` — compares
+`progress[metric] >= target[value]` after each progress update and calls
+`complete_goal()` for achievement goals. "Maintain" goals log success but
+stay active. Added `GoalSystem.get_pursuing_goals()` to query both active
+and in_progress goals (the old code only checked active goals, so goals
+that transitioned to in_progress were never re-evaluated).
+
+**Remaining:**
+- The brittle substring matching in `_evaluate_goal_progress_from_beliefs`
+  should be replaced with LLM-driven evaluation
+- Goal achievement should emit a hook or create an activity record
+- Integration tests verifying full goal lifecycle
+  (active → in_progress → completed)
+
+### 4. Activate learning (procedural memory → execution) — PARTIAL
+
+**Done:** Fixed the signature mismatch in `_update_procedural_memory` —
+now correctly calls `record_procedure(name=, steps=, outcome=, success=,
+execution_time=, context=)`. Wired `reinforce_successful_procedures` and
+`archive_poor_procedures` into `_maintain_memory_health()` during deep
+reflection. Added procedural memory lookup in
+`_generate_plans_for_unplanned_goals` — queries past successful procedures
+and includes them in the LLM context when generating plans.
+
+**Remaining:**
+- Integration tests verifying procedures are recorded, retrieved, and
+  influence planning
+- Embedding-based similarity search for procedure retrieval (currently
+  uses `find_procedures_for_situation` which does dict matching)
 
 ---
 
-**Last Updated:** 2026-02-20
-**Full Roadmap:** `docs/research/openclaw-inspired-roadmap.md`
+## Phase 3B: Core Integrations
+
+After the platform is solid, add the integrations that make employees
+useful in the real world.
+
+### 1. CRM adapter (HubSpot / Salesforce)
+
+MCP server or native tool that gives employees read/write access to CRM
+data — contacts, deals, pipeline stages. Required for SalesAE and CSM
+to do real work.
+
+### 2. Calendar adapter (Google Calendar)
+
+Read/write calendar events. OAuth infrastructure already exists for Google.
+Needed for scheduling meetings, checking availability, time-aware planning.
+
+### 3. Gmail send completion
+
+Gmail receive works (via MCP bridge). Send is declared but not implemented.
+Complete the send path so employees can actually respond to emails.
+
+---
+
+## Backlog
+
+- LLM failover — primary + fallback models, ProviderHealth tracking
+- Timeouts/watchdogs — per-call + per-cycle timeouts, loop detection
+- Context window compaction — token counting, auto-compaction
+- Employee health monitoring — HealthStatus model
+- Graceful shutdown & state persistence — save/resume BDI state
+- Exponential loop backoff — cycle-level backoff on failure
+- Transcript pruning — compact idle transcripts
+- Active hours gating — configurable work schedule
+- Hot-reload config — update without restart
+- Multi-employee coordination — handoff protocols, shared beliefs
+- New employee types (PM) — prove platform extensibility
+- Developer experience docs — guides for creating custom employees
+
+---
+
+## Completed
+
+**Phase 1 — Foundation:** DB schema, BDI engine, Memory systems, Proactive
+loop, LLM service
+
+**Phase 2 — Platform:** BaseCapability + Registry, Email/Workspace/Compute
+capabilities, SalesAE + CSM employees, BDI lifecycle hooks, Process
+infrastructure + CLI, Simulation framework, String-based capability types,
+OpenClaw research
+
+**Phase 2.5 — Dashboard & Integrations:** Dashboard (employees, activity,
+settings), OAuth integration framework (Google/Microsoft), platform OAuth
+apps, admin CLI, MCP server management (CRUD, SSRF protection, encrypted
+credentials, runtime bridge), centralized settings, Vertex AI tool calling,
+unified tool architecture (@tool + ToolRouter)
+
+**Phase 2.75 — Integration Router & Agentic Perception (PR #56):**
+IntegrationRouter for tool-based integrations, agentic perception via LLM
+tool calling, role catalog as single source of truth, test infrastructure
+(calendar MCP server, seed scenarios, dev_e2e.sh), activity recorder for
+dashboard feed
+
+---
+
+**Last Updated:** 2026-03-17

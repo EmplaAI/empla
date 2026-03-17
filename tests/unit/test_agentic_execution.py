@@ -11,8 +11,8 @@ from uuid import uuid4
 
 import pytest
 
-from empla.capabilities.base import ActionResult
 from empla.core.loop.execution import ProactiveExecutionLoop
+from empla.core.tools.base import ActionResult
 from empla.core.tools.router import ToolRouter
 from empla.llm.models import LLMResponse, TokenUsage, ToolCall
 from empla.models.employee import Employee
@@ -440,8 +440,8 @@ async def test_intention_plan_uses_agentic_when_available():
 
 
 @pytest.mark.asyncio
-async def test_intention_plan_falls_back_without_llm():
-    """Test _execute_intention_plan falls back to rigid execution without LLM."""
+async def test_intention_plan_errors_without_llm():
+    """Test _execute_intention_plan returns error without LLM service."""
     employee = _make_employee()
     beliefs, goals, intentions, memory = _make_mock_bdi()
 
@@ -455,17 +455,16 @@ async def test_intention_plan_falls_back_without_llm():
     )
 
     intention = _make_intention()
-    intention.plan = {"steps": []}
     result = await loop._execute_intention_plan(intention)
 
-    # Falls back to rigid: no steps = success
-    assert result["success"] is True
-    assert "agentic" not in result
+    assert result["success"] is False
+    assert result["agentic"] is True
+    assert "LLM service" in result["error"]
 
 
 @pytest.mark.asyncio
-async def test_intention_plan_falls_back_without_tools():
-    """Test _execute_intention_plan falls back when no tool schemas available."""
+async def test_intention_plan_errors_without_tools():
+    """Test _execute_intention_plan returns error when no tools available."""
     employee = _make_employee()
     beliefs, goals, intentions, memory = _make_mock_bdi()
 
@@ -484,12 +483,11 @@ async def test_intention_plan_falls_back_without_tools():
     )
 
     intention = _make_intention()
-    intention.plan = {"steps": []}
     result = await loop._execute_intention_plan(intention)
 
-    # Falls back to rigid: no steps = success
-    assert result["success"] is True
-    assert "agentic" not in result
+    assert result["success"] is False
+    assert result["agentic"] is True
+    assert "No tools" in result["error"]
 
 
 # ============================================================================

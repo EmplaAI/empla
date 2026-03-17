@@ -4,7 +4,7 @@
 # Usage: bash scripts/dev_e2e.sh
 #
 # Starts:
-#   - Test email server   (port 9100)
+#   - Test email server   (port 9110)
 #   - Calendar MCP server (port 9101)
 #   - CRM MCP server      (port 9102)
 #   - Seeds scenario data
@@ -54,8 +54,8 @@ wait_for_port() {
 }
 
 # Start test servers
-echo -e "${GREEN}Starting test email server on :9100...${NC}"
-uv run python -m tests.servers.email_server --port 9100 &
+echo -e "${GREEN}Starting test email server on :9110...${NC}"
+uv run python -m tests.servers.email_server --port 9110 &
 
 echo -e "${GREEN}Starting calendar MCP server on :9101...${NC}"
 uv run python -m tests.servers.calendar_mcp --http --port 9101 &
@@ -65,7 +65,7 @@ uv run python -m tests.servers.crm_mcp --http --port 9102 &
 
 # Wait for servers to become ready
 echo -e "${BLUE}Waiting for servers to be ready...${NC}"
-wait_for_port 9100 "email server"
+wait_for_port 9110 "email server"
 wait_for_port 9101 "calendar MCP"
 wait_for_port 9102 "CRM MCP"
 
@@ -89,7 +89,7 @@ else
     echo -e "${GREEN}Ready! (No dashboard found at apps/dashboard)${NC}"
 fi
 echo -e "${BLUE}Test servers:${NC}"
-echo -e "  Email:    http://localhost:9100/state"
+echo -e "  Email:    http://localhost:9110/state"
 echo -e "  Calendar: http://localhost:9101/tools"
 echo -e "  CRM:      http://localhost:9102/state"
 echo ""

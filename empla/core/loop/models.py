@@ -165,6 +165,11 @@ class LoopConfig(BaseModel):
         description="Which sources to check during perception",
     )
 
+    # Perception limits
+    max_perception_iterations: int = Field(
+        default=5, ge=1, description="Max tool-call iterations during agentic perception"
+    )
+
     # Execution limits
     max_intentions_per_cycle: int = Field(
         default=1, ge=1, description="How many intentions to execute per cycle"
