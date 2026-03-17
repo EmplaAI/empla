@@ -9,11 +9,12 @@
 
 ## Current State
 
-Tests: 799 passed, 61% full-codebase coverage | Employees: SalesAE, CSM
+Tests: 780 passed, 57% full-codebase coverage | Employees: SalesAE, CSM
 Working: BDI loop runs, LLM-driven perception (agentic tool checking), strategic
 planning generates goals, agentic execution calls tools via ToolRouter, MCP bridge
-connects external tool servers, activity recording feeds dashboard, goal
-achievement detection, procedural memory recording + maintenance.
+connects external tool servers, activity recording feeds dashboard, LLM-driven goal
+progress evaluation + achievement detection + hook emission, procedural memory
+recording + maintenance + plan influence.
 Dashboard: Employees, Activity, Integrations (OAuth + MCP servers), Settings
 
 ---
@@ -39,37 +40,26 @@ Removed rigid sequential step fallback (`_execute_plan_step`,
 `_execute_intention_plan` now requires LLM + tools and returns clear errors
 when either is missing. Updated tests.
 
-### 3. Wire goal achievement — PARTIAL
+### 3. ~~Wire goal achievement~~ DONE
 
-**Done:** Added `_check_goal_achievement()` to `execution.py` — compares
-`progress[metric] >= target[value]` after each progress update and calls
-`complete_goal()` for achievement goals. "Maintain" goals log success but
-stay active. Added `GoalSystem.get_pursuing_goals()` to query both active
-and in_progress goals (the old code only checked active goals, so goals
-that transitioned to in_progress were never re-evaluated).
+Replaced brittle `_evaluate_goal_progress_from_beliefs` (substring matching)
+with LLM-driven `_evaluate_goals_progress` that batches all pursuing goals
+into a single `generate_structured` call. Heuristic fallback when LLM is
+unavailable. Added `HOOK_GOAL_ACHIEVED` hook emitted on successful
+`complete_goal()`. `ActivityRecorder` records `GOAL_ACHIEVED` events
+(importance=1.0). Integration tests cover LLM evaluation, heuristic
+fallback, achievement lifecycle, hook emission, and activity recording.
 
-**Remaining:**
-- The brittle substring matching in `_evaluate_goal_progress_from_beliefs`
-  should be replaced with LLM-driven evaluation
-- Goal achievement should emit a hook or create an activity record
-- Integration tests verifying full goal lifecycle
-  (active → in_progress → completed)
+### 4. ~~Activate learning (procedural memory → execution)~~ DONE
 
-### 4. Activate learning (procedural memory → execution) — PARTIAL
-
-**Done:** Fixed the signature mismatch in `_update_procedural_memory` —
-now correctly calls `record_procedure(name=, steps=, outcome=, success=,
-execution_time=, context=)`. Wired `reinforce_successful_procedures` and
-`archive_poor_procedures` into `_maintain_memory_health()` during deep
-reflection. Added procedural memory lookup in
-`_generate_plans_for_unplanned_goals` — queries past successful procedures
-and includes them in the LLM context when generating plans.
-
-**Remaining:**
-- Integration tests verifying procedures are recorded, retrieved, and
-  influence planning
-- Embedding-based similarity search for procedure retrieval (currently
-  uses `find_procedures_for_situation` which does dict matching)
+Fixed signature mismatch in `_update_procedural_memory`. Wired
+`reinforce_successful_procedures` and `archive_poor_procedures` into
+`_maintain_memory_health()`. Procedural memory lookup in
+`_generate_plans_for_unplanned_goals` queries past procedures and includes
+them in LLM context. Integration tests cover procedure recording (success
++ failure), trigger conditions with goal context, per-tool result accuracy,
+procedure lookup during planning, and memory maintenance (reinforcement +
+archival).
 
 ---
 
@@ -109,6 +99,8 @@ Complete the send path so employees can actually respond to emails.
 - Hot-reload config — update without restart
 - Multi-employee coordination — handoff protocols, shared beliefs
 - New employee types (PM) — prove platform extensibility
+- Embedding-based procedure search — pgvector similarity for
+  `find_procedures_for_situation` (currently dict-matching)
 - Developer experience docs — guides for creating custom employees
 
 ---

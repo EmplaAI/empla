@@ -23,6 +23,7 @@ from empla.core.hooks import (
     HOOK_CYCLE_END,
     HOOK_EMPLOYEE_START,
     HOOK_EMPLOYEE_STOP,
+    HOOK_GOAL_ACHIEVED,
     HookRegistry,
 )
 from empla.models.activity import ActivityEventType, EmployeeActivity
@@ -77,6 +78,7 @@ class ActivityRecorder:
         hooks.register(HOOK_CYCLE_END, self._on_cycle_end)
         hooks.register(HOOK_EMPLOYEE_START, self._on_employee_start)
         hooks.register(HOOK_EMPLOYEE_STOP, self._on_employee_stop)
+        hooks.register(HOOK_GOAL_ACHIEVED, self._on_goal_achieved)
         logger.debug(
             "ActivityRecorder registered on hooks",
             extra={"employee_id": str(self._employee_id)},
@@ -104,7 +106,9 @@ class ActivityRecorder:
             # Don't flush here — let the loop's commit handle it
         except Exception as e:
             logger.warning(
-                f"Failed to record activity: {e}",
+                "Failed to record activity: %s",
+                e,
+                exc_info=True,
                 extra={"event_type": event_type, "employee_id": str(self._employee_id)},
             )
 
@@ -212,6 +216,25 @@ class ActivityRecorder:
             event_type=ActivityEventType.EMPLOYEE_STOPPED,
             description=f"Employee {name} stopped",
             importance=0.9,
+        )
+
+    async def _on_goal_achieved(self, **kwargs: Any) -> None:
+        """Record goal achievement as a max-importance activity event."""
+        goal_description = kwargs.get("goal_description", "Unknown goal")
+        metric = kwargs.get("metric", "")
+        current_value = kwargs.get("current_value")
+        target_value = kwargs.get("target_value")
+        await self._record(
+            event_type=ActivityEventType.GOAL_ACHIEVED,
+            description=f"Goal achieved: {goal_description[:200]}",
+            data={
+                "goal_id": str(kwargs.get("goal_id", "")),
+                "metric": metric,
+                "current_value": current_value,
+                "target_value": target_value,
+                "goal_type": kwargs.get("goal_type", ""),
+            },
+            importance=1.0,
         )
 
 

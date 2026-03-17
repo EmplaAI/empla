@@ -39,6 +39,9 @@ HookHandler = Callable[..., Awaitable[None]]
 # after_reflection:           employee_id, result
 # employee_start:             employee_id, name, role
 # employee_stop:              employee_id, name
+# goal_achieved:              employee_id, goal_id, goal_description, metric,
+#                             current_value, target_value, goal_type
+#                             (achievement goals only, not maintain/maintenance)
 HOOK_CYCLE_START = "cycle_start"
 HOOK_CYCLE_END = "cycle_end"
 HOOK_BEFORE_PERCEPTION = "before_perception"
@@ -52,6 +55,7 @@ HOOK_AFTER_INTENTION_EXECUTION = "after_intention_execution"
 HOOK_AFTER_REFLECTION = "after_reflection"
 HOOK_EMPLOYEE_START = "employee_start"
 HOOK_EMPLOYEE_STOP = "employee_stop"
+HOOK_GOAL_ACHIEVED = "goal_achieved"
 
 
 class HookRegistry:

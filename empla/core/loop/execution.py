@@ -5,7 +5,6 @@ The main continuous autonomous operation loop.
 """
 
 import asyncio
-import contextlib
 import json
 import logging
 import time
@@ -28,9 +27,11 @@ from empla.core.hooks import (
     HOOK_BEFORE_STRATEGIC_PLANNING,
     HOOK_CYCLE_END,
     HOOK_CYCLE_START,
+    HOOK_GOAL_ACHIEVED,
     HookRegistry,
 )
 from empla.core.loop.models import (
+    GoalProgressEvaluation,
     IntentionResult,
     LoopConfig,
     Observation,
@@ -646,11 +647,9 @@ class ProactiveExecutionLoop:
 
         # ============ GOAL MANAGEMENT ============
         pursuing_goals = await self.goals.get_pursuing_goals()
+        goal_progress_map = await self._evaluate_goals_progress(pursuing_goals, changed_beliefs)
         for goal in pursuing_goals:
-            progress = self._evaluate_goal_progress_from_beliefs(
-                goal=goal,
-                changed_beliefs=changed_beliefs,
-            )
+            progress = goal_progress_map.get(str(goal.id), {})
             if progress:
                 await self.goals.update_goal_progress(goal.id, progress)
                 await self._check_goal_achievement(goal, progress)
@@ -1066,76 +1065,163 @@ class ProactiveExecutionLoop:
 
         return False
 
-    def _evaluate_goal_progress_from_beliefs(
+    async def _evaluate_goals_progress(
         self,
-        goal: Any,
+        goals: list[Any],
         changed_beliefs: list[BeliefChange],
-    ) -> dict[str, Any]:
-        """
-        Evaluate goal progress based on recently changed beliefs.
+    ) -> dict[str, dict[str, Any]]:
+        """Evaluate progress for all pursuing goals using LLM-driven analysis.
 
-        Matches goal target metrics to belief subject/predicate patterns:
-        - "pipeline_coverage" matches beliefs with subject containing "pipeline"
-          and predicate containing "coverage"
-        - "deals_closed" matches subject containing "deals" and predicate "closed"
+        Batches all goals into a single LLM call that interprets changed beliefs
+        in context. Returns empty if LLM is unavailable (will retry next cycle).
 
         Args:
-            goal: The goal to evaluate progress for
-            changed_beliefs: List of belief changes from this cycle
+            goals: All pursuing goals (filtered internally to those with numeric targets).
+            changed_beliefs: Belief changes from this cycle.
 
         Returns:
-            Progress dict to update the goal with, empty if no matching beliefs
+            Dict mapping goal_id (str) to progress dict.
         """
-        target = getattr(goal, "target", {}) or {}
-        metric = target.get("metric", "")
-
-        if not metric:
+        if not changed_beliefs or not goals:
             return {}
 
-        # Parse metric into subject/predicate patterns
-        # Convention: underscore-separated metric maps to subject_predicate
-        parts = metric.lower().split("_", 1)
-        if len(parts) < 2:
-            # Single word metric - match as subject or predicate
-            subject_pattern = parts[0]
-            predicate_pattern = parts[0]
-        else:
-            subject_pattern = parts[0]
-            predicate_pattern = parts[1]
+        # Filter to goals with numeric target metrics
+        evaluable_goals = []
+        for goal in goals:
+            target = getattr(goal, "target", {}) or {}
+            if target.get("metric") and target.get("value") is not None:
+                evaluable_goals.append(goal)
 
-        progress: dict[str, Any] = {}
+        if not evaluable_goals:
+            return {}
 
-        for belief_change in changed_beliefs:
-            # Check if belief matches goal metric
-            subject_match = subject_pattern in belief_change.subject.lower()
-            predicate_match = predicate_pattern in belief_change.predicate.lower()
+        # Format belief changes as text for the LLM
+        belief_lines = []
+        for bc in changed_beliefs:
+            belief = getattr(bc, "belief", None)
+            obj = getattr(belief, "object", {}) if belief else {}
+            belief_lines.append(
+                f"- {bc.subject} → {bc.predicate}: {obj} "
+                f"(confidence: {bc.old_confidence:.2f} → {bc.new_confidence:.2f})"
+            )
+        beliefs_text = "\n".join(belief_lines) if belief_lines else "No belief changes"
 
-            if subject_match and predicate_match:
-                # Extract value from belief
-                # BeliefChangeResult has a .belief attribute with the actual Belief
-                belief = getattr(belief_change, "belief", None)
-                if belief is not None:
-                    belief_object = getattr(belief, "object", {}) or {}
-                    value = belief_object.get("value")
+        # Format goals for the LLM
+        goal_lines = []
+        for g in evaluable_goals:
+            target = getattr(g, "target", {}) or {}
+            goal_lines.append(
+                f"- goal_id={g.id}, metric={target['metric']}, "
+                f"target_value={target['value']}, description={getattr(g, 'description', '')}"
+            )
+        goals_text = "\n".join(goal_lines)
 
-                    if value is not None:
-                        # Update progress with the metric value
-                        progress[metric] = value
-                        progress["last_belief_update"] = belief_change.subject
-                        progress["belief_confidence"] = belief_change.new_confidence
+        if self.llm_service is None:
+            logger.error(
+                "LLM service unavailable, cannot evaluate goal progress (will retry next cycle)",
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return {}
 
-                        logger.debug(
-                            f"Goal progress updated from belief: {metric}={value}",
-                            extra={
-                                "employee_id": str(self.employee.id),
-                                "goal_id": str(goal.id),
-                                "belief_subject": belief_change.subject,
-                                "belief_predicate": belief_change.predicate,
-                            },
-                        )
-                        break  # Use first matching belief
+        try:
+            return await self._evaluate_goals_progress_via_llm(
+                evaluable_goals, beliefs_text, goals_text
+            )
+        except Exception as e:
+            logger.error(
+                "LLM goal evaluation failed (will retry next cycle): %s",
+                e,
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return {}
 
-        return progress
+    async def _evaluate_goals_progress_via_llm(
+        self,
+        goals: list[Any],
+        beliefs_text: str,
+        goals_text: str,
+    ) -> dict[str, dict[str, Any]]:
+        """Call LLM to evaluate goal progress from belief changes.
+
+        Args:
+            goals: Goals being evaluated.
+            beliefs_text: Formatted belief changes text.
+            goals_text: Formatted goals text.
+
+        Returns:
+            Dict mapping goal_id (str) to progress dict.
+        """
+        system_prompt = (
+            "You are evaluating whether recent belief changes indicate progress "
+            "toward specific goals. For each goal, determine the current metric "
+            "value from the beliefs if possible. Only report a value when the "
+            "beliefs clearly contain information about the goal's metric."
+        )
+
+        prompt = f"""Recent belief changes:
+{beliefs_text}
+
+Goals to evaluate:
+{goals_text}
+
+For each goal, extract the current metric value from the belief changes if present.
+Only include goals where you can determine a numeric value."""
+
+        _, evaluation = await self.llm_service.generate_structured(
+            prompt=prompt,
+            system=system_prompt,
+            response_format=GoalProgressEvaluation,
+            temperature=0.1,
+        )
+        evaluation = cast(GoalProgressEvaluation, evaluation)
+
+        # Validate and convert to progress dicts
+        valid_goals = {str(g.id): (getattr(g, "target", {}) or {}).get("metric", "") for g in goals}
+        min_confidence = 0.3
+        result: dict[str, dict[str, Any]] = {}
+        for metric_result in evaluation.results:
+            if metric_result.current_value is None:
+                continue
+            if metric_result.confidence < min_confidence:
+                logger.debug(
+                    "LLM goal evaluation below confidence threshold (%.2f < %.2f) for goal %s, skipping",
+                    metric_result.confidence,
+                    min_confidence,
+                    metric_result.goal_id,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                continue
+            if metric_result.goal_id not in valid_goals:
+                logger.warning(
+                    "LLM returned unknown goal_id %r, skipping",
+                    metric_result.goal_id,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                continue
+            expected_metric = valid_goals[metric_result.goal_id]
+            if metric_result.metric != expected_metric:
+                logger.warning(
+                    "LLM returned metric %r for goal %s, expected %r, skipping",
+                    metric_result.metric,
+                    metric_result.goal_id,
+                    expected_metric,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                continue
+            result[metric_result.goal_id] = {
+                metric_result.metric: metric_result.current_value,
+                "llm_confidence": metric_result.confidence,
+                "llm_reasoning": metric_result.reasoning,
+            }
+
+        logger.debug(
+            "LLM goal evaluation: %d/%d goals with progress",
+            len(result),
+            len(goals),
+            extra={"employee_id": str(self.employee.id)},
+        )
+        return result
 
     async def _check_goal_achievement(
         self,
@@ -1225,18 +1311,6 @@ class ProactiveExecutionLoop:
         for attempt in range(max_attempts):
             try:
                 await self.goals.complete_goal(goal.id, clean_progress)
-                logger.info(
-                    "Goal completed: %s (metric %s=%s reached target %s)",
-                    goal.description,
-                    metric,
-                    current_value,
-                    target_value,
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "goal_id": str(goal.id),
-                    },
-                )
-                return
             except Exception as e:
                 if attempt < max_attempts - 1:
                     delay = 0.1 * (2**attempt)  # 0.1s, 0.2s, 0.4s
@@ -1259,10 +1333,46 @@ class ProactiveExecutionLoop:
                         extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
                     )
                     # Mark as completion_pending so subsequent cycles reattempt
-                    with contextlib.suppress(Exception):
+                    try:
                         await self.goals.update_goal_progress(
                             goal.id, {"_completion_pending": True}
                         )
+                    except Exception as fallback_err:
+                        logger.error(
+                            "Failed to mark goal %s as completion_pending "
+                            "after completion failure: %s",
+                            goal.id,
+                            fallback_err,
+                            exc_info=True,
+                            extra={
+                                "employee_id": str(self.employee.id),
+                                "goal_id": str(goal.id),
+                            },
+                        )
+            else:
+                # complete_goal succeeded — log and emit hook outside retry scope
+                logger.info(
+                    "Goal completed: %s (metric %s=%s reached target %s)",
+                    goal.description,
+                    metric,
+                    current_value,
+                    target_value,
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "goal_id": str(goal.id),
+                    },
+                )
+                await self._hooks.emit(
+                    HOOK_GOAL_ACHIEVED,
+                    employee_id=self.employee.id,
+                    goal_id=goal.id,
+                    goal_description=getattr(goal, "description", ""),
+                    metric=metric,
+                    current_value=current_value,
+                    target_value=target_value,
+                    goal_type=getattr(goal, "goal_type", ""),
+                )
+                break
 
     async def strategic_planning_cycle(self) -> None:
         """
