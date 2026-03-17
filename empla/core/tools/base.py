@@ -192,6 +192,13 @@ class ActionResult(BaseModel):
     Result of executing a tool action.
 
     Returned by ToolRouter after tool execution.
+
+    Example:
+        >>> result = ActionResult(
+        ...     success=True,
+        ...     output={"message_id": "AAMkAD..."},
+        ...     metadata={"duration_ms": 350.0}
+        ... )
     """
 
     success: bool
@@ -205,6 +212,16 @@ class ActionResult(BaseModel):
 
     metadata: dict[str, Any] = Field(default_factory=dict)
     """Additional metadata (timing, cost, etc.)"""
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "output": {"message_id": "AAMkADEwM..."},
+                "error": None,
+                "metadata": {"duration_ms": 350.0},
+            }
+        }
 
 
 class ToolCapability(BaseModel):

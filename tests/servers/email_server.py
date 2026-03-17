@@ -5,7 +5,7 @@ Simple FastAPI app that simulates an email server.
 Stores all state in memory for fast, deterministic testing.
 
 Usage:
-    python -m tests.servers.email_server [--port 9100]
+    python -m tests.servers.email_server [--port 9110]
 
 API:
     GET  /emails             List emails (?unread=true, ?max_results=10)
@@ -214,6 +214,6 @@ async def reset_state() -> dict[str, str]:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="empla Test Email Server")
-    parser.add_argument("--port", type=int, default=9100)
+    parser.add_argument("--port", type=int, default=9110)
     args = parser.parse_args()
     uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="info")

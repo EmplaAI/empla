@@ -5,6 +5,7 @@ The main continuous autonomous operation loop.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -649,6 +650,11 @@ class ProactiveExecutionLoop:
             if progress:
                 await self.goals.update_goal_progress(goal.id, progress)
                 await self._check_goal_achievement(goal, progress)
+            else:
+                # Reattempt completion for goals flagged as completion_pending
+                current_progress = getattr(goal, "current_progress", {}) or {}
+                if current_progress.get("_completion_pending"):
+                    await self._check_goal_achievement(goal, current_progress)
 
         logger.debug(
             f"Goal progress evaluated for {len(pursuing_goals)} pursuing goals",
@@ -1135,9 +1141,10 @@ class ProactiveExecutionLoop:
         """
         Check if a goal's target has been met and complete it if so.
 
-        For "maintain" goals (ongoing targets), completion triggers a new
-        goal cycle rather than permanent completion — the goal is re-activated
-        so it continues to be monitored.
+        For "maintain" goals (ongoing targets), the goal stays active.
+        For achievement goals, calls complete_goal() with retry logic.
+        If retries are exhausted, marks the goal as completion_pending
+        so subsequent cycles will reattempt completion.
 
         Args:
             goal: The goal to check
@@ -1171,23 +1178,49 @@ class ProactiveExecutionLoop:
 
         goal_type = getattr(goal, "goal_type", "")
 
-        try:
-            if goal_type == "maintain":
-                # "maintain" goals stay active — log that target is met
-                logger.info(
-                    "Maintain goal target met: %s=%s (target=%s)",
-                    metric,
-                    current_value,
-                    target_value,
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "goal_id": str(goal.id),
-                        "goal_type": "maintain",
-                    },
-                )
-            else:
-                # Achievement/one-time goals — mark completed
-                await self.goals.complete_goal(goal.id, progress)
+        if goal_type == "maintain":
+            # "maintain" goals stay active — log that target is met
+            logger.info(
+                "Maintain goal target met: %s=%s (target=%s)",
+                metric,
+                current_value,
+                target_value,
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "goal_id": str(goal.id),
+                    "goal_type": "maintain",
+                },
+            )
+            return
+
+        # Achievement/one-time goals — mark completed with retry
+        await self._complete_goal_with_retry(goal, progress, metric, current_value, target_value)
+
+    async def _complete_goal_with_retry(
+        self,
+        goal: Any,
+        progress: dict[str, Any],
+        metric: str,
+        current_value: Any,
+        target_value: Any,
+        max_attempts: int = 3,
+    ) -> None:
+        """Complete an achievement goal with retry and completion_pending fallback.
+
+        Args:
+            goal: The goal to complete
+            progress: Progress data to pass to complete_goal
+            metric: The metric name (for logging)
+            current_value: Current metric value (for logging)
+            target_value: Target metric value (for logging)
+            max_attempts: Maximum retry attempts with exponential backoff
+        """
+        # Strip internal flag before persisting final progress
+        clean_progress = {k: v for k, v in progress.items() if k != "_completion_pending"}
+
+        for attempt in range(max_attempts):
+            try:
+                await self.goals.complete_goal(goal.id, clean_progress)
                 logger.info(
                     "Goal completed: %s (metric %s=%s reached target %s)",
                     goal.description,
@@ -1199,14 +1232,33 @@ class ProactiveExecutionLoop:
                         "goal_id": str(goal.id),
                     },
                 )
-        except Exception as e:
-            logger.error(
-                "Failed to complete goal %s: %s",
-                goal.id,
-                e,
-                exc_info=True,
-                extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
-            )
+                return
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    delay = 0.1 * (2**attempt)  # 0.1s, 0.2s, 0.4s
+                    logger.warning(
+                        "Retrying goal completion (attempt %d/%d) for %s: %s",
+                        attempt + 1,
+                        max_attempts,
+                        goal.id,
+                        e,
+                        extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        "Goal completion failed after %d attempts for %s: %s — marking completion_pending",
+                        max_attempts,
+                        goal.id,
+                        e,
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
+                    )
+                    # Mark as completion_pending so subsequent cycles reattempt
+                    with contextlib.suppress(Exception):
+                        await self.goals.update_goal_progress(
+                            goal.id, {"_completion_pending": True}
+                        )
 
     async def strategic_planning_cycle(self) -> None:
         """
@@ -1661,6 +1713,11 @@ Analyze this situation and provide recommendations."""
 
             duration_ms = max(0.01, (time.time() - start_time) * 1000)
 
+            # Enrich outcome with goal context for procedural memory matching
+            _goal_id = getattr(intention, "goal_id", None)
+            execution_result["goal_id"] = str(_goal_id) if _goal_id else None
+            execution_result["intention_description"] = getattr(intention, "description", "")
+
             result = IntentionResult(
                 intention_id=intention.id,
                 success=execution_result["success"],
@@ -1822,6 +1879,7 @@ Analyze this situation and provide recommendations."""
                     "error": f"LLM call failed: {e}",
                     "tool_calls_made": len(tool_calls_made),
                     "tools_used": [tc["tool"] for tc in tool_calls_made],
+                    "tool_results": tool_calls_made,
                     "agentic": True,
                 }
 
@@ -1840,6 +1898,7 @@ Analyze this situation and provide recommendations."""
                     "message": response.content,
                     "tool_calls_made": len(tool_calls_made),
                     "tools_used": [tc["tool"] for tc in tool_calls_made],
+                    "tool_results": tool_calls_made,
                     "agentic": True,
                 }
 
@@ -1862,6 +1921,7 @@ Analyze this situation and provide recommendations."""
                     "error": "No tool executor configured",
                     "tool_calls_made": 0,
                     "tools_used": [],
+                    "tool_results": [],
                     "agentic": True,
                 }
             for tool_call in response.tool_calls:
@@ -2035,14 +2095,23 @@ Analyze this situation and provide recommendations."""
             outcome = result.outcome or {}
             tools_used = outcome.get("tools_used", [])
 
+            # Build trigger_conditions from goal context so
+            # find_procedures_for_situation can match on goal_type/goal_description
+            trigger_conditions = await self._build_procedure_trigger_conditions(outcome)
+            intention_desc = outcome.get("intention_description", "")
+            procedure_name = (
+                intention_desc[:120] if intention_desc else f"intention_{result.intention_id}"
+            )
+
             # Record procedure for successful executions
             if result.success and tools_used:
                 steps = [{"action": tool, "success": True} for tool in tools_used]
 
                 await self.memory.procedural.record_procedure(
                     procedure_type="intention_execution",
-                    name=f"intention_{result.intention_id}",
+                    name=procedure_name,
                     steps=steps,
+                    trigger_conditions=trigger_conditions,
                     outcome=f"success:{len(tools_used)}_tools",
                     success=True,
                     execution_time=result.duration_ms / 1000.0,
@@ -2058,8 +2127,9 @@ Analyze this situation and provide recommendations."""
 
                 await self.memory.procedural.record_procedure(
                     procedure_type="intention_failure",
-                    name=f"failed_intention_{result.intention_id}",
+                    name=f"failed: {procedure_name}",
                     steps=[{"action": "failed", "error": error}],
+                    trigger_conditions=trigger_conditions,
                     outcome=f"failure:{error[:100]}",
                     success=False,
                     execution_time=result.duration_ms / 1000.0,
@@ -2075,29 +2145,56 @@ Analyze this situation and provide recommendations."""
                 extra={"employee_id": str(self.employee.id)},
             )
 
+    async def _build_procedure_trigger_conditions(self, outcome: dict[str, Any]) -> dict[str, Any]:
+        """Build trigger_conditions dict for procedural memory from outcome's goal context.
+
+        Looks up goal_type from the goals system if a goal_id is present.
+        Returns a dict with goal_type and goal_description that
+        find_procedures_for_situation can match against.
+        """
+        conditions: dict[str, Any] = {}
+        goal_id_str = outcome.get("goal_id")
+        if goal_id_str:
+            try:
+                from uuid import UUID as _UUID
+
+                goal = await self.goals.get_goal(_UUID(goal_id_str))
+                if goal:
+                    goal_type = getattr(goal, "goal_type", "")
+                    goal_desc = getattr(goal, "description", "")
+                    if goal_type:
+                        conditions["goal_type"] = goal_type
+                    if goal_desc:
+                        conditions["goal_description"] = goal_desc
+            except Exception:
+                pass  # Best-effort — don't break recording if lookup fails
+        return conditions
+
     async def _update_effectiveness_beliefs(self, result: IntentionResult) -> None:
-        """Update beliefs about what actions are effective."""
+        """Update beliefs about per-tool effectiveness based on execution outcome."""
         try:
             outcome = result.outcome or {}
-            tools_used = outcome.get("tools_used", [])
+            tool_results = outcome.get("tool_results", [])
 
-            if not tools_used:
+            if not tool_results:
                 return
 
-            overall_success = result.success
-            for tool_name in tools_used:
-                if tool_name:
-                    confidence = 0.8 if overall_success else 0.3
-                    await self.beliefs.update_belief(
-                        subject=tool_name,
-                        predicate="effectiveness",
-                        belief_object={
-                            "value": 1.0 if overall_success else 0.0,
-                            "last_result": overall_success,
-                        },
-                        confidence=confidence,
-                        source="execution_outcome",
-                    )
+            for tr in tool_results:
+                tool_name = tr.get("tool", "")
+                if not tool_name:
+                    continue
+                tool_success = tr.get("success", False)
+                confidence = 0.8 if tool_success else 0.3
+                await self.beliefs.update_belief(
+                    subject=tool_name,
+                    predicate="effectiveness",
+                    belief_object={
+                        "value": 1.0 if tool_success else 0.0,
+                        "last_result": tool_success,
+                    },
+                    confidence=confidence,
+                    source="execution_outcome",
+                )
 
         except Exception as e:
             logger.warning(

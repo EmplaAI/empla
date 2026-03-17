@@ -9,7 +9,7 @@
 
 ## Current State
 
-Tests: 782 passed, 61% full-codebase coverage | Employees: SalesAE, CSM
+Tests: 799 passed, 61% full-codebase coverage | Employees: SalesAE, CSM
 Working: BDI loop runs, LLM-driven perception (agentic tool checking), strategic
 planning generates goals, agentic execution calls tools via ToolRouter, MCP bridge
 connects external tool servers, activity recording feeds dashboard, goal

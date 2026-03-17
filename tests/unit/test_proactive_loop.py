@@ -93,11 +93,13 @@ class MockIntention:
         description: str = "Test intention",
         intention_type: str = "action",
         priority: int = 5,
+        goal_id: str | None = None,
     ):
         self.id = uuid4() if id is None else id
         self.description = description
         self.intention_type = intention_type
         self.priority = priority
+        self.goal_id = goal_id
 
 
 # ============================================================================

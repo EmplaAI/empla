@@ -14,8 +14,10 @@ Usage:
     # Create simulated world
     env = SimulatedEnvironment()
 
-    # Setup scenario (e.g., low pipeline)
+    # Setup scenario
     env.crm.set_pipeline_coverage(2.0)  # Below 3.0 target
+    env.email.receive_email(SimulatedEmail(...))
+    events = env.calendar.get_upcoming_events(hours=24)
 
 Key Design Decisions:
 - Uses ACTUAL BDI implementations (empla/bdi/beliefs.py, goals.py, intentions.py)

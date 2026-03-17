@@ -6,7 +6,7 @@ autonomous cycle, using:
 - ACTUAL SalesAE class from empla/employees/
 - ACTUAL BDI implementations
 - ACTUAL memory systems
-- SIMULATED environment (no real API calls)
+- Mocked LLM and mocked dependencies by default (no real API calls)
 
 Running with Real LLM:
     By default, tests use mock LLM for fast, deterministic testing.

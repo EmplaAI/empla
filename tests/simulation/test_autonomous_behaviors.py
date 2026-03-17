@@ -24,10 +24,16 @@ removed. These tests now construct Observation objects directly from
 SimulatedEnvironment data rather than going through capability.perceive().
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from empla.core.loop.models import Observation
 
 import pytest
 from sqlalchemy import event
@@ -45,6 +51,7 @@ from tests.simulation import (
     CustomerHealth,
     DealStage,
     EmailPriority,
+    SimulatedCustomer,
     SimulatedDeal,
     SimulatedEmail,
     SimulatedEnvironment,
@@ -264,8 +271,21 @@ def _make_observation(
     content: dict,
     priority: int = 5,
     requires_action: bool = False,
-):
-    """Create an Observation object directly (replacing capability.perceive())."""
+) -> Observation:
+    """Create an Observation directly for testing (replaces capability.perceive()).
+
+    Args:
+        employee_id: Employee UUID that this observation belongs to.
+        tenant_id: Tenant UUID for multi-tenancy scoping.
+        observation_type: Category of observation (e.g., "email", "calendar", "crm").
+        source: Where the observation originated (e.g., "email_server", "crm_system").
+        content: Observation payload as a dict.
+        priority: Priority level 1-10 (default 5).
+        requires_action: Whether this observation requires the employee to act.
+
+    Returns:
+        Observation instance with timestamp set to datetime.now(UTC).
+    """
     from empla.core.loop.models import Observation
 
     return Observation(
@@ -1033,6 +1053,181 @@ async def test_perception_with_simulated_environment(session, employee, tenant, 
     assert pipeline_coverage == 2.0
 
     await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_email_priority_routing_and_mark_as_read(simulated_env):
+    """Test email priority filtering and mark-as-read flow."""
+    env = simulated_env
+
+    # Receive emails with different priorities
+    env.email.receive_email(
+        SimulatedEmail(
+            from_address="vip@test.com",
+            to_addresses=["employee@company.com"],
+            subject="URGENT: Contract expiring",
+            body="Please review immediately.",
+            priority=EmailPriority.URGENT,
+        )
+    )
+    env.email.receive_email(
+        SimulatedEmail(
+            from_address="newsletter@test.com",
+            to_addresses=["employee@company.com"],
+            subject="Weekly digest",
+            body="This week's news.",
+            priority=EmailPriority.LOW,
+        )
+    )
+
+    unread = env.email.get_unread_emails()
+    assert len(unread) == 2
+
+    # Urgent email should be first in inbox order
+    urgent_email = [e for e in unread if e.priority == EmailPriority.URGENT]
+    assert len(urgent_email) == 1
+    assert urgent_email[0].subject == "URGENT: Contract expiring"
+
+    # Mark urgent email as read
+    assert env.email.mark_as_read(urgent_email[0].id) is True
+    assert len(env.email.get_unread_emails()) == 1
+
+    # Mark non-existent email returns False
+    assert env.email.mark_as_read("nonexistent-id") is False
+
+
+@pytest.mark.asyncio
+async def test_calendar_overlapping_and_past_events(simulated_env):
+    """Test overlapping events and past event filtering."""
+    env = simulated_env
+    now = datetime.now(UTC)
+
+    # Past event (should not appear in upcoming)
+    env.calendar.create_event(
+        subject="Yesterday's meeting",
+        start_time=now - timedelta(hours=25),
+        end_time=now - timedelta(hours=24),
+    )
+
+    # Overlapping events (both should appear)
+    env.calendar.create_event(
+        subject="Meeting A",
+        start_time=now + timedelta(hours=1),
+        end_time=now + timedelta(hours=2),
+    )
+    env.calendar.create_event(
+        subject="Meeting B",
+        start_time=now + timedelta(hours=1, minutes=30),
+        end_time=now + timedelta(hours=3),
+    )
+
+    upcoming = env.calendar.get_upcoming_events(hours=24)
+    assert len(upcoming) == 2
+    subjects = [e.subject for e in upcoming]
+    assert "Meeting A" in subjects
+    assert "Meeting B" in subjects
+    assert "Yesterday's meeting" not in subjects
+
+    # get_events with explicit range includes past
+    all_events = env.calendar.get_events(
+        start_time=now - timedelta(days=2), end_time=now + timedelta(days=1)
+    )
+    assert len(all_events) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("coverage", "expected"),
+    [
+        (0.0, 0.0),
+        (5.0, 5.0),
+        (0.5, 0.5),
+    ],
+)
+async def test_crm_pipeline_coverage_edge_cases(simulated_env, coverage, expected):
+    """Test CRM pipeline with zero and very high coverage values."""
+    env = simulated_env
+    env.crm.set_pipeline_coverage(coverage)
+    assert env.crm.get_pipeline_coverage() == pytest.approx(expected, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_crm_zero_target_pipeline(simulated_env):
+    """Test CRM pipeline coverage when target is zero (avoid division by zero)."""
+    env = simulated_env
+    env.crm.set_pipeline_target(0)
+    assert env.crm.get_pipeline_coverage() == 0.0
+
+
+@pytest.mark.asyncio
+async def test_crm_at_risk_customers(simulated_env):
+    """Test filtering at-risk customers from CRM."""
+    env = simulated_env
+    env.crm.add_customer(
+        SimulatedCustomer(name="Happy Corp", health=CustomerHealth.HEALTHY, contract_value=5000.0)
+    )
+    env.crm.add_customer(
+        SimulatedCustomer(name="Risky LLC", health=CustomerHealth.AT_RISK, contract_value=10000.0)
+    )
+    env.crm.add_customer(
+        SimulatedCustomer(name="Another Risk", health=CustomerHealth.AT_RISK, contract_value=2000.0)
+    )
+
+    at_risk = env.crm.get_at_risk_customers()
+    assert len(at_risk) == 2
+    assert all(c.health == CustomerHealth.AT_RISK for c in at_risk)
+
+
+@pytest.mark.asyncio
+async def test_crm_deals_by_stage(simulated_env):
+    """Test filtering deals by CRM stage."""
+    env = simulated_env
+    env.crm.add_deal(
+        SimulatedDeal(name="Deal A", value=50000, stage=DealStage.PROPOSAL, probability=0.5)
+    )
+    env.crm.add_deal(
+        SimulatedDeal(name="Deal B", value=30000, stage=DealStage.PROPOSAL, probability=0.3)
+    )
+    env.crm.add_deal(
+        SimulatedDeal(name="Deal C", value=20000, stage=DealStage.NEGOTIATION, probability=0.7)
+    )
+
+    proposals = env.crm.get_deals_by_stage(DealStage.PROPOSAL)
+    assert len(proposals) == 2
+
+    closed = env.crm.get_deals_by_stage(DealStage.CLOSED_WON)
+    assert len(closed) == 0
+
+
+@pytest.mark.asyncio
+async def test_email_thread_retrieval(simulated_env):
+    """Test email thread grouping."""
+    env = simulated_env
+    thread_id = "thread-123"
+
+    env.email.receive_email(
+        SimulatedEmail(
+            from_address="alice@test.com",
+            to_addresses=["employee@company.com"],
+            subject="Project update",
+            body="Here's the update.",
+            thread_id=thread_id,
+        )
+    )
+    env.email.send_email(
+        to=["alice@test.com"],
+        subject="Re: Project update",
+        body="Thanks for the update.",
+        thread_id=thread_id,
+    )
+
+    thread = env.email.get_thread(thread_id)
+    assert len(thread) == 2
+    # Thread should be sorted chronologically
+    assert thread[0].received_at <= thread[1].received_at
+
+    # Non-existent thread returns empty
+    assert env.email.get_thread("no-such-thread") == []
 
 
 if __name__ == "__main__":
