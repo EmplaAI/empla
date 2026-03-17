@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from empla.llm.models import TaskContext, TaskType
 from empla.models.employee import EmployeeIntention
 
 logger = logging.getLogger(__name__)
@@ -799,6 +800,12 @@ Generate a detailed plan to achieve this goal. Include multiple intentions with 
                 system=system_prompt,
                 response_format=PlanGenerationResult,
                 temperature=0.4,  # Balance creativity and consistency
+                task_context=TaskContext(
+                    task_type=TaskType.PLAN_GENERATION,
+                    priority=goal.priority,
+                    requires_structured_output=True,
+                    quality_threshold=0.7,
+                ),
             )
             # Cast to specific type for type checker
             plan_result = cast(PlanGenerationResult, plan_result_raw)
