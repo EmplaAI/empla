@@ -205,7 +205,7 @@ class MemorySystemProtocol(Protocol):
 
 
 class ToolSourceProtocol(Protocol):
-    """Protocol for tool sources (CapabilityRegistry or ToolRouter).
+    """Protocol for tool sources (ToolRouter).
 
     Defines the interface the agentic loop uses for tool discovery and execution.
     """
@@ -218,10 +218,6 @@ class ToolSourceProtocol(Protocol):
         self, employee_id: UUID, tool_name: str, arguments: dict[str, Any]
     ) -> Any:
         """Execute a tool call and return an ActionResult."""
-        ...
-
-    async def perceive_all(self, employee_id: UUID) -> list[Any]:
-        """Gather observations from the environment."""
         ...
 
     def get_enabled_capabilities(self, employee_id: UUID) -> list[str]:
@@ -267,7 +263,6 @@ class ProactiveExecutionLoop:
         goals: GoalSystemProtocol,
         intentions: IntentionStackProtocol,
         memory: MemorySystemProtocol,
-        capability_registry: ToolSourceProtocol | None = None,
         llm_service: "LLMService | None" = None,
         config: LoopConfig | None = None,
         status_checker: Callable[[Employee], Awaitable[None]] | None = None,
@@ -276,39 +271,29 @@ class ProactiveExecutionLoop:
         identity: "EmployeeIdentity | None" = None,
     ) -> None:
         """
-        Create and initialize a ProactiveExecutionLoop for the given Employee, wiring together BDI components, optional capability registry, and loop configuration.
+        Create and initialize a ProactiveExecutionLoop.
 
         Parameters:
-            employee: The digital employee instance this loop will run for; used for identification and status checks.
+            employee: The digital employee instance this loop will run for.
             beliefs: Belief system used to update and query the agent's world model.
             goals: Goal system responsible for providing and updating active goals.
             intentions: Intention stack managing selection, start, completion, and failure of intentions.
             memory: Memory system used for recording and retrieving episodic/semantic/procedural data.
-            capability_registry: Optional tool source for perception and tool execution.
             llm_service: Optional LLM service for strategic reasoning and plan generation.
-            config: Optional loop configuration object; when omitted defaults are applied (e.g., cycle and error backoff intervals).
+            config: Optional loop configuration object; when omitted defaults are applied.
             status_checker: Optional async callback that refreshes employee.status
                 from the database. When provided, called at the start of each cycle
                 so the loop can react to external status changes (e.g. pause-via-DB).
-                When None, the loop reads employee.status directly (suitable for tests).
             hooks: Optional hook registry for lifecycle event callbacks.
-                When None, a default empty registry is created.
-            tool_router: Optional unified tool source that combines capabilities + standalone tools.
-                When provided, used for tool discovery and execution instead
-                of capability_registry directly.
+            tool_router: Optional unified tool source for tool discovery and execution.
             identity: Optional EmployeeIdentity providing name, role, personality,
-                and goals context. When set, its system prompt is prepended to
-                every LLM call so the model knows who it is acting as.
-
-        Notes:
-            Initializes internal timing/state (cycle interval, error backoff, counters, and last-run timestamps) and logs startup metadata including whether a capability registry is present.
+                and goals context for LLM prompts.
         """
         self.employee = employee
         self.beliefs = beliefs
         self.goals = goals
         self.intentions = intentions
         self.memory = memory
-        self.capability_registry = capability_registry
         self.tool_router = tool_router
         self.llm_service = llm_service
         self._status_checker = status_checker
@@ -343,7 +328,6 @@ class ProactiveExecutionLoop:
             extra={
                 "employee_id": str(employee.id),
                 "cycle_interval": self.cycle_interval,
-                "has_capability_registry": capability_registry is not None,
                 "has_tool_router": tool_router is not None,
                 "has_llm_service": llm_service is not None,
                 "config": self.config.model_dump(),
@@ -764,51 +748,158 @@ class ProactiveExecutionLoop:
 
     async def perceive_environment(self) -> PerceptionResult:
         """
-        Collects observations from configured capabilities and summarizes detected opportunities, problems, and risks.
+        Collects observations from the environment via agentic perception.
 
-        If a CapabilityRegistry is present, polls all enabled capabilities for this employee and converts their observations into the loop's Observation shape; if not present or if capability polling fails, returns an empty observation list. The returned PerceptionResult includes the observations, counts of opportunities/problems/risks, the perception duration in milliseconds, and the list of capability sources that were checked.
+        Uses LLM-driven perception when LLM and tools are available.
+        Returns empty result otherwise.
 
         Returns:
-            PerceptionResult: Aggregated perception data containing:
-                - observations: list of Observation objects collected (may be empty)
-                - opportunities_detected: count of observations classified as opportunities
-                - problems_detected: count of observations classified as problems or errors
-                - risks_detected: count of observations classified as risks or with high priority
-                - perception_duration_ms: elapsed time spent perceiving, in milliseconds
-                - sources_checked: list of capability identifiers that were queried
+            PerceptionResult with observations, opportunity/problem/risk counts,
+            duration, and sources checked.
         """
         start_time = time.time()
+
+        if self.llm_service is not None and self.tool_router is not None:
+            tool_schemas = self.tool_router.get_all_tool_schemas(self.employee.id)
+            if tool_schemas:
+                try:
+                    result = await self._perceive_agentic(tool_schemas)
+                    duration_ms = max(0.01, (time.time() - start_time) * 1000)
+                    result.perception_duration_ms = duration_ms
+                    return result
+                except Exception:
+                    logger.warning(
+                        "Agentic perception failed",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+
+        # No LLM or no tools — return empty result
+        duration_ms = max(0.01, (time.time() - start_time) * 1000)
+        return PerceptionResult(
+            observations=[],
+            perception_duration_ms=duration_ms,
+        )
+
+    async def _perceive_agentic(self, tool_schemas: list[dict[str, Any]]) -> PerceptionResult:
+        """LLM-driven perception: check environment based on goals.
+
+        The LLM receives current goals and available tools, then decides
+        what to check. This replaces hardcoded perceive() methods with
+        goal-aware, adaptive environment scanning.
+
+        Args:
+            tool_schemas: Available tool schemas for the LLM.
+
+        Returns:
+            PerceptionResult with observations from tool calls.
+        """
+        from empla.llm.models import Message
+
+        # Build context for perception
+        goals_context = await self._format_goals_for_perception()
+        beliefs_context = await self._format_recent_beliefs_for_perception()
+
+        system_prompt = self._build_perception_system_prompt()
+        user_prompt = (
+            f"Check your environment for changes relevant to your goals.\n\n"
+            f"Current goals:\n{goals_context}\n\n"
+            f"Recent beliefs:\n{beliefs_context}\n\n"
+            f"Use the available tools to check for new information. "
+            f"Focus on what's most relevant to your highest-priority goals. "
+            f"Be efficient — don't check everything every time."
+        )
+
+        messages = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=user_prompt),
+        ]
+
         observations: list[Observation] = []
-        sources_checked: list[str] = []
+        sources_checked: set[str] = set()
+        max_perception_iterations = 5
 
-        # Use tool_router (preferred) or capability_registry for perception
-        perception_source = self.tool_router or self.capability_registry
-        if perception_source is not None:
+        for iteration in range(max_perception_iterations):
             try:
-                # Get observations from all enabled capabilities
-                # Capabilities now return unified Observation objects directly
-                observations = await perception_source.perceive_all(self.employee.id)
-
-                # Track which capabilities were checked
-                sources_checked = perception_source.get_enabled_capabilities(self.employee.id)
-
-                logger.debug(
-                    f"Capability perception: {len(observations)} observations",
+                response = await self.llm_service.generate_with_tools(
+                    messages=messages,
+                    tools=tool_schemas,
+                    tool_choice="auto",
+                    temperature=0.2,
+                )
+            except Exception as e:
+                logger.error(
+                    f"LLM call failed during agentic perception: {e}",
                     extra={
                         "employee_id": str(self.employee.id),
-                        "sources": sources_checked,
+                        "iteration": iteration,
                     },
                 )
+                break
 
-            except Exception:
-                logger.error(
-                    "Capability perception failed",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                # Continue with empty observations - don't crash the loop
+            if not response.tool_calls:
+                break
 
-        # Analyze observations for opportunities, problems, risks
+            # Add assistant message to conversation
+            assistant_msg = Message(
+                role="assistant",
+                content=response.content or "",
+                tool_calls=response.tool_calls,
+            )
+            messages.append(assistant_msg)
+
+            # Execute each tool call
+            if self.tool_router is None:
+                break
+
+            for tc in response.tool_calls:
+                source = tc.name.split(".")[0] if "." in tc.name else tc.name
+                sources_checked.add(source)
+
+                try:
+                    result = await self.tool_router.execute_tool_call(
+                        self.employee.id, tc.name, tc.arguments
+                    )
+                    result_output = result.output if hasattr(result, "output") else result
+                    result_error = getattr(result, "error", None)
+                    result_success = getattr(result, "success", True)
+
+                    obs_content: dict[str, Any] = {
+                        "tool_result": result_output,
+                        "arguments": tc.arguments,
+                    }
+                    if result_error:
+                        obs_content["error"] = result_error
+
+                    observations.append(
+                        Observation(
+                            employee_id=self.employee.id,
+                            tenant_id=self.employee.tenant_id,
+                            observation_type=tc.name,
+                            source=source,
+                            content=obs_content,
+                            priority=5,
+                            requires_action=False,
+                        )
+                    )
+
+                    result_payload: dict[str, Any] = {
+                        "success": result_success,
+                        "output": result_output,
+                    }
+                    if result_error:
+                        result_payload["error"] = result_error
+                    result_content = json.dumps(result_payload, default=str)
+                except Exception as e:
+                    logger.error(
+                        f"Tool call {tc.name} failed during perception: {e}",
+                        extra={"employee_id": str(self.employee.id), "tool_name": tc.name},
+                    )
+                    result_content = json.dumps({"success": False, "error": str(e)})
+
+                messages.append(Message(role="tool", content=result_content, tool_call_id=tc.id))
+
+        # Classify observations
         opportunities = sum(
             1 for obs in observations if "opportunity" in obs.observation_type.lower()
         )
@@ -821,16 +912,12 @@ class ProactiveExecutionLoop:
             1 for obs in observations if "risk" in obs.observation_type.lower() or obs.priority >= 9
         )
 
-        duration_ms = max(0.01, (time.time() - start_time) * 1000)  # Ensure > 0
-
-        logger.debug(
-            f"Perception complete: {len(observations)} observations",
+        logger.info(
+            f"Agentic perception: {len(observations)} observations from {len(sources_checked)} sources",
             extra={
                 "employee_id": str(self.employee.id),
-                "duration_ms": duration_ms,
-                "opportunities": opportunities,
-                "problems": problems,
-                "risks": risks,
+                "observations": len(observations),
+                "sources": list(sources_checked),
             },
         )
 
@@ -839,9 +926,54 @@ class ProactiveExecutionLoop:
             opportunities_detected=opportunities,
             problems_detected=problems,
             risks_detected=risks,
-            perception_duration_ms=duration_ms,
-            sources_checked=sources_checked,
+            perception_duration_ms=0.01,  # Updated by caller
+            sources_checked=list(sources_checked),
         )
+
+    def _build_perception_system_prompt(self) -> str:
+        """Build system prompt for agentic perception."""
+        perception_instructions = (
+            "You are the perception system for a digital employee. "
+            "Your job is to check the environment for changes relevant to current goals. "
+            "Use the available tools to gather information. "
+            "Be efficient — focus on the most important sources first."
+        )
+        if self._identity_prompt:
+            return f"{self._identity_prompt}\n\n{perception_instructions}"
+        return perception_instructions
+
+    async def _format_goals_for_perception(self) -> str:
+        """Format current goals for the perception prompt."""
+        try:
+            active_goals = await self.goals.get_active_goals()
+            if not active_goals:
+                return "No active goals."
+            lines = []
+            for g in active_goals:
+                desc = getattr(g, "description", "Unknown")
+                priority = getattr(g, "priority", "?")
+                lines.append(f"- [{priority}] {desc}")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.warning("Failed to format goals for perception: %s", e)
+            return "Unable to load goals."
+
+    async def _format_recent_beliefs_for_perception(self) -> str:
+        """Format recent beliefs for context in perception prompt."""
+        try:
+            beliefs = await self.beliefs.get_all_beliefs(min_confidence=0.5)
+            if not beliefs:
+                return "No current beliefs."
+            lines = []
+            for b in beliefs[:10]:
+                subject = getattr(b, "subject", "?")
+                predicate = getattr(b, "predicate", "?")
+                confidence = getattr(b, "confidence", "?")
+                lines.append(f"- {subject}.{predicate} (confidence: {confidence})")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.warning("Failed to format beliefs for perception: %s", e)
+            return "Unable to load beliefs."
 
     # ========================================================================
     # Phase 2: Strategic Reasoning
@@ -1082,16 +1214,12 @@ class ProactiveExecutionLoop:
         self.last_strategic_planning = datetime.now(UTC)
 
     def _get_available_capabilities(self) -> list[str]:
-        """Get list of available capability types."""
-        if not self.capability_registry:
+        """Get list of available capability/integration names."""
+        if not self.tool_router:
             return []
 
         try:
-            # get_enabled_capabilities returns list[str] directly
-            enabled = getattr(self.capability_registry, "get_enabled_capabilities", None)
-            if enabled:
-                return enabled(self.employee.id)
-            return []
+            return self.tool_router.get_enabled_capabilities(self.employee.id)
         except Exception as e:
             logger.warning(
                 f"Failed to get capabilities: {e}", extra={"employee_id": str(self.employee.id)}
@@ -1469,11 +1597,10 @@ Analyze this situation and provide recommendations."""
         Returns:
             Execution result with success status and outputs
         """
-        # Try agentic execution if LLM service and tool source are available
-        tool_source = self.tool_router or self.capability_registry
-        if self.llm_service and tool_source:
+        # Try agentic execution if LLM service and tools are available
+        if self.llm_service and self.tool_router:
             try:
-                tool_schemas = tool_source.get_all_tool_schemas(self.employee.id)
+                tool_schemas = self.tool_router.get_all_tool_schemas(self.employee.id)
             except Exception:
                 logger.error(
                     "Failed to collect tool schemas, falling back to rigid execution",
@@ -1538,11 +1665,7 @@ Analyze this situation and provide recommendations."""
 
     async def _execute_plan_step(self, step: dict[str, Any], step_index: int) -> dict[str, Any]:
         """
-        Execute a single plan step via capability or tool router.
-
-        Tries the direct capability_registry first, then falls back to
-        tool_router (which wraps its own capability registry + standalone tools).
-        Simulates success only when neither is available.
+        Execute a single plan step via tool router.
 
         Args:
             step: Step definition with action, parameters, etc.
@@ -1553,99 +1676,27 @@ Analyze this situation and provide recommendations."""
         """
         action_name = step.get("action", "")
         parameters = step.get("parameters", {})
-        required_capabilities = step.get("required_capabilities", [])
 
         logger.debug(
             f"Executing step {step_index}: {action_name}",
             extra={
                 "employee_id": str(self.employee.id),
                 "action": action_name,
-                "required_capabilities": required_capabilities,
             },
         )
 
-        # Try direct capability registry first
-        if self.capability_registry:
-            result = await self._execute_step_via_capability(
-                action_name, parameters, required_capabilities, step_index
-            )
-            if not result.get("skipped"):
-                return result
-            # Capability was skipped — try tool_router for standalone tools
-            if self.tool_router:
-                return await self._execute_step_via_tool_router(action_name, parameters, step_index)
-            return result  # No tool_router either — return the skipped result as-is
-
-        # No capability registry — try tool_router directly
         if self.tool_router:
             return await self._execute_step_via_tool_router(action_name, parameters, step_index)
 
-        # No execution source available
-        logger.debug("No capability registry or tool router, simulating step success")
+        # No tool router available — step cannot actually execute
+        logger.warning("No tool router available, step cannot execute")
         return {
-            "success": True,
+            "success": False,
             "simulated": True,
+            "error": "No tool router available",
             "action": action_name,
             "step_index": step_index,
         }
-
-    async def _execute_step_via_capability(
-        self,
-        action_name: str,
-        parameters: dict[str, Any],
-        required_capabilities: list[str],
-        step_index: int,
-    ) -> dict[str, Any]:
-        """Execute a plan step through the direct capability registry."""
-        capability = await self._find_capability_for_action(action_name, required_capabilities)
-
-        if not capability:
-            logger.warning(
-                f"No capability found for action: {action_name}",
-                extra={"employee_id": str(self.employee.id)},
-            )
-            return {
-                "success": True,  # Don't fail if no capability, just skip
-                "skipped": True,
-                "reason": f"No capability for action: {action_name}",
-                "step_index": step_index,
-            }
-
-        try:
-            # Import here to avoid circular imports
-            from empla.capabilities.base import Action
-
-            action = Action(
-                capability=str(getattr(capability, "capability_type", "unknown")),
-                operation=action_name,
-                parameters=parameters,
-                priority=5,
-                context={"step_index": step_index},
-            )
-
-            action_result = await capability.execute_action(action)
-
-            return {
-                "success": action_result.success,
-                "output": action_result.output,
-                "error": action_result.error,
-                "action": action_name,
-                "step_index": step_index,
-                "metadata": action_result.metadata,
-            }
-
-        except Exception as e:
-            logger.error(
-                f"Error executing step {step_index}: {e}",
-                exc_info=True,
-                extra={"employee_id": str(self.employee.id)},
-            )
-            return {
-                "success": False,
-                "error": str(e),
-                "action": action_name,
-                "step_index": step_index,
-            }
 
     async def _execute_step_via_tool_router(
         self,
@@ -1681,65 +1732,6 @@ Analyze this situation and provide recommendations."""
                 "action": action_name,
                 "step_index": step_index,
             }
-
-    async def _find_capability_for_action(
-        self, action_name: str, required_capabilities: list[str]
-    ) -> Any | None:
-        """
-        Find a capability that can handle the given action.
-
-        Args:
-            action_name: Name of the action to execute
-            required_capabilities: List of capability types that could handle this
-
-        Returns:
-            Capability instance or None
-        """
-        if not self.capability_registry:
-            return None
-
-        # Try to get capability by type from required list
-        for cap_type in required_capabilities:
-            try:
-                get_cap = getattr(self.capability_registry, "get_capability", None)
-                if get_cap:
-                    cap = get_cap(cap_type)
-                    if cap:
-                        return cap
-            except Exception as e:
-                logger.warning(
-                    f"Failed to get capability '{cap_type}': {e}",
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                continue
-
-        # Fallback: infer capability from action name
-        action_lower = action_name.lower()
-        inferred_type = None
-
-        if "email" in action_lower or "send" in action_lower:
-            inferred_type = "email"
-        elif "calendar" in action_lower or "schedule" in action_lower or "meeting" in action_lower:
-            inferred_type = "calendar"
-        elif "message" in action_lower or "slack" in action_lower or "chat" in action_lower:
-            inferred_type = "messaging"
-        elif "research" in action_lower or "search" in action_lower or "browse" in action_lower:
-            inferred_type = "browser"
-        elif "crm" in action_lower or "salesforce" in action_lower or "hubspot" in action_lower:
-            inferred_type = "crm"
-
-        if inferred_type:
-            try:
-                get_cap = getattr(self.capability_registry, "get_capability", None)
-                if get_cap:
-                    return get_cap(inferred_type)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to get inferred capability '{inferred_type}': {e}",
-                    extra={"employee_id": str(self.employee.id)},
-                )
-
-        return None
 
     # ========================================================================
     # Phase 3b: Agentic Execution (LLM-driven tool calling)
@@ -1792,6 +1784,7 @@ Analyze this situation and provide recommendations."""
                     "success": False,
                     "error": f"LLM call failed: {e}",
                     "tool_calls_made": len(tool_calls_made),
+                    "tools_used": [tc["tool"] for tc in tool_calls_made],
                     "agentic": True,
                 }
 
@@ -1802,12 +1795,14 @@ Analyze this situation and provide recommendations."""
                         "success": False,
                         "error": "Empty assistant response",
                         "tool_calls_made": len(tool_calls_made),
+                        "tools_used": [tc["tool"] for tc in tool_calls_made],
                         "agentic": True,
                     }
                 return {
                     "success": True,
                     "message": response.content,
                     "tool_calls_made": len(tool_calls_made),
+                    "tools_used": [tc["tool"] for tc in tool_calls_made],
                     "agentic": True,
                 }
 
@@ -1819,9 +1814,8 @@ Analyze this situation and provide recommendations."""
             )
             messages.append(assistant_msg)
 
-            # Execute each tool call via tool_router (preferred) or capability_registry
-            tool_executor = self.tool_router or self.capability_registry
-            if tool_executor is None:
+            # Execute each tool call via tool_router
+            if self.tool_router is None:
                 logger.error(
                     "No tool executor available — cannot execute tool calls",
                     extra={"employee_id": str(self.employee.id)},
@@ -1830,11 +1824,12 @@ Analyze this situation and provide recommendations."""
                     "success": False,
                     "error": "No tool executor configured",
                     "tool_calls_made": 0,
+                    "tools_used": [],
                     "agentic": True,
                 }
             for tool_call in response.tool_calls:
                 try:
-                    result = await tool_executor.execute_tool_call(
+                    result = await self.tool_router.execute_tool_call(
                         self.employee.id,
                         tool_call.name,
                         tool_call.arguments,
@@ -1894,6 +1889,7 @@ Analyze this situation and provide recommendations."""
             "success": False,
             "error": f"Agentic execution exhausted iteration budget (max_iterations={max_iterations})",
             "tool_calls_made": len(tool_calls_made),
+            "tools_used": [tc["tool"] for tc in tool_calls_made],
             "agentic": True,
         }
 

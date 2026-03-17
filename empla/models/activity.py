@@ -34,12 +34,14 @@ class ActivityEventType(StrEnum):
     MEETING_SCHEDULED = "meeting_scheduled"
     MEETING_JOINED = "meeting_joined"
     MEETING_COMPLETED = "meeting_completed"
+    CALENDAR_CHECKED = "calendar_checked"
 
     # CRM events
     DEAL_CREATED = "deal_created"
     DEAL_UPDATED = "deal_updated"
     DEAL_WON = "deal_won"
     DEAL_LOST = "deal_lost"
+    CRM_CHECKED = "crm_checked"
 
     # Goal/Intention events
     GOAL_CREATED = "goal_created"
