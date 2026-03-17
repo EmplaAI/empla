@@ -252,6 +252,34 @@ class TestGoalProgressViaLLM:
         assert result == {}
         llm.generate_structured.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_low_confidence_results_are_skipped(self) -> None:
+        """LLM results with confidence below threshold are filtered out."""
+        goal = MockGoal(target={"metric": "deals_closed", "value": 10})
+
+        beliefs = [MockBeliefChange(subject="sales", predicate="update")]
+
+        evaluation = GoalProgressEvaluation(
+            results=[
+                GoalMetricResult(
+                    goal_id=str(goal.id),
+                    metric="deals_closed",
+                    current_value=99.0,
+                    confidence=0.1,  # Below 0.3 threshold
+                    reasoning="Not sure about this value",
+                )
+            ]
+        )
+
+        llm = Mock()
+        llm.generate_structured = AsyncMock(return_value=(_make_llm_response(), evaluation))
+
+        loop = _make_loop(llm_service=llm)
+        result = await loop._evaluate_goals_progress([goal], beliefs)
+
+        # Low-confidence result should be filtered out
+        assert result == {}
+
 
 # ============================================================================
 # Tests: Heuristic fallback

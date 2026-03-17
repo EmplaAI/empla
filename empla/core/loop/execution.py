@@ -1180,9 +1180,19 @@ Only include goals where you can determine a numeric value."""
 
         # Validate and convert to progress dicts
         valid_goals = {str(g.id): (getattr(g, "target", {}) or {}).get("metric", "") for g in goals}
+        min_confidence = 0.3
         result: dict[str, dict[str, Any]] = {}
         for metric_result in evaluation.results:
             if metric_result.current_value is None:
+                continue
+            if metric_result.confidence < min_confidence:
+                logger.debug(
+                    "LLM goal evaluation below confidence threshold (%.2f < %.2f) for goal %s, skipping",
+                    metric_result.confidence,
+                    min_confidence,
+                    metric_result.goal_id,
+                    extra={"employee_id": str(self.employee.id)},
+                )
                 continue
             if metric_result.goal_id not in valid_goals:
                 logger.warning(

@@ -238,19 +238,13 @@ class TestProcedureInfluencesPlanning:
 
         loop = _make_loop(memory=memory)
 
-        # Call the relevant part — _generate_plans_for_goals
-        # We need to set up the intentions mock to indicate no existing plans
+        # Set up mocks for the success path
         loop.intentions.get_intentions_for_goal = AsyncMock(return_value=[])
+        loop.intentions.generate_plan_for_goal = AsyncMock(return_value=[Mock()])
         loop._identity_prompt = "You are a sales employee."
 
-        # Mock LLM to avoid actual call
-        llm = Mock()
-        llm.generate = AsyncMock(
-            return_value=Mock(
-                content='[{"description": "Reach out to leads", "priority": 7}]',
-            )
-        )
-        loop.llm_service = llm
+        # Mock LLM (not directly called, but needed for guard check)
+        loop.llm_service = Mock()
 
         await loop._generate_plans_for_unplanned_goals(
             goals=[mock_goal],
@@ -263,6 +257,53 @@ class TestProcedureInfluencesPlanning:
         assert call_kwargs["situation"]["goal_type"] == "achievement"
         assert "Close 10 deals" in call_kwargs["situation"]["goal_description"]
         assert call_kwargs["procedure_type"] == "intention_execution"
+
+        # Verify generate_plan_for_goal was actually called (success path)
+        loop.intentions.generate_plan_for_goal.assert_called_once()
+        plan_kwargs = loop.intentions.generate_plan_for_goal.call_args[1]
+        assert plan_kwargs["goal"] is mock_goal
+        assert plan_kwargs["capabilities"] == ["email", "crm"]
+
+    @pytest.mark.asyncio
+    async def test_procedural_context_included_in_plan_generation(self) -> None:
+        """When past procedures exist, their context is passed to plan generation."""
+        memory = _make_memory()
+
+        # Return a mock procedure with steps and success rate
+        mock_procedure = Mock()
+        mock_procedure.name = "Follow up after demo"
+        mock_procedure.steps = [
+            {"action": "email.send_email"},
+            {"action": "crm.update_deal"},
+        ]
+        mock_procedure.success_rate = 0.85
+        memory.procedural.find_procedures_for_situation = AsyncMock(return_value=[mock_procedure])
+
+        mock_goal = Mock()
+        mock_goal.id = uuid4()
+        mock_goal.goal_type = "achievement"
+        mock_goal.description = "Close 10 deals"
+        mock_goal.priority = 8
+
+        loop = _make_loop(memory=memory)
+        loop.intentions.get_intentions_for_goal = AsyncMock(return_value=[])
+        loop.intentions.generate_plan_for_goal = AsyncMock(return_value=[Mock()])
+        loop._identity_prompt = "You are a sales employee."
+        loop.llm_service = Mock()
+
+        await loop._generate_plans_for_unplanned_goals(
+            goals=[mock_goal],
+            beliefs=[],
+            capabilities=["email", "crm"],
+        )
+
+        # Verify procedural context was included in identity_context
+        plan_kwargs = loop.intentions.generate_plan_for_goal.call_args[1]
+        identity = plan_kwargs["identity_context"]
+        assert "Past experience" in identity
+        assert "Follow up after demo" in identity
+        assert "email.send_email" in identity
+        assert "85%" in identity
 
 
 # ============================================================================
