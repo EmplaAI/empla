@@ -197,6 +197,31 @@ class LoopConfig(BaseModel):
         }
 
 
+class GoalMetricResult(BaseModel):
+    """LLM evaluation of a single goal's progress from belief changes."""
+
+    goal_id: str = Field(
+        ..., min_length=1, description="Goal ID being evaluated (str for LLM compatibility)"
+    )
+    metric: str = Field(..., min_length=1, description="Metric name from goal target")
+    current_value: float | None = Field(
+        default=None,
+        description="Extracted current value from beliefs, or None if not determinable",
+    )
+    confidence: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Confidence in the extracted value"
+    )
+    reasoning: str = Field(default="", description="Brief explanation of how value was determined")
+
+
+class GoalProgressEvaluation(BaseModel):
+    """Batched LLM evaluation of goal progress from belief changes."""
+
+    results: list[GoalMetricResult] = Field(
+        default_factory=list, description="Per-goal metric evaluations"
+    )
+
+
 # Role-specific configurations
 ROLE_CONFIGS: dict[str, LoopConfig] = {
     "sales_ae": LoopConfig(
