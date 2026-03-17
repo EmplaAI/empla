@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from empla.models.employee import EmployeeGoal
@@ -147,6 +147,28 @@ class GoalSystem:
                 EmployeeGoal.tenant_id == self.tenant_id,
                 EmployeeGoal.status == "active",
                 EmployeeGoal.priority >= min_priority,
+                EmployeeGoal.deleted_at.is_(None),
+            )
+            .order_by(EmployeeGoal.priority.desc(), EmployeeGoal.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_pursuing_goals(self) -> list[EmployeeGoal]:
+        """
+        Get all goals being pursued (active or in_progress).
+
+        Returns:
+            List of EmployeeGoals ordered by priority (highest first)
+        """
+        result = await self.session.execute(
+            select(EmployeeGoal)
+            .where(
+                EmployeeGoal.employee_id == self.employee_id,
+                EmployeeGoal.tenant_id == self.tenant_id,
+                or_(
+                    EmployeeGoal.status == "active",
+                    EmployeeGoal.status == "in_progress",
+                ),
                 EmployeeGoal.deleted_at.is_(None),
             )
             .order_by(EmployeeGoal.priority.desc(), EmployeeGoal.created_at.asc())

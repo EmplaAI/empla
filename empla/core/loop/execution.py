@@ -124,8 +124,18 @@ class GoalSystemProtocol(Protocol):
         """Get all active goals"""
         ...
 
+    async def get_pursuing_goals(self) -> list[Any]:
+        """Get all goals being pursued (active or in_progress)"""
+        ...
+
     async def update_goal_progress(self, goal_id: Any, progress: dict[str, Any]) -> Any:
         """Update goal progress"""
+        ...
+
+    async def complete_goal(
+        self, goal_id: Any, final_progress: dict[str, Any] | None = None
+    ) -> Any:
+        """Mark a goal as completed"""
         ...
 
     async def add_goal(
@@ -630,17 +640,18 @@ class ProactiveExecutionLoop:
             )
 
         # ============ GOAL MANAGEMENT ============
-        active_goals = await self.goals.get_active_goals()
-        for goal in active_goals:
+        pursuing_goals = await self.goals.get_pursuing_goals()
+        for goal in pursuing_goals:
             progress = self._evaluate_goal_progress_from_beliefs(
                 goal=goal,
                 changed_beliefs=changed_beliefs,
             )
             if progress:
                 await self.goals.update_goal_progress(goal.id, progress)
+                await self._check_goal_achievement(goal, progress)
 
         logger.debug(
-            f"Goal progress updated for {len(active_goals)} active goals",
+            f"Goal progress evaluated for {len(pursuing_goals)} pursuing goals",
             extra={"employee_id": str(employee_id)},
         )
 
@@ -817,7 +828,7 @@ class ProactiveExecutionLoop:
 
         observations: list[Observation] = []
         sources_checked: set[str] = set()
-        max_perception_iterations = 5
+        max_perception_iterations = self.config.max_perception_iterations
 
         for iteration in range(max_perception_iterations):
             try:
@@ -827,9 +838,9 @@ class ProactiveExecutionLoop:
                     tool_choice="auto",
                     temperature=0.2,
                 )
-            except Exception as e:
-                logger.error(
-                    f"LLM call failed during agentic perception: {e}",
+            except Exception:
+                logger.exception(
+                    "LLM call failed during agentic perception",
                     extra={
                         "employee_id": str(self.employee.id),
                         "iteration": iteration,
@@ -891,8 +902,9 @@ class ProactiveExecutionLoop:
                         result_payload["error"] = result_error
                     result_content = json.dumps(result_payload, default=str)
                 except Exception as e:
-                    logger.error(
-                        f"Tool call {tc.name} failed during perception: {e}",
+                    logger.exception(
+                        "Tool call %s failed during perception",
+                        tc.name,
                         extra={"employee_id": str(self.employee.id), "tool_name": tc.name},
                     )
                     result_content = json.dumps({"success": False, "error": str(e)})
@@ -1114,6 +1126,87 @@ class ProactiveExecutionLoop:
                         break  # Use first matching belief
 
         return progress
+
+    async def _check_goal_achievement(
+        self,
+        goal: Any,
+        progress: dict[str, Any],
+    ) -> None:
+        """
+        Check if a goal's target has been met and complete it if so.
+
+        For "maintain" goals (ongoing targets), completion triggers a new
+        goal cycle rather than permanent completion — the goal is re-activated
+        so it continues to be monitored.
+
+        Args:
+            goal: The goal to check
+            progress: The newly updated progress data
+        """
+        target = getattr(goal, "target", {}) or {}
+        metric = target.get("metric", "")
+        target_value = target.get("value")
+
+        if not metric or target_value is None:
+            return
+
+        current_value = progress.get(metric)
+        if current_value is None:
+            return
+
+        try:
+            achieved = float(current_value) >= float(target_value)
+        except (ValueError, TypeError):
+            logger.warning(
+                "Non-numeric goal target or progress: metric=%s current=%r target=%r",
+                metric,
+                current_value,
+                target_value,
+                extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
+            )
+            return
+
+        if not achieved:
+            return
+
+        goal_type = getattr(goal, "goal_type", "")
+
+        try:
+            if goal_type == "maintain":
+                # "maintain" goals stay active — log that target is met
+                logger.info(
+                    "Maintain goal target met: %s=%s (target=%s)",
+                    metric,
+                    current_value,
+                    target_value,
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "goal_id": str(goal.id),
+                        "goal_type": "maintain",
+                    },
+                )
+            else:
+                # Achievement/one-time goals — mark completed
+                await self.goals.complete_goal(goal.id, progress)
+                logger.info(
+                    "Goal completed: %s (metric %s=%s reached target %s)",
+                    goal.description,
+                    metric,
+                    current_value,
+                    target_value,
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "goal_id": str(goal.id),
+                    },
+                )
+        except Exception as e:
+            logger.error(
+                "Failed to complete goal %s: %s",
+                goal.id,
+                e,
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
+            )
 
     async def strategic_planning_cycle(self) -> None:
         """
@@ -1427,14 +1520,53 @@ Analyze this situation and provide recommendations."""
                 )
                 continue
 
+            # Query procedural memory for relevant past experience
+            past_procedures: list[Any] = []
+            if hasattr(self.memory, "procedural"):
+                try:
+                    past_procedures = await self.memory.procedural.find_procedures_for_situation(
+                        situation={
+                            "goal_type": getattr(goal, "goal_type", ""),
+                            "goal_description": getattr(goal, "description", ""),
+                        },
+                        procedure_type="intention_execution",
+                        min_success_rate=0.5,
+                        limit=3,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Procedural memory query failed for goal %s: %s",
+                        goal_id,
+                        e,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+
+            # Build procedural context for plan generation
+            procedural_context = ""
+            if past_procedures:
+                lines = ["Past experience (successful procedures):"]
+                for proc in past_procedures:
+                    steps_desc = ", ".join(
+                        s.get("action", "?") for s in (getattr(proc, "steps", []) or [])
+                    )
+                    rate = getattr(proc, "success_rate", 0) or 0
+                    lines.append(f"  - {proc.name}: [{steps_desc}] (success_rate={rate:.0%})")
+                procedural_context = "\n".join(lines)
+
             # Generate plan for this goal
             try:
+                enriched_identity = self._identity_prompt
+                if procedural_context and enriched_identity:
+                    enriched_identity = f"{enriched_identity}\n\n{procedural_context}"
+                elif procedural_context:
+                    enriched_identity = procedural_context
+
                 new_intentions = await self.intentions.generate_plan_for_goal(
                     goal=goal,
                     beliefs=beliefs,
                     llm_service=self.llm_service,
                     capabilities=capabilities,
-                    identity_context=self._identity_prompt,
+                    identity_context=enriched_identity,
                 )
                 if new_intentions:
                     logger.info(
@@ -1585,11 +1717,10 @@ Analyze this situation and provide recommendations."""
 
     async def _execute_intention_plan(self, intention: Any) -> dict[str, Any]:
         """
-        Execute the steps in an intention's plan.
+        Execute an intention's plan via agentic LLM-driven tool calling.
 
-        Prefers agentic execution (LLM-driven tool calling) when both the LLM
-        service and tool schemas are available. Falls back to rigid step-by-step
-        execution otherwise.
+        Requires both an LLM service and tools to be available. Returns a
+        clear error if either is missing.
 
         Args:
             intention: The intention to execute
@@ -1597,141 +1728,47 @@ Analyze this situation and provide recommendations."""
         Returns:
             Execution result with success status and outputs
         """
-        # Try agentic execution if LLM service and tools are available
-        if self.llm_service and self.tool_router:
-            try:
-                tool_schemas = self.tool_router.get_all_tool_schemas(self.employee.id)
-            except Exception:
-                logger.error(
-                    "Failed to collect tool schemas, falling back to rigid execution",
-                    exc_info=True,
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "intention_id": str(intention.id),
-                    },
-                )
-                tool_schemas = []
-            if tool_schemas:
-                logger.info(
-                    "Using agentic execution with %d tool schemas",
-                    len(tool_schemas),
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "intention_id": str(intention.id),
-                        "tool_count": len(tool_schemas),
-                    },
-                )
-                return await self._execute_intention_with_tools(intention, tool_schemas)
-            logger.debug(
-                "No tool schemas available, using rigid plan execution",
-                extra={"employee_id": str(self.employee.id)},
-            )
-
-        plan = getattr(intention, "plan", {}) or {}
-        steps = plan.get("steps", [])
-
-        if not steps:
-            # No steps defined, mark as success (strategy/tactic might not have steps)
-            logger.debug(
-                "Intention has no steps, marking as complete",
-                extra={"intention_id": str(intention.id)},
-            )
-            return {"success": True, "steps_completed": 0, "message": "No steps to execute"}
-
-        results: list[dict[str, Any]] = []
-        steps_completed = 0
-
-        for idx, step in enumerate(steps):
-            step_result = await self._execute_plan_step(step, idx)
-            results.append(step_result)
-
-            if step_result.get("success"):
-                steps_completed += 1
-            else:
-                # Stop on first failure
-                return {
-                    "success": False,
-                    "steps_completed": steps_completed,
-                    "failed_step": idx,
-                    "error": step_result.get("error", "Step failed"),
-                    "step_results": results,
-                }
-
-        return {
-            "success": True,
-            "steps_completed": steps_completed,
-            "step_results": results,
-        }
-
-    async def _execute_plan_step(self, step: dict[str, Any], step_index: int) -> dict[str, Any]:
-        """
-        Execute a single plan step via tool router.
-
-        Args:
-            step: Step definition with action, parameters, etc.
-            step_index: Index of the step in the plan
-
-        Returns:
-            Step execution result
-        """
-        action_name = step.get("action", "")
-        parameters = step.get("parameters", {})
-
-        logger.debug(
-            f"Executing step {step_index}: {action_name}",
-            extra={
-                "employee_id": str(self.employee.id),
-                "action": action_name,
-            },
-        )
-
-        if self.tool_router:
-            return await self._execute_step_via_tool_router(action_name, parameters, step_index)
-
-        # No tool router available — step cannot actually execute
-        logger.warning("No tool router available, step cannot execute")
-        return {
-            "success": False,
-            "simulated": True,
-            "error": "No tool router available",
-            "action": action_name,
-            "step_index": step_index,
-        }
-
-    async def _execute_step_via_tool_router(
-        self,
-        action_name: str,
-        parameters: dict[str, Any],
-        step_index: int,
-    ) -> dict[str, Any]:
-        """Execute a plan step through the tool router."""
-        assert self.tool_router is not None, (
-            "_execute_step_via_tool_router called without tool_router"
-        )
-        try:
-            action_result = await self.tool_router.execute_tool_call(
-                self.employee.id, action_name, parameters
-            )
+        if not self.llm_service or not self.tool_router:
             return {
-                "success": action_result.success,
-                "output": action_result.output,
-                "error": action_result.error,
-                "action": action_name,
-                "step_index": step_index,
-                "metadata": action_result.metadata,
+                "success": False,
+                "error": "Agentic execution requires LLM service and tool router",
+                "agentic": True,
             }
-        except Exception as e:
+
+        try:
+            tool_schemas = self.tool_router.get_all_tool_schemas(self.employee.id)
+        except Exception:
             logger.error(
-                f"Error executing step {step_index} via tool router: {e}",
+                "Failed to collect tool schemas",
                 exc_info=True,
-                extra={"employee_id": str(self.employee.id)},
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "intention_id": str(intention.id),
+                },
             )
             return {
                 "success": False,
-                "error": str(e),
-                "action": action_name,
-                "step_index": step_index,
+                "error": "Failed to collect tool schemas",
+                "agentic": True,
             }
+
+        if not tool_schemas:
+            return {
+                "success": False,
+                "error": "No tools available for execution",
+                "agentic": True,
+            }
+
+        logger.info(
+            "Using agentic execution with %d tool schemas",
+            len(tool_schemas),
+            extra={
+                "employee_id": str(self.employee.id),
+                "intention_id": str(intention.id),
+                "tool_count": len(tool_schemas),
+            },
+        )
+        return await self._execute_intention_with_tools(intention, tool_schemas)
 
     # ========================================================================
     # Phase 3b: Agentic Execution (LLM-driven tool calling)
@@ -1996,47 +2033,40 @@ Analyze this situation and provide recommendations."""
                 return
 
             outcome = result.outcome or {}
-            step_results = outcome.get("step_results", [])
+            tools_used = outcome.get("tools_used", [])
 
             # Record procedure for successful executions
-            if result.success and step_results:
-                # Extract the procedure pattern
-                procedure_steps = []
-                for step_result in step_results:
-                    if step_result.get("success"):
-                        procedure_steps.append(
-                            {
-                                "action": step_result.get("action", ""),
-                                "success": True,
-                            }
-                        )
+            if result.success and tools_used:
+                steps = [{"action": tool, "success": True} for tool in tools_used]
 
-                if procedure_steps:
-                    await self.memory.procedural.record_procedure(
-                        procedure_type="intention_execution",
-                        description=f"Execution pattern for intention {result.intention_id}",
-                        pattern={
-                            "steps": procedure_steps,
-                            "total_steps": len(procedure_steps),
-                        },
-                        outcome={"success": True, "duration_ms": result.duration_ms},
-                        effectiveness=1.0,
-                    )
+                await self.memory.procedural.record_procedure(
+                    procedure_type="intention_execution",
+                    name=f"intention_{result.intention_id}",
+                    steps=steps,
+                    outcome=f"success:{len(tools_used)}_tools",
+                    success=True,
+                    execution_time=result.duration_ms / 1000.0,
+                    context={
+                        "intention_id": str(result.intention_id),
+                        "tool_count": len(tools_used),
+                    },
+                )
 
             # For failures, record the failure pattern to avoid
             elif not result.success:
-                failed_step = outcome.get("failed_step")
                 error = outcome.get("error", "Unknown error")
 
                 await self.memory.procedural.record_procedure(
                     procedure_type="intention_failure",
-                    description=f"Failed execution at step {failed_step}",
-                    pattern={
-                        "failed_step": failed_step,
+                    name=f"failed_intention_{result.intention_id}",
+                    steps=[{"action": "failed", "error": error}],
+                    outcome=f"failure:{error[:100]}",
+                    success=False,
+                    execution_time=result.duration_ms / 1000.0,
+                    context={
+                        "intention_id": str(result.intention_id),
                         "error": error,
                     },
-                    outcome={"success": False, "error": error},
-                    effectiveness=0.0,
                 )
 
         except Exception as e:
@@ -2049,27 +2079,30 @@ Analyze this situation and provide recommendations."""
         """Update beliefs about what actions are effective."""
         try:
             outcome = result.outcome or {}
-            step_results = outcome.get("step_results", [])
+            tools_used = outcome.get("tools_used", [])
 
-            # Update beliefs about action effectiveness
-            for step_result in step_results:
-                action = step_result.get("action", "")
-                success = step_result.get("success", False)
+            if not tools_used:
+                return
 
-                if action:
-                    # Update belief about this action's effectiveness
-                    confidence = 0.8 if success else 0.3
+            overall_success = result.success
+            for tool_name in tools_used:
+                if tool_name:
+                    confidence = 0.8 if overall_success else 0.3
                     await self.beliefs.update_belief(
-                        subject=action,
+                        subject=tool_name,
                         predicate="effectiveness",
-                        belief_object={"value": 1.0 if success else 0.0, "last_result": success},
+                        belief_object={
+                            "value": 1.0 if overall_success else 0.0,
+                            "last_result": overall_success,
+                        },
                         confidence=confidence,
                         source="execution_outcome",
                     )
 
         except Exception as e:
             logger.warning(
-                f"Failed to update effectiveness beliefs: {e}",
+                "Failed to update effectiveness beliefs: %s",
+                e,
                 extra={"employee_id": str(self.employee.id)},
             )
 
@@ -2252,24 +2285,49 @@ Analyze the patterns and provide brief recommendations."""
 
     async def _maintain_memory_health(self) -> None:
         """Perform memory maintenance: reinforce and decay."""
-        try:
-            if hasattr(self.memory, "episodic"):
-                # Reinforce frequently recalled memories
+        if hasattr(self.memory, "episodic"):
+            try:
                 reinforced = await self.memory.episodic.reinforce_frequently_recalled(
                     min_recall_count=3,
                     importance_boost=1.05,
                 )
-                # Decay rarely recalled old memories
                 decayed = await self.memory.episodic.decay_rarely_recalled(
                     min_days_old=30,
                     importance_decay=0.95,
                 )
-
                 logger.debug(
-                    f"Memory maintenance: reinforced {reinforced}, decayed {decayed}",
+                    "Memory maintenance: reinforced %d, decayed %d",
+                    reinforced,
+                    decayed,
                     extra={"employee_id": str(self.employee.id)},
                 )
-        except Exception as e:
-            logger.warning(
-                f"Memory maintenance failed: {e}", extra={"employee_id": str(self.employee.id)}
-            )
+            except Exception as e:
+                logger.warning(
+                    "Episodic memory maintenance failed: %s",
+                    e,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        if hasattr(self.memory, "procedural"):
+            try:
+                await self.memory.procedural.reinforce_successful_procedures(
+                    min_success_rate=0.8,
+                    min_executions=3,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Procedural memory reinforcement failed: %s",
+                    e,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+            try:
+                await self.memory.procedural.archive_poor_procedures(
+                    max_success_rate=0.2,
+                    min_executions=3,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Procedural memory archiving failed: %s",
+                    e,
+                    extra={"employee_id": str(self.employee.id)},
+                )

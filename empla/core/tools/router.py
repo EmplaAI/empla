@@ -11,7 +11,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from empla.capabilities.base import ActionResult
+from empla.core.tools.base import ActionResult
 
 from .base import ToolImplementation
 from .registry import ToolRegistry

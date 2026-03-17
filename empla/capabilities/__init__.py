@@ -1,62 +1,23 @@
 """
-Capabilities Layer - The "Hands" of Digital Employees
+empla.capabilities - DEPRECATED
 
-This module provides the plugin-based capability system that enables
-employees to interact with the external world.
+The old capabilities system has been replaced by the tool system
+(empla.core.tools). Use ToolRouter, ToolRegistry, and @tool decorator instead.
 
-Capabilities include:
-- Email: Monitor inbox, send emails, triage
-- Calendar: Schedule meetings, find optimal times
-- Messaging: Slack/Teams integration
-- Browser: Web research, data extraction
-- Document: Generate presentations, reports
-- And more...
-
-Usage:
-    from empla.capabilities import CapabilityRegistry, CAPABILITY_EMAIL
-    from empla.capabilities.email import EmailCapability, EmailConfig
-
-    # Create registry
-    registry = CapabilityRegistry()
-
-    # Enable capability for employee
-    await registry.enable_for_employee(
-        employee_id=employee.employee_id,
-        tenant_id=employee.tenant_id,
-        capability_type=CAPABILITY_EMAIL,
-        config=EmailConfig(...)
-    )
-
-    # Perceive environment
-    observations = await registry.perceive_all(employee.employee_id)
-
-    # Execute action
-    result = await registry.execute_action(employee.employee_id, action)
+ActionResult has moved to empla.core.tools.base.
 """
 
-from empla.capabilities.base import (
-    CAPABILITY_BROWSER,
-    CAPABILITY_CALENDAR,
-    CAPABILITY_COMPUTE,
-    CAPABILITY_COMPUTER_USE,
-    CAPABILITY_CRM,
-    CAPABILITY_DOCUMENT,
-    CAPABILITY_EMAIL,
-    CAPABILITY_MESSAGING,
-    CAPABILITY_VOICE,
-    CAPABILITY_WORKSPACE,
-    Action,
-    ActionResult,
-    BaseCapability,
-    CapabilityConfig,
-    CapabilityType,
-    Observation,
-)
-from empla.capabilities.compute import ComputeCapability, ComputeConfig
-from empla.capabilities.email import EmailCapability, EmailConfig
-from empla.capabilities.registry import CapabilityRegistry
-from empla.capabilities.workspace import WorkspaceCapability, WorkspaceConfig
-from empla.integrations.email.types import Email, EmailPriority, EmailProvider
+# Capability type constants — kept for role catalog metadata
+CAPABILITY_BROWSER = "browser"
+CAPABILITY_CALENDAR = "calendar"
+CAPABILITY_COMPUTE = "compute"
+CAPABILITY_COMPUTER_USE = "computer_use"
+CAPABILITY_CRM = "crm"
+CAPABILITY_DOCUMENT = "document"
+CAPABILITY_EMAIL = "email"
+CAPABILITY_MESSAGING = "messaging"
+CAPABILITY_VOICE = "voice"
+CAPABILITY_WORKSPACE = "workspace"
 
 __all__ = [
     "CAPABILITY_BROWSER",
@@ -69,20 +30,4 @@ __all__ = [
     "CAPABILITY_MESSAGING",
     "CAPABILITY_VOICE",
     "CAPABILITY_WORKSPACE",
-    "Action",
-    "ActionResult",
-    "BaseCapability",
-    "CapabilityConfig",
-    "CapabilityRegistry",
-    "CapabilityType",
-    "ComputeCapability",
-    "ComputeConfig",
-    "Email",
-    "EmailCapability",
-    "EmailConfig",
-    "EmailPriority",
-    "EmailProvider",
-    "Observation",
-    "WorkspaceCapability",
-    "WorkspaceConfig",
 ]

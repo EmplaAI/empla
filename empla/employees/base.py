@@ -30,7 +30,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from empla.bdi import BeliefSystem, GoalSystem, IntentionStack
-from empla.capabilities import CapabilityRegistry
 from empla.core.hooks import HOOK_EMPLOYEE_START, HOOK_EMPLOYEE_STOP, HookRegistry
 from empla.core.loop import LoopConfig, ProactiveExecutionLoop
 from empla.core.memory import (
@@ -96,13 +95,13 @@ class DigitalEmployee(ABC):
     This class ties together all empla components:
     - BDI Engine (beliefs, goals, intentions)
     - Memory Systems (episodic, semantic, procedural, working)
-    - Capabilities (email, calendar, CRM, etc.)
+    - Tool System (ToolRouter, ToolRegistry, MCP bridge)
     - Proactive Loop (continuous autonomous operation)
 
     Subclasses should implement:
     - default_personality: Personality template for the role
     - default_goals: Default goals for the role
-    - default_capabilities: Enabled capabilities
+    - default_capabilities: Tool categories for this role
     - on_start(): Custom initialization logic
     - on_stop(): Custom cleanup logic
 
@@ -124,23 +123,16 @@ class DigitalEmployee(ABC):
     def __init__(
         self,
         config: EmployeeConfig,
-        capability_registry: CapabilityRegistry | None = None,
     ) -> None:
         """
         Initialize digital employee.
 
         Args:
             config: Employee configuration
-            capability_registry: Optional pre-configured capability registry.
-                If provided, this registry is used instead of creating a new one.
-                Useful for testing with simulated capabilities.
         """
         self.config = config
         self._employee_id: UUID | None = None
         self._tenant_id: UUID = config.tenant_id or uuid4()
-
-        # Injected dependencies (for testing)
-        self._injected_capabilities = capability_registry
 
         # Database (initialized in start(), cleaned up in stop())
         self._engine: AsyncEngine | None = None
@@ -153,7 +145,6 @@ class DigitalEmployee(ABC):
         self._goals: GoalSystem | None = None
         self._intentions: IntentionStack | None = None
         self._memory: MemorySystem | None = None
-        self._capabilities: CapabilityRegistry | None = None
         self._tool_registry: ToolRegistry | None = None
         self._tool_router: ToolRouter | None = None
         self._mcp_bridge: MCPBridge | None = None
@@ -188,7 +179,7 @@ class DigitalEmployee(ABC):
     @property
     @abstractmethod
     def default_capabilities(self) -> list[str]:
-        """Default capabilities for this role."""
+        """Default tool categories for this role (e.g., 'email', 'calendar', 'crm')."""
         ...
 
     # =========================================================================
@@ -274,15 +265,6 @@ class DigitalEmployee(ABC):
                 f"Cannot access memory on {self.name}: call start() first"
             )
         return self._memory
-
-    @property
-    def capabilities(self) -> CapabilityRegistry:
-        """Capability registry."""
-        if self._capabilities is None:
-            raise EmployeeNotStartedError(
-                f"Cannot access capabilities on {self.name}: call start() first"
-            )
-        return self._capabilities
 
     @property
     def tool_registry(self) -> ToolRegistry:
@@ -373,10 +355,7 @@ class DigitalEmployee(ABC):
             # Initialize memory systems
             await self._init_memory(self._session)
 
-            # Initialize capabilities
-            await self._init_capabilities()
-
-            # Connect to MCP servers (after capabilities, before goals)
+            # Connect to MCP servers (before goals)
             if mcp_configs:
                 await self._init_mcp_servers(mcp_configs)
 
@@ -487,20 +466,6 @@ class DigitalEmployee(ABC):
                 logger.error(f"Error disconnecting MCP servers: {e}", exc_info=True)
                 shutdown_errors.append(("mcp_bridge", e))
             self._mcp_bridge = None
-
-        # Shutdown capabilities for this employee only (continue even if some fail)
-        if self._capabilities and self._employee_id:
-            cap_dict = self._capabilities._instances.get(self._employee_id, {})
-            for cap_type, cap in cap_dict.items():
-                try:
-                    await cap.shutdown()
-                except Exception as e:
-                    logger.error(
-                        f"Failed to shutdown capability {cap_type} "
-                        f"for employee {self._employee_id}: {e}",
-                        exc_info=True,
-                    )
-                    shutdown_errors.append((f"capability:{cap_type}", e))
 
         # Custom stop logic
         try:
@@ -751,54 +716,6 @@ class DigitalEmployee(ABC):
 
         logger.debug("Initialized memory systems")
 
-    async def _init_capabilities(self) -> None:
-        """
-        Initialize and register capabilities.
-
-        If a capability registry was injected in __init__, use it directly.
-        Otherwise, create a new registry and validate capabilities.
-
-        Raises:
-            EmployeeConfigError: If a capability is not registered when the
-                registry already has registered types (detectable misconfiguration).
-        """
-        # Use injected registry if provided (for testing with simulated capabilities)
-        if self._injected_capabilities is not None:
-            self._capabilities = self._injected_capabilities
-            logger.debug("Using injected capability registry")
-            return
-
-        # Create new registry for production use
-        self._capabilities = CapabilityRegistry()
-
-        # Get effective capabilities
-        cap_list = self.config.capabilities or self.default_capabilities
-
-        # Validate against registered capability types in the registry.
-        # In production, capabilities should be registered before employee start.
-        registered_types = self._capabilities.get_registered_types()
-        if not registered_types:
-            # Registry is empty — capabilities will be registered later
-            # (e.g., via enable_for_employee). Warn for visibility.
-            logger.warning(
-                f"Capability registry is empty at startup. "
-                f"Capabilities {cap_list} cannot be validated. "
-                f"Ensure capabilities are registered before use."
-            )
-        else:
-            for cap_name in cap_list:
-                normalized = cap_name.strip().lower()
-                if normalized not in registered_types:
-                    raise EmployeeConfigError(
-                        f"Capability '{cap_name}' is not registered. "
-                        f"Registered capabilities: {registered_types}. "
-                        f"Register it before starting the employee, or remove "
-                        f"'{cap_name}' from the capability list."
-                    )
-                logger.debug(f"Capability available: {normalized}")
-
-        logger.debug(f"Initialized capabilities: {cap_list}")
-
     async def _init_mcp_servers(self, configs: list[MCPServerConfig]) -> None:
         """Connect to external MCP servers and register their tools.
 
@@ -877,7 +794,6 @@ class DigitalEmployee(ABC):
         assert self._goals is not None, "GoalSystem not initialized"
         assert self._intentions is not None, "IntentionStack not initialized"
         assert self._memory is not None, "MemorySystem not initialized"
-        assert self._capabilities is not None, "CapabilityRegistry not initialized"
 
         # Create ToolRouter for standalone tools + integrations
         # Reuse existing registry if MCP servers already initialized it

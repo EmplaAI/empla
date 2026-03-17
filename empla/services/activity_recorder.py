@@ -143,7 +143,9 @@ class ActivityRecorder:
             intention_id = str(getattr(result, "intention_id", ""))
             outcome = getattr(result, "outcome", {}) or {}
             desc = outcome.get("message", "Intention executed")
-            tool_calls_made = outcome.get("tool_calls_made", 0)
+            # Extract tool names from outcome before recording
+            if not tool_calls:
+                tool_calls = [{"tool": name} for name in outcome.get("tools_used", [])]
             event_type = (
                 ActivityEventType.INTENTION_COMPLETED
                 if success
@@ -155,13 +157,10 @@ class ActivityRecorder:
                 data={
                     "intention_id": intention_id,
                     "success": success,
-                    "tool_calls_made": tool_calls_made,
+                    "tool_calls_made": len(tool_calls),
                 },
                 importance=0.7 if success else 0.8,
             )
-            # Extract tool names from outcome when tool_calls not passed via kwargs
-            if not tool_calls:
-                tool_calls = [{"tool": name} for name in outcome.get("tools_used", [])]
         elif intention is not None:
             desc = getattr(intention, "description", "Unknown intention")
             success = result.success if result else False

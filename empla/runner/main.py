@@ -83,7 +83,7 @@ async def _setup_dev_integrations(employee: Any) -> None:
     """
     # Initialize the template router with test adapter — the tool functions
     # are closures over email_router_template.adapter, so this makes them work.
-    base_url = os.getenv("EMPLA_TEST_EMAIL_URL", "http://localhost:9100")
+    base_url = os.getenv("EMPLA_TEST_EMAIL_URL", "http://localhost:9110")
     await email_router_template.initialize(
         {
             "provider": "test",

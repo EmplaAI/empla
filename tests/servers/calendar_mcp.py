@@ -32,7 +32,7 @@ def get_upcoming_events(hours: int = 24) -> list[dict[str, Any]]:
     for event in events.values():
         try:
             start = datetime.fromisoformat(event["start"])
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, TypeError):
             logger.warning("Skipping event with invalid/missing start: %s", event.get("id"))
             continue
         if now <= start <= cutoff:

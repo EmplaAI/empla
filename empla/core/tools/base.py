@@ -187,6 +187,26 @@ class ToolImplementation(Protocol):
         ...
 
 
+class ActionResult(BaseModel):
+    """
+    Result of executing a tool action.
+
+    Returned by ToolRouter after tool execution.
+    """
+
+    success: bool
+    """Whether the action succeeded"""
+
+    output: Any | None = None
+    """Action output (tool-specific)"""
+
+    error: str | None = None
+    """Error message if failed"""
+
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    """Additional metadata (timing, cost, etc.)"""
+
+
 class ToolCapability(BaseModel):
     """
     Capability definition for tool discovery.

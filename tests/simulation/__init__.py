@@ -6,28 +6,16 @@ autonomous employee behavior end-to-end without external API dependencies.
 
 Components:
 - environment.py: Simulated world (email, calendar, CRM)
-- capabilities.py: Simulated capabilities that interact with the environment
 - test_autonomous_behaviors.py: E2E test scenarios
 
 Usage:
-    from tests.simulation import SimulatedEnvironment, get_simulated_capabilities
+    from tests.simulation import SimulatedEnvironment
 
     # Create simulated world
     env = SimulatedEnvironment()
 
     # Setup scenario (e.g., low pipeline)
     env.crm.set_pipeline_coverage(2.0)  # Below 3.0 target
-
-    # Create employee with simulated capabilities
-    capabilities = get_simulated_capabilities(tenant_id, employee_id, env)
-    employee = SalesAE(capabilities=capabilities)
-
-    # Run autonomous cycles
-    await employee.run_cycle()
-
-    # Assert autonomous behavior
-    assert env.email.sent_count > 0  # Employee sent outreach
-    assert env.crm.get_pipeline_coverage() > 2.0  # Improved pipeline
 
 Key Design Decisions:
 - Uses ACTUAL BDI implementations (empla/bdi/beliefs.py, goals.py, intentions.py)
@@ -38,16 +26,6 @@ Key Design Decisions:
 - Validates the actual code that will run in production
 """
 
-from tests.simulation.capabilities import (
-    SimulatedCalendarCapability,
-    SimulatedComputeCapability,
-    SimulatedCRMCapability,
-    SimulatedEmailCapability,
-    SimulatedWorkspaceCapability,
-    get_simulated_capabilities,
-    get_simulated_registry,
-    initialize_simulated_capabilities,
-)
 from tests.simulation.environment import (
     CustomerHealth,
     DealStage,
@@ -66,20 +44,12 @@ __all__ = [
     "CustomerHealth",
     "DealStage",
     "EmailPriority",
-    "SimulatedCRMCapability",
-    "SimulatedCalendarCapability",
     "SimulatedCalendarEvent",
-    "SimulatedComputeCapability",
     "SimulatedComputeSystem",
     "SimulatedContact",
     "SimulatedCustomer",
     "SimulatedDeal",
     "SimulatedEmail",
-    "SimulatedEmailCapability",
     "SimulatedEnvironment",
-    "SimulatedWorkspaceCapability",
     "SimulatedWorkspaceSystem",
-    "get_simulated_capabilities",
-    "get_simulated_registry",
-    "initialize_simulated_capabilities",
 ]

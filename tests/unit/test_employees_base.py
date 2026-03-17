@@ -54,7 +54,6 @@ class TestDigitalEmployeeInit:
         assert employee._goals is None
         assert employee._intentions is None
         assert employee._memory is None
-        assert employee._capabilities is None
         assert employee._loop is None
 
     def test_init_with_tenant_id(self):
@@ -234,18 +233,6 @@ class TestDigitalEmployeeProperties:
 
         with pytest.raises(EmployeeNotStartedError, match="call start"):
             _ = employee.memory
-
-    def test_capabilities_raises_before_start(self):
-        """Test capabilities property raises EmployeeNotStartedError before start."""
-        config = EmployeeConfig(
-            name="Test",
-            role="custom",
-            email="test@test.com",
-        )
-        employee = ConcreteEmployee(config)
-
-        with pytest.raises(EmployeeNotStartedError, match="call start"):
-            _ = employee.capabilities
 
 
 class TestDigitalEmployeeRepr:
