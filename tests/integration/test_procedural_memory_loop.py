@@ -55,6 +55,7 @@ def _make_loop(
     """Create a ProactiveExecutionLoop with minimal mocks."""
     employee = Mock(spec=Employee)
     employee.id = uuid4()
+    employee.tenant_id = uuid4()
     employee.name = "Test Employee"
     employee.role = "sales_ae"
     employee.status = "active"
