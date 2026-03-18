@@ -97,6 +97,11 @@ export {
   // Roles
   roleKeys,
   useRoles,
+  // BDI (Goals, Intentions, Beliefs)
+  bdiKeys,
+  useBeliefs,
+  useGoals,
+  useIntentions,
   // MCP Servers
   mcpServerKeys,
   useCreateMCPServer,
@@ -142,6 +147,13 @@ export {
 export type {
   Activity,
   ActivitySummary,
+  Belief,
+  BeliefType,
+  EmployeeGoal,
+  EmployeeIntention,
+  GoalStatus,
+  IntentionStatus,
+  IntentionType,
   ConnectRequest,
   ConnectResponse,
   CredentialSource,

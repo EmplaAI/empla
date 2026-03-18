@@ -141,7 +141,7 @@ class Belief(TenantScopedModel):
             name="ck_beliefs_belief_type",
         ),
         CheckConstraint(
-            "source IN ('observation', 'inference', 'told_by_human', 'prior')",
+            "source IN ('observation', 'inference', 'told_by_human', 'prior', 'execution_outcome', 'deep_reflection')",
             name="ck_beliefs_source",
         ),
         Index(

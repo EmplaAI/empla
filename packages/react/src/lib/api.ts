@@ -7,6 +7,7 @@
 import type {
   Activity,
   ActivitySummary,
+  Belief,
   ConnectRequest,
   ConnectResponse,
   CredentialSource,
@@ -14,6 +15,8 @@ import type {
   CredentialType,
   Employee,
   EmployeeCreate,
+  EmployeeGoal,
+  EmployeeIntention,
   EmployeeRuntimeStatus,
   EmployeeUpdate,
   IntegrationCredential,
@@ -206,7 +209,7 @@ export function createApiClient(config: ApiClientConfig) {
         has_implementation: boolean;
         has_personality_preset: boolean;
       }>;
-    }>('/v1/roles');
+    }>('/v1/roles/');
 
     return {
       roles: response.roles.map((r) => ({
@@ -822,6 +825,195 @@ export function createApiClient(config: ApiClientConfig) {
     return transformTestResult(response);
   }
 
+  // =========================================================================
+  // BDI Endpoints (Goals, Intentions, Beliefs)
+  // =========================================================================
+
+  async function listGoals(params: {
+    employeeId: string;
+    page?: number;
+    pageSize?: number;
+    status?: string;
+  }): Promise<PaginatedResponse<EmployeeGoal>> {
+    const searchParams = new URLSearchParams();
+    if (params.page !== undefined) searchParams.set('page', params.page.toString());
+    if (params.pageSize !== undefined) searchParams.set('page_size', params.pageSize.toString());
+    if (params.status) searchParams.set('status', params.status);
+
+    const query = searchParams.toString();
+    const endpoint = `/v1/employees/${params.employeeId}/goals${query ? `?${query}` : ''}`;
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        employee_id: string;
+        goal_type: string;
+        description: string;
+        priority: number;
+        target: Record<string, unknown>;
+        current_progress: Record<string, unknown>;
+        status: string;
+        created_at: string;
+        updated_at: string;
+        completed_at?: string;
+        abandoned_at?: string;
+      }>;
+      total: number;
+      page: number;
+      page_size: number;
+      pages: number;
+    }>(endpoint);
+
+    return {
+      items: response.items.map((g) => ({
+        id: g.id,
+        employeeId: g.employee_id,
+        goalType: g.goal_type,
+        description: g.description,
+        priority: g.priority,
+        target: g.target,
+        currentProgress: g.current_progress,
+        status: g.status as EmployeeGoal['status'],
+        createdAt: g.created_at,
+        updatedAt: g.updated_at,
+        completedAt: g.completed_at,
+        abandonedAt: g.abandoned_at,
+      })),
+      total: response.total,
+      page: response.page,
+      pageSize: response.page_size,
+      pages: response.pages,
+    };
+  }
+
+  async function listIntentions(params: {
+    employeeId: string;
+    page?: number;
+    pageSize?: number;
+    status?: string;
+    goalId?: string;
+  }): Promise<PaginatedResponse<EmployeeIntention>> {
+    const searchParams = new URLSearchParams();
+    if (params.page !== undefined) searchParams.set('page', params.page.toString());
+    if (params.pageSize !== undefined) searchParams.set('page_size', params.pageSize.toString());
+    if (params.status) searchParams.set('status', params.status);
+    if (params.goalId) searchParams.set('goal_id', params.goalId);
+
+    const query = searchParams.toString();
+    const endpoint = `/v1/employees/${params.employeeId}/intentions${query ? `?${query}` : ''}`;
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        employee_id: string;
+        goal_id?: string;
+        intention_type: string;
+        description: string;
+        plan: Record<string, unknown>;
+        status: string;
+        priority: number;
+        started_at?: string;
+        completed_at?: string;
+        failed_at?: string;
+        context: Record<string, unknown>;
+        dependencies: string[];
+        created_at: string;
+        updated_at: string;
+      }>;
+      total: number;
+      page: number;
+      page_size: number;
+      pages: number;
+    }>(endpoint);
+
+    return {
+      items: response.items.map((i) => ({
+        id: i.id,
+        employeeId: i.employee_id,
+        goalId: i.goal_id,
+        intentionType: i.intention_type as EmployeeIntention['intentionType'],
+        description: i.description,
+        plan: i.plan,
+        status: i.status as EmployeeIntention['status'],
+        priority: i.priority,
+        startedAt: i.started_at,
+        completedAt: i.completed_at,
+        failedAt: i.failed_at,
+        context: i.context,
+        dependencies: i.dependencies,
+        createdAt: i.created_at,
+        updatedAt: i.updated_at,
+      })),
+      total: response.total,
+      page: response.page,
+      pageSize: response.page_size,
+      pages: response.pages,
+    };
+  }
+
+  async function listBeliefs(params: {
+    employeeId: string;
+    page?: number;
+    pageSize?: number;
+    beliefType?: string;
+    minConfidence?: number;
+  }): Promise<PaginatedResponse<Belief>> {
+    const searchParams = new URLSearchParams();
+    if (params.page !== undefined) searchParams.set('page', params.page.toString());
+    if (params.pageSize !== undefined) searchParams.set('page_size', params.pageSize.toString());
+    if (params.beliefType) searchParams.set('belief_type', params.beliefType);
+    if (params.minConfidence !== undefined) searchParams.set('min_confidence', params.minConfidence.toString());
+
+    const query = searchParams.toString();
+    const endpoint = `/v1/employees/${params.employeeId}/beliefs${query ? `?${query}` : ''}`;
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        employee_id: string;
+        belief_type: string;
+        subject: string;
+        predicate: string;
+        object: Record<string, unknown>;
+        confidence: number;
+        source: string;
+        evidence: string[];
+        formed_at: string;
+        last_updated_at: string;
+        decay_rate: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+      total: number;
+      page: number;
+      page_size: number;
+      pages: number;
+    }>(endpoint);
+
+    return {
+      items: response.items.map((b) => ({
+        id: b.id,
+        employeeId: b.employee_id,
+        beliefType: b.belief_type as Belief['beliefType'],
+        subject: b.subject,
+        predicate: b.predicate,
+        value: b.object,
+        confidence: b.confidence,
+        source: b.source,
+        evidence: b.evidence,
+        formedAt: b.formed_at,
+        lastUpdatedAt: b.last_updated_at,
+        decayRate: b.decay_rate,
+        createdAt: b.created_at,
+        updatedAt: b.updated_at,
+      })),
+      total: response.total,
+      page: response.page,
+      pageSize: response.page_size,
+      pages: response.pages,
+    };
+  }
+
   return {
     setAuthToken,
     login,
@@ -850,6 +1042,9 @@ export function createApiClient(config: ApiClientConfig) {
     deleteMCPServer,
     testMCPServer,
     testMCPServerConnection,
+    listGoals,
+    listIntentions,
+    listBeliefs,
   };
 }
 

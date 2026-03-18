@@ -314,3 +314,64 @@ export interface MCPServerTestRequest {
   authType?: MCPAuthType;
   credentials?: Record<string, unknown>;
 }
+
+// =========================================================================
+// BDI Types (Goals, Intentions, Beliefs)
+// =========================================================================
+
+export type GoalStatus = 'active' | 'in_progress' | 'completed' | 'abandoned' | 'blocked';
+
+export interface EmployeeGoal {
+  id: string;
+  employeeId: string;
+  goalType: string;
+  description: string;
+  priority: number;
+  target: Record<string, unknown>;
+  currentProgress: Record<string, unknown>;
+  status: GoalStatus;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  abandonedAt?: string;
+}
+
+export type IntentionStatus = 'planned' | 'in_progress' | 'completed' | 'failed' | 'abandoned';
+export type IntentionType = 'action' | 'tactic' | 'strategy';
+
+export interface EmployeeIntention {
+  id: string;
+  employeeId: string;
+  goalId?: string;
+  intentionType: IntentionType;
+  description: string;
+  plan: Record<string, unknown>;
+  status: IntentionStatus;
+  priority: number;
+  startedAt?: string;
+  completedAt?: string;
+  failedAt?: string;
+  context: Record<string, unknown>;
+  dependencies: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BeliefType = 'state' | 'event' | 'causal' | 'evaluative';
+
+export interface Belief {
+  id: string;
+  employeeId: string;
+  beliefType: BeliefType;
+  subject: string;
+  predicate: string;
+  value: Record<string, unknown>;
+  confidence: number;
+  source: string;
+  evidence: string[];
+  formedAt: string;
+  lastUpdatedAt: string;
+  decayRate: number;
+  createdAt: string;
+  updatedAt: string;
+}

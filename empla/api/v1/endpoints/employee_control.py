@@ -251,18 +251,16 @@ async def get_employee_status(
     Combines DB status with subprocess health information.
     """
     employee = await get_employee_for_tenant(db, employee_id, auth.tenant_id)
-    manager = get_employee_manager()
-    runtime_status = manager.get_status(employee_id)
 
     return EmployeeStatusResponse(
         id=employee.id,
         name=employee.name,
         status=cast(EmployeeStatus, employee.status),
         lifecycle_stage=cast(LifecycleStage, employee.lifecycle_stage),
-        is_running=runtime_status.get("is_running", False),
+        is_running=employee.status == "active",
         is_paused=employee.status == "paused",
-        has_error=runtime_status.get("has_error", False),
-        last_error=runtime_status.get("last_error"),
+        has_error=False,
+        last_error=None,
     )
 
 

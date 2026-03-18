@@ -349,6 +349,13 @@ class IntentionStack:
 
         return None
 
+    async def dependencies_satisfied(
+        self,
+        intention: EmployeeIntention,
+    ) -> bool:
+        """Public interface for checking if intention dependencies are met."""
+        return await self._are_dependencies_satisfied(intention)
+
     async def _are_dependencies_satisfied(
         self,
         intention: EmployeeIntention,

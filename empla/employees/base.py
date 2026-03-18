@@ -753,20 +753,28 @@ class DigitalEmployee(ABC):
             logger.warning(f"{len(failed)} MCP server(s) failed to connect: {', '.join(failed)}")
 
     async def _create_default_goals(self) -> None:
-        """Create default goals for the role."""
+        """Create default goals for the role, skipping any that already exist."""
         assert self._goals is not None, "_init_bdi() must be called before _create_default_goals()"
 
         goals = self.config.goals or self.default_goals
 
+        # Check existing active goals to avoid duplicates on restart
+        existing = await self._goals.get_pursuing_goals()
+        existing_descriptions = {getattr(g, "description", "").lower() for g in existing}
+
+        created = 0
         for goal_config in goals:
+            if goal_config.description.lower() in existing_descriptions:
+                continue
             await self._goals.add_goal(
                 goal_type=goal_config.goal_type,
                 description=goal_config.description,
                 priority=goal_config.priority,
                 target=goal_config.target,
             )
+            created += 1
 
-        logger.debug(f"Created {len(goals)} default goals")
+        logger.debug(f"Created {created} default goals ({len(existing)} already existed)")
 
     def _build_identity(self) -> EmployeeIdentity:
         """Build identity context from employee config for LLM prompts."""

@@ -307,8 +307,12 @@ Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
 ## Resources
 
-- `ARCHITECTURE.md` - Detailed system architecture and roadmap
-- `TODO.md` - Current priorities and blockers
+**Start here:**
+- `TODO.md` - What to work on next (single source for priorities)
+- `ARCHITECTURE.md` - How the system works today
+
+**Reference (not active planning):**
 - `CHANGELOG.md` - Recent changes
+- `docs/design/` - Feature design docs (check status header for current state)
+- `docs/research/` - Research artifacts (OpenClaw analysis, etc.)
 - `docs/decisions/` - Architecture Decision Records
-- `docs/resources.md` - Learning resources (BDI, RAG, multi-agent systems)

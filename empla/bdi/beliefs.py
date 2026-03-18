@@ -272,57 +272,85 @@ class BeliefSystem:
 
         all_changes: list[BeliefChangeResult] = []
 
-        for observation in observations:
+        # Separate structured vs unstructured observations
+        structured_obs: list[Observation] = []
+        unstructured_obs: list[Observation] = []
+
+        for obs in observations:
+            tool_result = obs.content.get("tool_result") if isinstance(obs.content, dict) else None
+            if isinstance(tool_result, dict):
+                structured_obs.append(obs)
+            else:
+                unstructured_obs.append(obs)
+
+        # Direct tool-to-belief mapping for structured data (no LLM needed)
+        for obs in structured_obs:
             try:
-                # Use existing extract_beliefs_from_observation method
-                update_results = await self.extract_beliefs_from_observation(
-                    observation=observation,
-                    llm_service=self._llm_service,
-                    identity_context=identity_context,
-                )
-
-                # Convert BeliefUpdateResults to BeliefChangeResult objects
-                for result in update_results:
+                tool_result = obs.content["tool_result"]
+                results = await self._map_structured_to_beliefs(obs.source, tool_result)
+                for result in results:
                     belief = result.belief
-                    # Calculate importance based on observation priority and confidence
-                    importance = min(
-                        1.0,
-                        (observation.priority / 10.0) * belief.confidence,
-                    )
-
-                    # Use actual old_confidence from update_belief result
-                    # For new beliefs, old_confidence is None, so use 0.0
+                    importance = min(1.0, (obs.priority / 10.0) * belief.confidence)
                     old_conf = result.old_confidence
-                    old_confidence = old_conf if old_conf is not None else 0.0
-
-                    change = BeliefChangeResult(
-                        subject=belief.subject,
-                        predicate=belief.predicate,
-                        importance=importance,
-                        old_confidence=old_confidence,
-                        new_confidence=belief.confidence,
-                        belief=belief,
+                    all_changes.append(
+                        BeliefChangeResult(
+                            subject=belief.subject,
+                            predicate=belief.predicate,
+                            importance=importance,
+                            old_confidence=old_conf if old_conf is not None else 0.0,
+                            new_confidence=belief.confidence,
+                            belief=belief,
+                        )
                     )
-                    all_changes.append(change)
-
             except Exception as e:
-                # Log error but continue processing other observations
                 logger.warning(
-                    f"Failed to extract beliefs from observation: {e}",
-                    extra={
-                        "observation_id": str(observation.observation_id),
-                        "observation_type": observation.observation_type,
-                        "employee_id": str(self.employee_id),
-                    },
+                    "Direct belief mapping failed for %s, will use LLM: %s",
+                    obs.observation_type,
+                    e,
+                    extra={"employee_id": str(self.employee_id)},
                 )
-                continue
+                unstructured_obs.append(obs)
+
+        # Batch LLM extraction for unstructured observations (single LLM call)
+        if unstructured_obs and self._llm_service:
+            try:
+                update_results = await self._batch_extract_beliefs(
+                    unstructured_obs, self._llm_service, identity_context
+                )
+                for obs, result in update_results:
+                    belief = result.belief
+                    importance = min(1.0, (obs.priority / 10.0) * belief.confidence)
+                    old_conf = result.old_confidence
+                    all_changes.append(
+                        BeliefChangeResult(
+                            subject=belief.subject,
+                            predicate=belief.predicate,
+                            importance=importance,
+                            old_confidence=old_conf if old_conf is not None else 0.0,
+                            new_confidence=belief.confidence,
+                            belief=belief,
+                        )
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Batch belief extraction failed: %s",
+                    e,
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee_id)},
+                )
 
         logger.info(
-            f"Extracted {len(all_changes)} beliefs from {len(observations)} observations",
+            "Extracted %d beliefs from %d observations (%d structured, %d via LLM)",
+            len(all_changes),
+            len(observations),
+            len(structured_obs),
+            len(unstructured_obs),
             extra={
                 "employee_id": str(self.employee_id),
                 "belief_count": len(all_changes),
                 "observation_count": len(observations),
+                "structured_count": len(structured_obs),
+                "llm_count": len(unstructured_obs),
             },
         )
 
@@ -714,6 +742,139 @@ class BeliefSystem:
 
         return list(result.scalars().all())
 
+    async def _map_structured_to_beliefs(
+        self,
+        source_name: str,
+        data: dict[str, Any],
+    ) -> list[BeliefUpdateResult]:
+        """Map structured tool output directly to beliefs without LLM.
+
+        For tools that return structured data (CRM metrics, calendar events),
+        we can create beliefs directly from the key-value pairs.
+        """
+        results: list[BeliefUpdateResult] = []
+        for key, value in data.items():
+            if key.startswith("_") or key in ("id", "tenant_id"):
+                continue
+            if isinstance(value, (str, int, float, bool)):
+                obj = {"value": value}
+            elif isinstance(value, dict):
+                obj = value
+            elif isinstance(value, list) and len(value) <= 10:
+                obj = {"items": value, "count": len(value)}
+            else:
+                continue
+
+            result = await self.update_belief(
+                subject=source_name,
+                predicate=key,
+                belief_object=obj,
+                confidence=1.0,
+                source="observation",
+                belief_type="state",
+            )
+            results.append(result)
+        return results
+
+    async def _batch_extract_beliefs(
+        self,
+        observations: list["Observation"],
+        llm_service: "LLMService",
+        identity_context: str | None = None,
+    ) -> list[tuple["Observation", BeliefUpdateResult]]:
+        """Extract beliefs from multiple observations in a single LLM call.
+
+        Instead of one LLM call per observation, batches all observations
+        into a single prompt for extraction.
+        """
+        if not observations:
+            return []
+
+        # If only one observation, use the existing method
+        if len(observations) == 1:
+            results = await self.extract_beliefs_from_observation(
+                observations[0], llm_service, identity_context
+            )
+            return [(observations[0], r) for r in results]
+
+        # Build batched prompt
+        obs_texts = []
+        for i, obs in enumerate(observations):
+            obs_texts.append(
+                f"--- Observation {i + 1} ---\n"
+                f"Type: {obs.observation_type}\n"
+                f"Source: {obs.source}\n"
+                f"Content:\n{self._format_observation_content(obs.content)}"
+            )
+        all_obs_text = "\n\n".join(obs_texts)
+
+        base_instructions = """Extract structured beliefs from ALL the observations below in Subject-Predicate-Object format.
+
+Guidelines:
+1. Extract FACTUAL beliefs only (not assumptions or speculation)
+2. Use clear, specific subjects (company names, person names, project names)
+3. Use consistent predicates (deal_stage, sentiment, priority, next_action, etc.)
+4. Provide structured objects (use dicts with relevant fields)
+5. Assign confidence based on observation strength (0.0-1.0)
+
+IMPORTANT: Extract BUSINESS-RELEVANT beliefs only. Do NOT extract beliefs about
+tool names, function calls, API arguments, or execution metadata.
+
+Belief types: state, event, causal, evaluative"""
+
+        system_prompt = (
+            f"{identity_context}\n\n{base_instructions}"
+            if identity_context
+            else f"You are a digital employee.\n\n{base_instructions}"
+        )
+
+        user_prompt = f"""{all_obs_text}
+
+Extract all relevant beliefs from these {len(observations)} observations. Focus on actionable information."""
+
+        try:
+            _, extraction_result_base = await llm_service.generate_structured(
+                prompt=user_prompt,
+                system=system_prompt,
+                response_format=BeliefExtractionResult,
+                temperature=0.3,
+            )
+            extraction_result: BeliefExtractionResult = extraction_result_base  # type: ignore[assignment]
+        except Exception as e:
+            logger.error(
+                "Batch LLM belief extraction failed: %s",
+                e,
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "obs_count": len(observations)},
+            )
+            return []
+
+        # Process extracted beliefs — assign to first observation as source
+        paired_results: list[tuple[Observation, BeliefUpdateResult]] = []
+        default_obs = observations[0]
+
+        for extracted in extraction_result.beliefs:
+            result = await self.update_belief(
+                subject=extracted.subject,
+                predicate=extracted.predicate,
+                belief_object=extracted.object,
+                confidence=extracted.confidence,
+                source="observation",
+                belief_type=extracted.belief_type,
+                evidence=[default_obs.observation_id],
+                decay_rate=0.1,
+            )
+            paired_results.append((default_obs, result))
+
+        logger.info(
+            "Batch belief extraction: %d observations → %d beliefs (1 LLM call)",
+            len(observations),
+            len(paired_results),
+            extra={"employee_id": str(self.employee_id)},
+        )
+
+        return paired_results
+
     async def extract_beliefs_from_observation(
         self,
         observation: "Observation",
@@ -774,6 +935,12 @@ Guidelines:
 4. Provide structured objects (use dicts with relevant fields)
 5. Assign confidence based on observation strength (0.0-1.0)
 6. Explain your reasoning for each belief
+
+IMPORTANT: Extract BUSINESS-RELEVANT beliefs only. Do NOT extract beliefs about:
+- Tool names, function calls, API arguments, or execution metadata
+- Internal system details (tool errors, MCP server names, function parameters)
+- Timestamps or observation metadata
+Focus on what the data MEANS for the business, not how it was retrieved.
 
 Belief types:
 - state: Current state of something (most common)

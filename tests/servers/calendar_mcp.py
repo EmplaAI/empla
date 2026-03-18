@@ -5,6 +5,7 @@ Implements MCP tools for calendar operations.
 
 Usage:
     python -m tests.servers.calendar_mcp --http --port 9101
+    python -m tests.servers.calendar_mcp --mcp          # proper MCP via stdio
 """
 
 import argparse
@@ -32,6 +33,8 @@ def get_upcoming_events(hours: int = 24) -> list[dict[str, Any]]:
     for event in events.values():
         try:
             start = datetime.fromisoformat(event["start"])
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=UTC)
         except (ValueError, KeyError, TypeError):
             logger.warning("Skipping event with invalid/missing start: %s", event.get("id"))
             continue
@@ -168,19 +171,57 @@ def create_http_app() -> Any:
     return mcp_app
 
 
+# ============================================================================
+# Proper MCP transport (FastMCP from mcp library)
+# ============================================================================
+
+
+def create_mcp_server() -> Any:
+    """Create a FastMCP server with all calendar tools registered."""
+    from mcp.server.fastmcp import FastMCP
+
+    mcp_server = FastMCP("Calendar Test Server")
+
+    @mcp_server.tool()
+    def mcp_get_upcoming_events(hours: int = 24) -> str:
+        """Get calendar events within the next N hours."""
+        return json.dumps(get_upcoming_events(hours))
+
+    @mcp_server.tool()
+    def mcp_create_event(
+        title: str,
+        start: str,
+        end: str,
+        attendees: list[str] | None = None,
+    ) -> str:
+        """Create a new calendar event."""
+        return json.dumps(create_event(title, start, end, attendees))
+
+    @mcp_server.tool()
+    def mcp_list_events(date: str | None = None) -> str:
+        """List all calendar events, optionally filtered by date (YYYY-MM-DD)."""
+        return json.dumps(list_events(date))
+
+    return mcp_server
+
+
 if __name__ == "__main__":
     import uvicorn
 
     parser = argparse.ArgumentParser(description="empla Test Calendar MCP Server")
     parser.add_argument("--http", action="store_true", help="Run as HTTP server")
+    parser.add_argument("--mcp", action="store_true", help="Run as proper MCP server via stdio")
     parser.add_argument("--port", type=int, default=9101)
     args = parser.parse_args()
 
-    if args.http:
+    if args.mcp:
+        server = create_mcp_server()
+        server.run(transport="stdio")
+    elif args.http:
         app = create_http_app()
         uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="info")
     else:
-        # STDIO MCP (for future use)
+        # Legacy basic JSON-RPC stdio (kept for backwards compatibility)
         import sys
 
         for line in sys.stdin:

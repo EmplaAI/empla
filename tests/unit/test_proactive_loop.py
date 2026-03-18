@@ -374,7 +374,7 @@ async def test_execute_intentions_successful(
     assert result.success is True
     assert result.intention_id == mock_intention.id
 
-    mock_intentions.start_intention.assert_called_once_with(mock_intention)
+    mock_intentions.start_intention.assert_called_once_with(mock_intention.id)
     mock_intentions.complete_intention.assert_called_once()
 
 
