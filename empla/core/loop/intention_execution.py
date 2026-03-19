@@ -317,6 +317,8 @@ class IntentionExecutionMixin:
                         self.employee.id,
                         tool_call.name,
                         tool_call.arguments,
+                        employee_role=getattr(self.employee, "role", None),
+                        tenant_id=getattr(self.employee, "tenant_id", None),
                     )
                 except Exception as e:
                     logger.error(

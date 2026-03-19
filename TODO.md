@@ -111,6 +111,10 @@ Currently fixed at `cycle_interval_seconds`.
 
 ## Backlog
 
+- Dashboard trust boundary controls — per-tenant settings for high-risk
+  tool classification, global deny lists, and role restrictions. Currently
+  code-level config in `empla/core/tools/trust.py`. Build alongside the
+  integrations dashboard (Phase 3B Step 5) as a "Trust & Security" panel.
 - Observation prioritization — let perception LLM classify importance
 - Structured world model — replace SPO belief triples with typed domain model
 - Goal-task trees — hierarchical decomposition instead of flat goals + intentions

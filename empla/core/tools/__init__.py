@@ -47,6 +47,7 @@ from .executor import ToolExecutionEngine
 from .mcp_bridge import MCPBridge, MCPServerConfig
 from .registry import ToolRegistry
 from .router import ToolRouter
+from .trust import TrustBoundary, TrustDecision
 
 __all__ = [
     "ActionResult",
@@ -60,6 +61,8 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "ToolRouter",
+    "TrustBoundary",
+    "TrustDecision",
     "collect_tools",
     "tool",
 ]
