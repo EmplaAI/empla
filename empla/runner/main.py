@@ -25,6 +25,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from empla.core.tools.mcp_bridge import MCPServerConfig
 from empla.employees.config import EmployeeConfig, GoalConfig, LLMSettings, LoopSettings
 from empla.employees.personality import Personality
 from empla.employees.registry import get_employee_class
@@ -212,6 +213,40 @@ async def run_employee(
 
     employee = employee_class(config)
 
+    # Load MCP server configs from DB (added via dashboard/API)
+    mcp_configs: list[MCPServerConfig] = []
+    try:
+        from empla.services.integrations.mcp_service import MCPIntegrationService
+        from empla.services.integrations.token_manager import get_token_manager
+
+        async with session_factory() as mcp_session:
+            tm = get_token_manager()
+            mcp_service = MCPIntegrationService(mcp_session, tm)
+            raw_configs = await mcp_service.get_active_mcp_servers(tenant_id)
+            for cfg in raw_configs:
+                try:
+                    mcp_configs.append(MCPServerConfig(**cfg))
+                except Exception:
+                    logger.warning(
+                        "Skipping invalid MCP server config: %s",
+                        cfg,
+                        exc_info=True,
+                        extra={"employee_id": str(employee_id)},
+                    )
+            if mcp_configs:
+                logger.info(
+                    "Loaded %d MCP server(s) from DB: %s",
+                    len(mcp_configs),
+                    [c.name for c in mcp_configs],
+                    extra={"employee_id": str(employee_id)},
+                )
+    except Exception:
+        logger.warning(
+            "Failed to load MCP servers from DB, continuing without them",
+            exc_info=True,
+            extra={"employee_id": str(employee_id)},
+        )
+
     # Start health server
     health = HealthServer(employee_id=employee_id, port=health_port)
     await health.start()
@@ -254,7 +289,11 @@ async def run_employee(
     try:
         # Start employee in a task so we can cancel on signal
         async def _run() -> None:
-            await employee.start(run_loop=False, status_checker=status_checker)
+            await employee.start(
+                run_loop=False,
+                status_checker=status_checker,
+                mcp_configs=mcp_configs or None,
+            )
             if dev:
                 await _setup_dev_integrations(employee)
             await employee._run_loop()

@@ -103,7 +103,7 @@ class ActivityRecorder:
                 occurred_at=datetime.now(UTC),
             )
             self._session.add(activity)
-            # Don't flush here — let the loop's commit handle it
+            # No flush/commit here — let the loop's _safe_commit() handle persistence
         except Exception as e:
             logger.warning(
                 "Failed to record activity: %s",

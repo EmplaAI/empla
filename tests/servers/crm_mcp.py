@@ -5,6 +5,7 @@ Implements MCP tools for CRM operations (deals, contacts, pipeline metrics).
 
 Usage:
     python -m tests.servers.crm_mcp --http --port 9102
+    python -m tests.servers.crm_mcp --mcp          # proper MCP via stdio
 """
 
 import argparse
@@ -290,18 +291,85 @@ def create_http_app() -> Any:
     return mcp_app
 
 
+# ============================================================================
+# Proper MCP transport (FastMCP from mcp library)
+# ============================================================================
+
+
+def create_mcp_server() -> Any:
+    """Create a FastMCP server with all CRM tools registered."""
+    from mcp.server.fastmcp import FastMCP
+
+    mcp_server = FastMCP("CRM Test Server")
+
+    @mcp_server.tool()
+    def mcp_get_pipeline_metrics() -> str:
+        """Get CRM pipeline metrics including coverage ratio, total value, and deal count."""
+        return json.dumps(get_pipeline_metrics())
+
+    @mcp_server.tool()
+    def mcp_get_deals(stage: str | None = None) -> str:
+        """Get all deals, optionally filtered by stage."""
+        return json.dumps(get_deals(stage))
+
+    @mcp_server.tool()
+    def mcp_create_deal(
+        name: str,
+        value: float,
+        stage: str = "prospecting",
+        contact_id: str | None = None,
+    ) -> str:
+        """Create a new deal in the CRM."""
+        return json.dumps(create_deal(name, value, stage, contact_id))
+
+    @mcp_server.tool()
+    def mcp_update_deal(
+        deal_id: str,
+        stage: str | None = None,
+        value: float | None = None,
+    ) -> str:
+        """Update a deal's stage or value."""
+        return json.dumps(update_deal(deal_id, stage, value))
+
+    @mcp_server.tool()
+    def mcp_get_contacts() -> str:
+        """Get all contacts in the CRM."""
+        return json.dumps(get_contacts())
+
+    @mcp_server.tool()
+    def mcp_add_contact(
+        name: str,
+        email: str,
+        company: str | None = None,
+    ) -> str:
+        """Add a new contact to the CRM."""
+        return json.dumps(add_contact(name, email, company))
+
+    @mcp_server.tool()
+    def mcp_get_at_risk_customers() -> str:
+        """Get customers/deals at risk of churning or stalling."""
+        return json.dumps(get_at_risk_customers())
+
+    return mcp_server
+
+
 if __name__ == "__main__":
     import uvicorn
 
     parser = argparse.ArgumentParser(description="empla Test CRM MCP Server")
     parser.add_argument("--http", action="store_true", help="Run as HTTP server")
+    parser.add_argument("--mcp", action="store_true", help="Run as proper MCP server via stdio")
     parser.add_argument("--port", type=int, default=9102)
     args = parser.parse_args()
 
-    if args.http:
+    if args.mcp:
+        server = create_mcp_server()
+        server.run(transport="stdio")
+    elif args.http:
         app = create_http_app()
         uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="info")
     else:
+        # Legacy basic JSON-RPC stdio (kept for backwards compatibility)
         import sys
 
         for line in sys.stdin:

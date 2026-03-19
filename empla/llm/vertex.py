@@ -102,6 +102,76 @@ class VertexAIProvider(LLMProviderBase):
             finish_reason=response.candidates[0].finish_reason.name,
         )
 
+    @staticmethod
+    def _sanitize_schema_for_vertex(schema: dict) -> dict:
+        """Sanitize a JSON Schema so it's compatible with Vertex AI's protobuf.
+
+        Vertex AI doesn't support ``anyOf``, ``oneOf``, ``allOf``, or
+        ``"type": "null"`` / ``"NULL"`` in function declaration schemas.
+        This method recursively strips those constructs, collapsing
+        ``anyOf`` to the first non-null alternative.
+        """
+        if not isinstance(schema, dict):
+            return schema
+
+        schema = dict(schema)  # shallow copy
+
+        # Collapse anyOf / oneOf to first non-null variant
+        for key in ("anyOf", "oneOf"):
+            if key in schema:
+                alternatives = schema.pop(key)
+                non_null = [
+                    a
+                    for a in alternatives
+                    if isinstance(a, dict) and a.get("type") not in ("null", "NULL", None)
+                ]
+                if non_null:
+                    schema.update(non_null[0])
+                elif alternatives:
+                    schema.update(alternatives[0])
+
+        # Remove allOf — deep-merge all parts
+        if "allOf" in schema:
+            parts = schema.pop("allOf")
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                for k, v in part.items():
+                    if (
+                        k == "properties"
+                        and k in schema
+                        and isinstance(schema[k], dict)
+                        and isinstance(v, dict)
+                    ):
+                        schema[k] = {**schema[k], **v}
+                    elif (
+                        k == "required"
+                        and k in schema
+                        and isinstance(schema[k], list)
+                        and isinstance(v, list)
+                    ):
+                        schema[k] = list(dict.fromkeys(schema[k] + v))
+                    else:
+                        schema[k] = v
+
+        # Strip null type (only if type key is explicitly set to null)
+        type_val = schema.get("type")
+        if type_val is not None and type_val in ("null", "NULL"):
+            schema["type"] = "string"
+
+        # Recurse into properties
+        if "properties" in schema and isinstance(schema["properties"], dict):
+            schema["properties"] = {
+                k: VertexAIProvider._sanitize_schema_for_vertex(v)
+                for k, v in schema["properties"].items()
+            }
+
+        # Recurse into items
+        if "items" in schema and isinstance(schema["items"], dict):
+            schema["items"] = VertexAIProvider._sanitize_schema_for_vertex(schema["items"])
+
+        return schema
+
     async def generate_with_tools(self, request: LLMRequest) -> LLMResponse:
         """Generate completion with function calling via Vertex AI tools parameter."""
         from vertexai.generative_models import (
@@ -124,11 +194,17 @@ class VertexAIProvider(LLMProviderBase):
                 raise ValueError(
                     f"Invalid tool descriptor: missing or invalid 'name' — got {tool!r}"
                 )
+            raw_params = tool.get("input_schema", {"type": "object", "properties": {}})
+            if not isinstance(raw_params, dict):
+                raise ValueError(
+                    f"Tool '{tool['name']}' has non-dict input_schema: {type(raw_params).__name__}"
+                )
+            params = self._sanitize_schema_for_vertex(raw_params)
             func_declarations.append(
                 FunctionDeclaration(
                     name=tool["name"],
                     description=tool.get("description", ""),
-                    parameters=tool.get("input_schema", {"type": "object", "properties": {}}),
+                    parameters=params,
                 )
             )
         vertex_tools = [Tool(function_declarations=func_declarations)] if func_declarations else []

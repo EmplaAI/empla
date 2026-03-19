@@ -371,7 +371,7 @@ class ProceduralMemory(TenantScopedModel):
     procedure_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="Type of procedure (skill, workflow, heuristic)",
+        comment="Type of procedure (skill, workflow, heuristic, intention_execution)",
     )
 
     # Procedure content
@@ -451,7 +451,7 @@ class ProceduralMemory(TenantScopedModel):
             name="ck_procedural_success_rate",
         ),
         CheckConstraint(
-            "procedure_type IN ('skill', 'workflow', 'heuristic')",
+            "procedure_type IN ('skill', 'workflow', 'heuristic', 'intention_execution')",
             name="ck_procedural_procedure_type",
         ),
         CheckConstraint(

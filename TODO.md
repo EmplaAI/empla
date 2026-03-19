@@ -1,106 +1,124 @@
 # empla - Roadmap
 
-> **Updated:** 2026-03-17
-> **Strategy:** The brain works. Now make it solid — clean up dead code,
-> complete the agentic loop, wire goal achievement, activate learning.
-> Platform solidification before new integrations.
+> **Updated:** 2026-03-18
+> **Strategy:** Architecture review revealed the BDI loop works but has excessive
+> LLM calls (4–38/cycle), dead subsystems, and structural gaps. Priority is now
+> reducing LLM cost, wiring orphaned subsystems, and closing the learning loop
+> before adding more integrations.
+> **Reference:** `docs/design/architecture-review-2026-03-18.md`
 
 ---
 
 ## Current State
 
-Tests: 780 passed, 57% full-codebase coverage | Employees: SalesAE, CSM
-Working: BDI loop runs, LLM-driven perception (agentic tool checking), strategic
-planning generates goals, agentic execution calls tools via ToolRouter, MCP bridge
-connects external tool servers, activity recording feeds dashboard, LLM-driven goal
-progress evaluation + achievement detection + hook emission, procedural memory
-recording + maintenance + plan influence.
-Dashboard: Employees, Activity, Integrations (OAuth + MCP servers), Settings
+Tests: 843 passed, 62% coverage | Employees: SalesAE, CSM
+Working: Full BDI loop runs autonomously with Vertex AI + MCP tools (calendar,
+CRM via stdio). Employee creates deals, schedules calls, forms beliefs, learns
+from outcomes. Dashboard shows Activity, Goals, Intentions, Beliefs tabs.
+MCP servers added via API, runner loads from DB at startup.
 
 ---
 
-## Phase 3A: Platform Solidification
+## Phase 3C: Loop Optimization & Subsystem Wiring (~3 days with Claude Code)
 
-The immediate priority. Make what exists actually work end-to-end before
-adding more integrations.
+Architecture review items. Fix the loop before adding more integrations.
 
-### 1. ~~Remove old capabilities system~~ DONE
+### Sprint 1: LLM Call Reduction & Dead Code (~1.5 days)
 
-Deleted `empla/capabilities/base.py`, `registry.py`, `email.py`,
-`workspace.py`, `compute.py`. Moved `ActionResult` to
-`empla/core/tools/base.py`. Removed `CapabilityRegistry`,
-`_init_capabilities`, `capability_registry` param, and capability shutdown
-from `employees/base.py`. Kept `default_capabilities` as role metadata.
-Deleted 8 test files, updated remaining tests.
+1. **Batch belief extraction** — single LLM call for all observations instead
+   of one per observation. Biggest cost savings (eliminates 5–15 LLM calls/cycle).
 
-### 2. ~~Complete agentic execution~~ DONE
+2. **Feed plan into execution** — pass `intention.plan` steps to the execution
+   LLM prompt. Currently generated plans are stored but ignored at execution time.
 
-Removed rigid sequential step fallback (`_execute_plan_step`,
-`_execute_step_via_tool_router`) from `execution.py`.
-`_execute_intention_plan` now requires LLM + tools and returns clear errors
-when either is missing. Updated tests.
+3. **Wire belief decay** — call `decay_beliefs()` at cycle start. Currently
+   beliefs accumulate without bound.
 
-### 3. ~~Wire goal achievement~~ DONE
+4. **Wire `GoalRecommendation`** — let strategic planning abandon/reprioritize
+   goals. Model exists but is never used. Goals only grow today.
 
-Replaced brittle `_evaluate_goal_progress_from_beliefs` (substring matching)
-with LLM-driven `_evaluate_goals_progress` that batches all pursuing goals
-into a single `generate_structured` call. Heuristic fallback when LLM is
-unavailable. Added `HOOK_GOAL_ACHIEVED` hook emitted on successful
-`complete_goal()`. `ActivityRecorder` records `GOAL_ACHIEVED` events
-(importance=1.0). Integration tests cover LLM evaluation, heuristic
-fallback, achievement lifecycle, hook emission, and activity recording.
+5. **Add transaction boundaries** — commit at phase boundaries instead of
+   relying on a single uncommitted session for the entire cycle.
 
-### 4. ~~Activate learning (procedural memory → execution)~~ DONE
+6. **Fix opportunity/problem goals** — add TTL or LLM-based completion check.
+   Currently these goals can never complete (no numeric target).
 
-Fixed signature mismatch in `_update_procedural_memory`. Wired
-`reinforce_successful_procedures` and `archive_poor_procedures` into
-`_maintain_memory_health()`. Procedural memory lookup in
-`_generate_plans_for_unplanned_goals` queries past procedures and includes
-them in LLM context. Integration tests cover procedure recording (success
-+ failure), trigger conditions with goal context, per-tool result accuracy,
-procedure lookup during planning, and memory maintenance (reinforcement +
-archival).
+### Sprint 2: Wire Orphaned Subsystems (~1.5 days)
+
+7. **Wire working memory** — use as LLM context window during perception and
+   execution. Store current focus, recent tool results, active context.
+
+8. **Wire semantic memory** — accumulate domain knowledge (company info, contact
+   details, learned facts) across cycles. Feed into perception and planning prompts.
+
+9. **Close deep reflection loop** — read back `deep_reflection` episodes and
+   convert insights into beliefs or procedural memory adjustments.
+
+10. **Direct tool-to-belief mapping** — structured tool results (CRM metrics,
+    calendar events) should update beliefs without LLM intermediation. Reserve
+    LLM extraction for unstructured content (emails, documents).
 
 ---
 
-## Phase 3B: Core Integrations
+## Phase 3B: Core Integrations (~2 days with Claude Code)
 
-After the platform is solid, add the integrations that make employees
-useful in the real world.
+After the loop is optimized, add integrations for real-world work.
 
 ### 1. CRM adapter (HubSpot / Salesforce)
 
-MCP server or native tool that gives employees read/write access to CRM
-data — contacts, deals, pipeline stages. Required for SalesAE and CSM
-to do real work.
+MCP server or native tool for read/write CRM access — contacts, deals,
+pipeline stages. Required for SalesAE and CSM to do real work.
 
 ### 2. Calendar adapter (Google Calendar)
 
-Read/write calendar events. OAuth infrastructure already exists for Google.
-Needed for scheduling meetings, checking availability, time-aware planning.
+Read/write calendar events. OAuth infrastructure exists for Google.
 
 ### 3. Gmail send completion
 
-Gmail receive works (via MCP bridge). Send is declared but not implemented.
-Complete the send path so employees can actually respond to emails.
+Receive works via MCP bridge. Complete the send path.
+
+---
+
+## Phase 4: Playbooks & Event-Driven (~3 days with Claude Code)
+
+### 1. Playbook system
+
+Codified tool call sequences (prospecting, pipeline review, lead response)
+that the LLM selects and parameterizes instead of regenerating from scratch.
+Evolution of procedural memory into executable recipes.
+
+### 2. Event-driven triggers
+
+React to new emails, CRM changes, calendar events instead of polling every
+5 minutes. Proactive loop becomes fallback for "nothing happened."
+
+### 3. Adaptive cycle frequency
+
+If nothing changed, wait longer. If significant changes detected, cycle faster.
+Currently fixed at `cycle_interval_seconds`.
+
+---
+
+## Phase 5: Production Resilience
+
+- LLM failover — primary + fallback models, ProviderHealth tracking
+- Context window compaction — token counting, auto-compaction
+- Timeouts/watchdogs — per-call + per-cycle timeouts, loop detection
+- Graceful shutdown & state persistence — save/resume BDI state
+- Exponential loop backoff — cycle-level backoff on failure
 
 ---
 
 ## Backlog
 
-- LLM failover — primary + fallback models, ProviderHealth tracking
-- Timeouts/watchdogs — per-call + per-cycle timeouts, loop detection
-- Context window compaction — token counting, auto-compaction
-- Employee health monitoring — HealthStatus model
-- Graceful shutdown & state persistence — save/resume BDI state
-- Exponential loop backoff — cycle-level backoff on failure
-- Transcript pruning — compact idle transcripts
+- Observation prioritization — let perception LLM classify importance
+- Structured world model — replace SPO belief triples with typed domain model
+- Goal-task trees — hierarchical decomposition instead of flat goals + intentions
 - Active hours gating — configurable work schedule
 - Hot-reload config — update without restart
 - Multi-employee coordination — handoff protocols, shared beliefs
 - New employee types (PM) — prove platform extensibility
-- Embedding-based procedure search — pgvector similarity for
-  `find_procedures_for_situation` (currently dict-matching)
+- Embedding-based procedure search — pgvector similarity
 - Developer experience docs — guides for creating custom employees
 
 ---
@@ -127,6 +145,20 @@ tool calling, role catalog as single source of truth, test infrastructure
 (calendar MCP server, seed scenarios, dev_e2e.sh), activity recorder for
 dashboard feed
 
+**Phase 3A — Platform Solidification (PR #58, #59):**
+Removed old capabilities system, completed agentic execution, LLM-driven goal
+evaluation + achievement hooks, procedural memory recording + maintenance +
+plan influence
+
+**Phase 3A.5 — E2E Validation (2026-03-17/18):**
+Full E2E test with production code + test MCP servers (15 tests). Runner wires
+MCP servers from DB. Vertex AI schema sanitization. Fixed DB constraint
+mismatches (integrations, beliefs, procedural memory). Fixed intention
+start/complete/fail UUID passing. Activity recorder commit fix. Dashboard:
+is_running from DB status, roles trailing slash, BDI tabs (Goals, Intentions,
+Beliefs endpoints + React hooks + UI). Goal/intention dedup. Belief extraction
+prompt improvement. Architecture review.
+
 ---
 
-**Last Updated:** 2026-03-17
+**Last Updated:** 2026-03-18

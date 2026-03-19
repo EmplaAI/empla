@@ -178,15 +178,15 @@ class IntentionStackProtocol(Protocol):
         """Check if intention dependencies are satisfied"""
         ...
 
-    async def start_intention(self, intention: Any) -> None:
+    async def start_intention(self, intention_id: Any) -> Any:
         """Mark intention as in progress"""
         ...
 
-    async def complete_intention(self, intention: Any, result: IntentionResult) -> None:
+    async def complete_intention(self, intention_id: Any, outcome: Any = None) -> Any:
         """Mark intention as completed"""
         ...
 
-    async def fail_intention(self, intention: Any, error: str) -> None:
+    async def fail_intention(self, intention_id: Any, error: str) -> Any:
         """Mark intention as failed"""
         ...
 
@@ -217,6 +217,16 @@ class MemorySystemProtocol(Protocol):
     @property
     def procedural(self) -> Any:
         """Access procedural memory subsystem"""
+        ...
+
+    @property
+    def semantic(self) -> Any:
+        """Access semantic memory subsystem (long-term knowledge)"""
+        ...
+
+    @property
+    def working(self) -> Any:
+        """Access working memory subsystem (short-term attention)"""
         ...
 
 
@@ -561,6 +571,28 @@ class ProactiveExecutionLoop:
             await asyncio.sleep(chunk)
             remaining -= chunk
 
+    async def _safe_commit(self, phase: str) -> None:
+        """Commit the shared session after a phase, rolling back on failure."""
+        try:
+            if hasattr(self.beliefs, "session"):
+                await self.beliefs.session.commit()
+        except Exception:
+            logger.warning(
+                "Commit failed after %s, rolling back",
+                phase,
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+            try:
+                await self.beliefs.session.rollback()
+            except Exception:
+                logger.error(
+                    "Session rollback also failed after %s — session may be inconsistent",
+                    phase,
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
     async def _execute_bdi_phases(self) -> IntentionResult | None:
         """Execute the core BDI phases with hook emissions.
 
@@ -578,6 +610,22 @@ class ProactiveExecutionLoop:
             Exception: Propagated from any phase failure.
         """
         employee_id = self.employee.id
+
+        # ============ BELIEF MAINTENANCE ============
+        try:
+            decayed = await self.beliefs.decay_beliefs()
+            if decayed:
+                logger.info(
+                    "Belief decay: removed %d stale beliefs",
+                    len(decayed),
+                    extra={"employee_id": str(employee_id)},
+                )
+        except Exception:
+            logger.warning(
+                "Belief decay failed",
+                exc_info=True,
+                extra={"employee_id": str(employee_id)},
+            )
 
         # ============ PERCEIVE ============
         await self._hooks.emit(
@@ -630,6 +678,37 @@ class ProactiveExecutionLoop:
             },
         )
 
+        # Promote high-confidence beliefs to semantic memory (long-term knowledge)
+        if hasattr(self.memory, "semantic") and changed_beliefs:
+            try:
+                promoted = 0
+                for change in changed_beliefs:
+                    if change.new_confidence >= 0.9:
+                        belief = change.belief
+                        await self.memory.semantic.store_fact(
+                            subject=change.subject,
+                            predicate=change.predicate,
+                            fact_object=getattr(belief, "object", {}),
+                            confidence=change.new_confidence,
+                            source="belief_promotion",
+                            fact_type="entity",
+                        )
+                        promoted += 1
+                if promoted:
+                    logger.debug(
+                        "Promoted %d beliefs to semantic memory",
+                        promoted,
+                        extra={"employee_id": str(employee_id)},
+                    )
+            except Exception:
+                logger.warning(
+                    "Semantic memory promotion failed",
+                    exc_info=True,
+                    extra={"employee_id": str(employee_id)},
+                )
+
+        await self._safe_commit("perception_and_beliefs")
+
         # ============ STRATEGIC REASONING ============
         if self.should_run_strategic_planning(changed_beliefs):
             await self._hooks.emit(
@@ -644,6 +723,8 @@ class ProactiveExecutionLoop:
                 HOOK_AFTER_STRATEGIC_PLANNING,
                 employee_id=employee_id,
             )
+
+        await self._safe_commit("strategic_planning")
 
         # ============ GOAL MANAGEMENT ============
         pursuing_goals = await self.goals.get_pursuing_goals()
@@ -678,9 +759,13 @@ class ProactiveExecutionLoop:
             result=result,
         )
 
+        await self._safe_commit("intention_execution")
+
         # ============ LEARNING ============
         if result:
             await self.reflection_cycle(result)
+
+            await self._safe_commit("reflection")
 
             await self._hooks.emit(
                 HOOK_AFTER_REFLECTION,
@@ -821,10 +906,39 @@ class ProactiveExecutionLoop:
         beliefs_context = await self._format_recent_beliefs_for_perception()
 
         system_prompt = self._build_perception_system_prompt()
+
+        # Include working memory context (current attention/focus)
+        working_context = ""
+        if hasattr(self.memory, "working"):
+            try:
+                context_summary = await self.memory.working.get_context_summary()
+                items = context_summary.get("total_items", 0)
+                if items > 0:
+                    parts = []
+                    for key, val in context_summary.items():
+                        if key.startswith("active_") and val:
+                            type_name = key.replace("active_", "")
+                            summaries = [
+                                str(v.get("content", v))[:100]
+                                if isinstance(v, dict)
+                                else str(v)[:100]
+                                for v in val[:3]
+                            ]
+                            parts.append(f"  {type_name}: {', '.join(summaries)}")
+                    if parts:
+                        working_context = "\n\nCurrent focus:\n" + "\n".join(parts)
+            except Exception:
+                logger.debug(
+                    "Failed to load working memory context for perception",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
         user_prompt = (
             f"Check your environment for changes relevant to your goals.\n\n"
             f"Current goals:\n{goals_context}\n\n"
-            f"Recent beliefs:\n{beliefs_context}\n\n"
+            f"Recent beliefs:\n{beliefs_context}"
+            f"{working_context}\n\n"
             f"Use the available tools to check for new information. "
             f"Focus on what's most relevant to your highest-priority goals. "
             f"Be efficient — don't check everything every time."
@@ -941,6 +1055,29 @@ class ProactiveExecutionLoop:
                 "sources": list(sources_checked),
             },
         )
+
+        # Store key observations in working memory for short-term context
+        if hasattr(self.memory, "working") and observations:
+            try:
+                await self.memory.working.cleanup_expired()
+                await self.memory.working.clear_by_type("observation")
+                for obs in observations[:5]:
+                    await self.memory.working.add_item(
+                        item_type="observation",
+                        content={
+                            "source": obs.source,
+                            "type": obs.observation_type,
+                            "summary": str(obs.content)[:500],
+                        },
+                        importance=obs.priority / 10.0,
+                        ttl_seconds=1800,
+                    )
+            except Exception:
+                logger.debug(
+                    "Failed to store observations in working memory",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
 
         return PerceptionResult(
             observations=observations,
@@ -1084,6 +1221,29 @@ class ProactiveExecutionLoop:
         """
         if not changed_beliefs or not goals:
             return {}
+
+        # Check for expired opportunity/problem goals (TTL)
+        now = datetime.now(UTC)
+        for goal in goals:
+            target = getattr(goal, "target", {}) or {}
+            max_age_hours = target.get("max_age_hours")
+            if max_age_hours:
+                created = getattr(goal, "created_at", None)
+                if created and (now - created).total_seconds() > max_age_hours * 3600:
+                    try:
+                        await self.goals.abandon_goal(goal.id)
+                        logger.info(
+                            "Abandoned expired goal: %s (age > %dh)",
+                            getattr(goal, "description", "")[:50],
+                            max_age_hours,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to abandon expired goal",
+                            exc_info=True,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
 
         # Filter to goals with numeric target metrics
         evaluable_goals = []
@@ -1511,6 +1671,10 @@ Only include goals where you can determine a numeric value."""
 3. Problems requiring immediate attention
 4. What you should focus on next
 
+IMPORTANT: Do NOT suggest opportunities or problems that are already covered by existing
+active goals. Review the goals list carefully — if a goal already addresses a topic,
+do not duplicate it as an opportunity or problem. Only suggest genuinely new items.
+
 Be specific and actionable in your analysis."""
 
         system_prompt = (
@@ -1519,6 +1683,45 @@ Be specific and actionable in your analysis."""
             else f"You are a digital employee.\n\n{base_prompt}"
         )
 
+        # Inject semantic memory (long-term entity knowledge)
+        entity_context = ""
+        if hasattr(self.memory, "semantic"):
+            try:
+                subjects = {getattr(b, "subject", "") for b in beliefs[:20]}
+                entity_lines = []
+                for subj in list(subjects)[:10]:
+                    if not subj:
+                        continue
+                    facts = await self.memory.semantic.query_facts(subject=subj, limit=3)
+                    for f in facts:
+                        entity_lines.append(f"  {f.subject} → {f.predicate}: {f.object}")
+                if entity_lines:
+                    entity_context = "\n\nKnown entity facts:\n" + "\n".join(entity_lines[:20])
+            except Exception:
+                logger.debug(
+                    "Failed to load semantic memory for strategic planning",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        # Inject latest deep reflection insight
+        reflection_context = ""
+        if hasattr(self.memory, "episodic"):
+            try:
+                reflections = await self.memory.episodic.recall_recent(
+                    episode_type="deep_reflection", limit=1
+                )
+                if reflections:
+                    reflection_context = (
+                        f"\n\nRecent self-reflection:\n{reflections[0].description[:300]}"
+                    )
+            except Exception:
+                logger.debug(
+                    "Failed to load recent reflection for strategic planning",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
         user_prompt = f"""Current Beliefs (World Model):
 {beliefs_text}
 
@@ -1526,6 +1729,7 @@ Active Goals:
 {goals_text}
 
 Available Capabilities: {", ".join(capabilities) if capabilities else "None specified"}
+{entity_context}{reflection_context}
 
 Analyze this situation and provide recommendations."""
 
@@ -1585,6 +1789,17 @@ Analyze this situation and provide recommendations."""
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _words_overlap(a: str, b: str) -> float:
+        """Return word-level Jaccard similarity between two strings."""
+        words_a = set(a.split())
+        words_b = set(b.split())
+        if not words_a or not words_b:
+            return 0.0
+        intersection = words_a & words_b
+        union = words_a | words_b
+        return len(intersection) / len(union)
+
     async def _safe_rollback_goals(self) -> None:
         """Attempt to rollback the goals session after a failed flush."""
         try:
@@ -1603,10 +1818,13 @@ Analyze this situation and provide recommendations."""
     ) -> None:
         """Create/abandon goals based on situation analysis."""
         # Create new goals for identified opportunities
+        existing_descs = [getattr(g, "description", "").lower() for g in active_goals]
         for opportunity in situation_analysis.opportunities[:3]:  # Limit to top 3
-            # Check if similar goal already exists
+            # Check if semantically similar goal already exists (bidirectional substring)
+            opp_lower = opportunity.lower()
             exists = any(
-                opportunity.lower() in getattr(g, "description", "").lower() for g in active_goals
+                opp_lower in desc or desc in opp_lower or self._words_overlap(opp_lower, desc) > 0.6
+                for desc in existing_descs
             )
             if not exists:
                 try:
@@ -1614,7 +1832,11 @@ Analyze this situation and provide recommendations."""
                         goal_type="opportunity",
                         description=f"Pursue opportunity: {opportunity}",
                         priority=6,  # Medium priority for opportunities
-                        target={"type": "opportunity", "description": opportunity},
+                        target={
+                            "type": "opportunity",
+                            "description": opportunity,
+                            "max_age_hours": 72,
+                        },
                     )
                     logger.info(
                         f"Created goal for opportunity: {opportunity[:50]}...",
@@ -1633,8 +1855,12 @@ Analyze this situation and provide recommendations."""
 
         # Create goals for critical problems
         for problem in situation_analysis.problems[:2]:  # Limit to top 2
+            prob_lower = problem.lower()
             exists = any(
-                problem.lower() in getattr(g, "description", "").lower() for g in active_goals
+                prob_lower in desc
+                or desc in prob_lower
+                or self._words_overlap(prob_lower, desc) > 0.6
+                for desc in existing_descs
             )
             if not exists:
                 try:
@@ -1642,7 +1868,7 @@ Analyze this situation and provide recommendations."""
                         goal_type="problem",
                         description=f"Address problem: {problem}",
                         priority=8,  # High priority for problems
-                        target={"type": "problem", "description": problem},
+                        target={"type": "problem", "description": problem, "max_age_hours": 48},
                     )
                     logger.info(
                         f"Created goal for problem: {problem[:50]}...",
@@ -1807,7 +2033,28 @@ Analyze this situation and provide recommendations."""
             return None
 
         # Mark as in progress
-        await self.intentions.start_intention(intention)
+        await self.intentions.start_intention(intention.id)
+
+        # Store current intention in working memory as focus
+        if hasattr(self.memory, "working"):
+            try:
+                await self.memory.working.clear_by_type("task")
+                await self.memory.working.add_item(
+                    item_type="task",
+                    content={
+                        "intention": intention.description,
+                        "goal_id": str(intention.goal_id) if intention.goal_id else None,
+                        "type": intention.intention_type,
+                    },
+                    importance=intention.priority / 10.0,
+                    ttl_seconds=3600,
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to store intention in working memory",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
 
         logger.info(
             f"Executing intention: {intention.description}",
@@ -1840,7 +2087,7 @@ Analyze this situation and provide recommendations."""
             )
 
             if result.success:
-                await self.intentions.complete_intention(intention, result)
+                await self.intentions.complete_intention(intention.id, outcome=result.outcome)
                 logger.info(
                     f"Intention completed: {intention.description}",
                     extra={
@@ -1853,7 +2100,7 @@ Analyze this situation and provide recommendations."""
                 )
             else:
                 error_msg = execution_result.get("error", "Unknown error")
-                await self.intentions.fail_intention(intention, error=error_msg)
+                await self.intentions.fail_intention(intention.id, error=error_msg)
                 logger.warning(
                     f"Intention failed: {intention.description}",
                     extra={
@@ -1877,7 +2124,7 @@ Analyze this situation and provide recommendations."""
                 },
             )
 
-            await self.intentions.fail_intention(intention, error=str(e))
+            await self.intentions.fail_intention(intention.id, error=str(e))
 
             return IntentionResult(
                 intention_id=intention.id,
@@ -2117,7 +2364,7 @@ Analyze this situation and provide recommendations."""
         return f"You are a digital employee. {execution_instructions}"
 
     def _build_intention_prompt(self, intention: Any) -> str:
-        """Build user prompt from intention context."""
+        """Build user prompt from intention context and plan."""
         parts = [f"Execute this intention: {intention.description}"]
         context = getattr(intention, "context", None)
         if context and isinstance(context, dict):
@@ -2125,6 +2372,24 @@ Analyze this situation and provide recommendations."""
                 parts.append(f"Reasoning: {context['reasoning']}")
             if "success_criteria" in context:
                 parts.append(f"Success criteria: {context['success_criteria']}")
+
+        # Include generated plan steps if available
+        plan = getattr(intention, "plan", None)
+        if plan and isinstance(plan, dict):
+            steps = plan.get("steps", [])
+            if steps:
+                step_lines = []
+                for i, step in enumerate(steps):
+                    desc = step.get("description", step.get("action", ""))
+                    if desc:
+                        step_lines.append(f"{i + 1}. {desc}")
+                if step_lines:
+                    parts.append(
+                        "Planned steps:\n"
+                        + "\n".join(step_lines)
+                        + "\n\nFollow this plan, adapting as needed based on tool results."
+                    )
+
         return "\n".join(parts)
 
     # ========================================================================
@@ -2494,7 +2759,7 @@ Analyze the patterns and provide brief recommendations."""
             if hasattr(self.memory, "episodic"):
                 await self.memory.episodic.record_episode(
                     episode_type="deep_reflection",
-                    description="Pattern analysis from deep reflection",
+                    description=response.content[:300] if response.content else "Pattern analysis",
                     content={
                         "analysis": response.content,
                         "episodes_analyzed": len(episodes),
@@ -2502,6 +2767,24 @@ Analyze the patterns and provide brief recommendations."""
                     },
                     importance=0.8,
                 )
+
+            # Store insight in semantic memory for use in future strategic planning
+            if hasattr(self.memory, "semantic") and response.content:
+                try:
+                    await self.memory.semantic.store_fact(
+                        subject="self",
+                        predicate="execution_patterns",
+                        fact_object=response.content[:500],
+                        confidence=0.7,
+                        source="deep_reflection",
+                        fact_type="rule",
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to store reflection insight in semantic memory",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
 
         except Exception as e:
             logger.warning(
