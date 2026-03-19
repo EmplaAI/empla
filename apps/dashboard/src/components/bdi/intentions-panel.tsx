@@ -1,8 +1,11 @@
-import { Zap, AlertCircle } from 'lucide-react';
+import { useState } from 'react';
+import { Zap, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useIntentions, type EmployeeIntention } from '@empla/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+
+const PAGE_SIZE = 20;
 
 const STATUS_STYLES: Record<string, string> = {
   planned: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
@@ -68,13 +71,16 @@ function EmptyState() {
 }
 
 export function IntentionsPanel({ employeeId }: { employeeId: string }) {
+  const [page, setPage] = useState(1);
   const { data, isLoading, error, refetch } = useIntentions(employeeId, {
-    pageSize: 20,
+    page,
+    pageSize: PAGE_SIZE,
     autoRefresh: true,
     interval: 30,
   });
 
   const intentions = data?.items ?? [];
+  const totalPages = data?.pages ?? 1;
 
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
@@ -82,6 +88,17 @@ export function IntentionsPanel({ employeeId }: { employeeId: string }) {
         <CardTitle className="text-base font-display">
           Intentions {data ? `(${data.total})` : ''}
         </CardTitle>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-xs text-muted-foreground">{page}/{totalPages}</span>
+            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {isLoading ? (

@@ -371,7 +371,7 @@ class ProceduralMemory(TenantScopedModel):
     procedure_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="Type of procedure (skill, workflow, heuristic)",
+        comment="Type of procedure (skill, workflow, heuristic, intention_execution)",
     )
 
     # Procedure content

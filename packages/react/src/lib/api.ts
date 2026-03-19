@@ -855,8 +855,8 @@ export function createApiClient(config: ApiClientConfig) {
         status: string;
         created_at: string;
         updated_at: string;
-        completed_at?: string;
-        abandoned_at?: string;
+        completed_at: string | null;
+        abandoned_at: string | null;
       }>;
       total: number;
       page: number;
@@ -876,8 +876,8 @@ export function createApiClient(config: ApiClientConfig) {
         status: g.status as EmployeeGoal['status'],
         createdAt: g.created_at,
         updatedAt: g.updated_at,
-        completedAt: g.completed_at,
-        abandonedAt: g.abandoned_at,
+        completedAt: g.completed_at ?? undefined,
+        abandonedAt: g.abandoned_at ?? undefined,
       })),
       total: response.total,
       page: response.page,
@@ -906,15 +906,15 @@ export function createApiClient(config: ApiClientConfig) {
       items: Array<{
         id: string;
         employee_id: string;
-        goal_id?: string;
+        goal_id: string | null;
         intention_type: string;
         description: string;
         plan: Record<string, unknown>;
         status: string;
         priority: number;
-        started_at?: string;
-        completed_at?: string;
-        failed_at?: string;
+        started_at: string | null;
+        completed_at: string | null;
+        failed_at: string | null;
         context: Record<string, unknown>;
         dependencies: string[];
         created_at: string;
@@ -930,15 +930,15 @@ export function createApiClient(config: ApiClientConfig) {
       items: response.items.map((i) => ({
         id: i.id,
         employeeId: i.employee_id,
-        goalId: i.goal_id,
+        goalId: i.goal_id ?? undefined,
         intentionType: i.intention_type as EmployeeIntention['intentionType'],
         description: i.description,
         plan: i.plan,
         status: i.status as EmployeeIntention['status'],
         priority: i.priority,
-        startedAt: i.started_at,
-        completedAt: i.completed_at,
-        failedAt: i.failed_at,
+        startedAt: i.started_at ?? undefined,
+        completedAt: i.completed_at ?? undefined,
+        failedAt: i.failed_at ?? undefined,
         context: i.context,
         dependencies: i.dependencies,
         createdAt: i.created_at,

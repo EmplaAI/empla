@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+_VALID_GOAL_STATUSES = {"active", "in_progress", "completed", "abandoned", "blocked"}
+_VALID_INTENTION_STATUSES = {"planned", "in_progress", "completed", "failed", "abandoned"}
+_VALID_BELIEF_TYPES = {"state", "event", "causal", "evaluative"}
+
+
 async def _verify_employee(db: DBSession, employee_id: UUID, tenant_id: UUID) -> None:
     """Verify employee exists and belongs to tenant."""
     result = await db.execute(
@@ -63,6 +68,11 @@ async def list_employee_goals(
     goal_status: Annotated[str | None, Query(alias="status")] = None,
 ) -> GoalListResponse:
     """List goals for an employee."""
+    if goal_status and goal_status not in _VALID_GOAL_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status '{goal_status}'. Must be one of: {', '.join(sorted(_VALID_GOAL_STATUSES))}",
+        )
     await _verify_employee(db, employee_id, auth.tenant_id)
 
     base = select(EmployeeGoal).where(
@@ -112,6 +122,11 @@ async def list_employee_intentions(
     goal_id: Annotated[UUID | None, Query()] = None,
 ) -> IntentionListResponse:
     """List intentions for an employee."""
+    if intention_status and intention_status not in _VALID_INTENTION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status '{intention_status}'. Must be one of: {', '.join(sorted(_VALID_INTENTION_STATUSES))}",
+        )
     await _verify_employee(db, employee_id, auth.tenant_id)
 
     base = select(EmployeeIntention).where(

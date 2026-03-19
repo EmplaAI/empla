@@ -103,7 +103,7 @@ class ActivityRecorder:
                 occurred_at=datetime.now(UTC),
             )
             self._session.add(activity)
-            await self._session.flush()
+            # No flush/commit here — let the loop's _safe_commit() handle persistence
         except Exception as e:
             logger.warning(
                 "Failed to record activity: %s",
@@ -111,10 +111,6 @@ class ActivityRecorder:
                 exc_info=True,
                 extra={"event_type": event_type, "employee_id": str(self._employee_id)},
             )
-            try:
-                await self._session.rollback()
-            except Exception:
-                logger.debug("Activity recorder rollback also failed", exc_info=True)
 
     async def _on_perception(self, **kwargs: Any) -> None:
         """Record perception results."""

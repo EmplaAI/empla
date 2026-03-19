@@ -130,11 +130,29 @@ class VertexAIProvider(LLMProviderBase):
                 elif alternatives:
                     schema.update(alternatives[0])
 
-        # Remove allOf (flatten single-element)
+        # Remove allOf — deep-merge all parts
         if "allOf" in schema:
             parts = schema.pop("allOf")
-            if parts and isinstance(parts[0], dict):
-                schema.update(parts[0])
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                for k, v in part.items():
+                    if (
+                        k == "properties"
+                        and k in schema
+                        and isinstance(schema[k], dict)
+                        and isinstance(v, dict)
+                    ):
+                        schema[k] = {**schema[k], **v}
+                    elif (
+                        k == "required"
+                        and k in schema
+                        and isinstance(schema[k], list)
+                        and isinstance(v, list)
+                    ):
+                        schema[k] = list(dict.fromkeys(schema[k] + v))
+                    else:
+                        schema[k] = v
 
         # Strip null type (only if type key is explicitly set to null)
         type_val = schema.get("type")
@@ -177,6 +195,10 @@ class VertexAIProvider(LLMProviderBase):
                     f"Invalid tool descriptor: missing or invalid 'name' — got {tool!r}"
                 )
             raw_params = tool.get("input_schema", {"type": "object", "properties": {}})
+            if not isinstance(raw_params, dict):
+                raise ValueError(
+                    f"Tool '{tool['name']}' has non-dict input_schema: {type(raw_params).__name__}"
+                )
             params = self._sanitize_schema_for_vertex(raw_params)
             func_declarations.append(
                 FunctionDeclaration(

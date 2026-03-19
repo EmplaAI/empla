@@ -278,6 +278,17 @@ class BeliefSystem:
 
         for obs in observations:
             tool_result = obs.content.get("tool_result") if isinstance(obs.content, dict) else None
+            # MCP tools may return JSON strings — try parsing them
+            if isinstance(tool_result, str):
+                try:
+                    import json
+
+                    parsed = json.loads(tool_result)
+                    if isinstance(parsed, dict):
+                        obs.content["tool_result"] = parsed
+                        tool_result = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
             if isinstance(tool_result, dict):
                 structured_obs.append(obs)
             else:

@@ -47,7 +47,7 @@ export function useGoals(
   } = options ?? {};
 
   return useQuery<PaginatedResponse<EmployeeGoal>>({
-    queryKey: bdiKeys.goals(employeeId, { page, status }),
+    queryKey: bdiKeys.goals(employeeId, { page, pageSize, status }),
     queryFn: () => api.listGoals({ employeeId, page, pageSize, status }),
     enabled: enabled && !!employeeId,
     refetchInterval: autoRefresh ? interval * 1000 : false,
@@ -81,7 +81,7 @@ export function useIntentions(
   } = options ?? {};
 
   return useQuery<PaginatedResponse<EmployeeIntention>>({
-    queryKey: bdiKeys.intentions(employeeId, { page, status, goalId }),
+    queryKey: bdiKeys.intentions(employeeId, { page, pageSize, status, goalId }),
     queryFn: () => api.listIntentions({ employeeId, page, pageSize, status, goalId }),
     enabled: enabled && !!employeeId,
     refetchInterval: autoRefresh ? interval * 1000 : false,
@@ -115,7 +115,7 @@ export function useBeliefs(
   } = options ?? {};
 
   return useQuery<PaginatedResponse<Belief>>({
-    queryKey: bdiKeys.beliefs(employeeId, { page, beliefType, minConfidence }),
+    queryKey: bdiKeys.beliefs(employeeId, { page, pageSize, beliefType, minConfidence }),
     queryFn: () => api.listBeliefs({ employeeId, page, pageSize, beliefType, minConfidence }),
     enabled: enabled && !!employeeId,
     refetchInterval: autoRefresh ? interval * 1000 : false,

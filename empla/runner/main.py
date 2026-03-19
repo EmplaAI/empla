@@ -224,7 +224,15 @@ async def run_employee(
             mcp_service = MCPIntegrationService(mcp_session, tm)
             raw_configs = await mcp_service.get_active_mcp_servers(tenant_id)
             for cfg in raw_configs:
-                mcp_configs.append(MCPServerConfig(**cfg))
+                try:
+                    mcp_configs.append(MCPServerConfig(**cfg))
+                except Exception:
+                    logger.warning(
+                        "Skipping invalid MCP server config: %s",
+                        cfg,
+                        exc_info=True,
+                        extra={"employee_id": str(employee_id)},
+                    )
             if mcp_configs:
                 logger.info(
                     "Loaded %d MCP server(s) from DB: %s",

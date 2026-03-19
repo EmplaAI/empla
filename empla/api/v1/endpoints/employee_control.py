@@ -248,7 +248,7 @@ async def get_employee_status(
     """
     Get runtime status for an employee.
 
-    Combines DB status with subprocess health information.
+    Derives running state from the DB status field (active = running).
     """
     employee = await get_employee_for_tenant(db, employee_id, auth.tenant_id)
 

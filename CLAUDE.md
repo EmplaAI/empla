@@ -305,6 +305,31 @@ Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
 ---
 
+## gstack
+
+Use `/browse` from gstack for **all web browsing** — never use `mcp__claude-in-chrome__*` tools.
+
+If gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+
+**Available skills:**
+- `/office-hours` — Office hours
+- `/plan-ceo-review` — Plan CEO review
+- `/plan-eng-review` — Plan engineering review
+- `/plan-design-review` — Plan design review
+- `/design-consultation` — Design consultation
+- `/review` — Code review
+- `/ship` — Ship code
+- `/browse` — Web browsing (use this instead of chrome MCP tools)
+- `/qa` — QA testing
+- `/qa-only` — QA only
+- `/design-review` — Design review
+- `/setup-browser-cookies` — Set up browser cookies
+- `/retro` — Retrospective
+- `/debug` — Debug
+- `/document-release` — Document a release
+
+---
+
 ## Resources
 
 **Start here:**
