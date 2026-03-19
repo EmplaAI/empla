@@ -209,7 +209,12 @@ class ToolSourceProtocol(Protocol):
         ...
 
     async def execute_tool_call(
-        self, employee_id: UUID, tool_name: str, arguments: dict[str, Any]
+        self,
+        employee_id: UUID,
+        tool_name: str,
+        arguments: dict[str, Any],
+        employee_role: str | None = None,
+        tenant_id: UUID | None = None,
     ) -> Any:
         """Execute a tool call and return an ActionResult."""
         ...

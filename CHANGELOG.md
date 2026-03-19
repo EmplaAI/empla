@@ -6,6 +6,28 @@
 
 ---
 
+## 2026-03-19 - LLM Trust Boundary + Tool Execution Timeout
+
+**Phase:** Phase 3B - Real-World Integrations (Step 2: Trust Boundary)
+
+### Added
+
+- **Trust boundary layer** in ToolRouter — validates all tool calls against
+  allowlists before execution. Blocks destructive operations (bulk delete,
+  admin actions) regardless of what the LLM requests. Per-role restrictions
+  prevent SalesAE from calling admin/system tools.
+- **Per-cycle rate limiting** — safety valve against LLM runaway loops
+  (default: 50 calls/cycle). Resets at each BDI cycle start.
+- **Audit logging** — every trust decision (allow/deny) is logged with
+  employee_id, tool_name, role, and reason for post-incident analysis.
+- **Tool execution timeout** — all tool calls wrapped in configurable
+  `asyncio.timeout` (default: 30s). Prevents hung external API calls
+  from blocking the BDI loop.
+- **32 new tests** covering trust boundary validation, prompt injection
+  scenarios, rate limiting, timeout behavior, and ToolRouter integration.
+
+---
+
 ## 2026-03-19 - Refactor Execution Loop into Focused Modules
 
 **Phase:** Phase 3B - Real-World Integrations (Step 1: Refactor)

@@ -178,7 +178,11 @@ class PerceptionMixin:
 
                 try:
                     result = await self.tool_router.execute_tool_call(
-                        self.employee.id, tc.name, tc.arguments
+                        self.employee.id,
+                        tc.name,
+                        tc.arguments,
+                        employee_role=getattr(self.employee, "role", None),
+                        tenant_id=getattr(self.employee, "tenant_id", None),
                     )
                     result_output = result.output if hasattr(result, "output") else result
                     result_error = getattr(result, "error", None)

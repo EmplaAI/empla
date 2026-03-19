@@ -515,6 +515,10 @@ class ProactiveExecutionLoop(
         """
         employee_id = self.employee.id
 
+        # ============ TRUST BOUNDARY RESET ============
+        if self.tool_router is not None and hasattr(self.tool_router, "reset_trust_cycle"):
+            self.tool_router.reset_trust_cycle()
+
         # ============ BELIEF MAINTENANCE ============
         try:
             decayed = await self.beliefs.decay_beliefs()
