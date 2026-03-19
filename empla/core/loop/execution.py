@@ -2,18 +2,34 @@
 empla.core.loop.execution - Proactive Execution Loop Implementation
 
 The main continuous autonomous operation loop.
+
+Architecture:
+  ┌─────────────────────────────────────────────────────────┐
+  │  ProactiveExecutionLoop (this file — orchestrator)       │
+  │  Inherits from:                                          │
+  │  ├── PerceptionMixin        (perception.py)              │
+  │  ├── PlanningMixin          (planning.py)                │
+  │  ├── GoalManagementMixin    (goal_management.py)         │
+  │  ├── IntentionExecutionMixin(intention_execution.py)     │
+  │  └── ReflectionMixin        (reflection.py)              │
+  │                                                          │
+  │  Shared types in protocols.py                            │
+  │  Data models in models.py                                │
+  └─────────────────────────────────────────────────────────┘
+
+Each mixin provides a phase of the BDI cycle. The orchestrator
+wires them together via _execute_bdi_phases() and manages the
+continuous loop, lifecycle hooks, and shared state.
 """
 
+from __future__ import annotations
+
 import asyncio
-import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol, cast
-from uuid import UUID
-
-from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING
 
 from empla.core.hooks import (
     HOOK_AFTER_BELIEF_UPDATE,
@@ -27,16 +43,27 @@ from empla.core.hooks import (
     HOOK_BEFORE_STRATEGIC_PLANNING,
     HOOK_CYCLE_END,
     HOOK_CYCLE_START,
-    HOOK_GOAL_ACHIEVED,
     HookRegistry,
 )
+from empla.core.loop.goal_management import GoalManagementMixin
+from empla.core.loop.intention_execution import IntentionExecutionMixin
 from empla.core.loop.models import (
-    GoalProgressEvaluation,
     IntentionResult,
     LoopConfig,
-    Observation,
-    PerceptionResult,
 )
+from empla.core.loop.perception import PerceptionMixin
+from empla.core.loop.planning import PlanningMixin
+from empla.core.loop.protocols import (
+    BeliefChange,
+    BeliefSystemProtocol,
+    GoalRecommendation,
+    GoalSystemProtocol,
+    IntentionStackProtocol,
+    MemorySystemProtocol,
+    SituationAnalysis,
+    ToolSourceProtocol,
+)
+from empla.core.loop.reflection import ReflectionMixin
 from empla.models.employee import Employee
 
 if TYPE_CHECKING:
@@ -46,217 +73,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Pydantic Models for LLM Structured Outputs
-# ============================================================================
+# Re-export protocol types and models for backward compatibility.
+# Code that imports from empla.core.loop.execution continues to work.
+__all__ = [
+    "BeliefChange",
+    "BeliefSystemProtocol",
+    "GoalRecommendation",
+    "GoalSystemProtocol",
+    "IntentionStackProtocol",
+    "MemorySystemProtocol",
+    "ProactiveExecutionLoop",
+    "SituationAnalysis",
+    "ToolSourceProtocol",
+]
 
 
-class SituationAnalysis(BaseModel):
-    """LLM analysis of current situation."""
-
-    current_state_summary: str = Field(..., description="Summary of current situation")
-    gaps: list[str] = Field(
-        default_factory=list, description="Gaps between current and desired state"
-    )
-    opportunities: list[str] = Field(default_factory=list, description="Opportunities identified")
-    problems: list[str] = Field(default_factory=list, description="Problems requiring attention")
-    recommended_focus: str = Field(..., description="What to focus on next")
-
-
-class GoalRecommendation(BaseModel):
-    """LLM recommendation for goal changes."""
-
-    new_goals: list[dict[str, Any]] = Field(default_factory=list, description="New goals to create")
-    goals_to_abandon: list[str] = Field(
-        default_factory=list, description="Goal IDs to abandon with reasons"
-    )
-    priority_adjustments: list[dict[str, Any]] = Field(
-        default_factory=list, description="Goals needing priority changes"
-    )
-    reasoning: str = Field(..., description="Reasoning for recommendations")
-
-
-# ============================================================================
-# Protocol Definitions (Interfaces for BDI Components)
-# ============================================================================
-# These define the interfaces that BDI components must implement.
-# This allows the loop to be implemented and tested independently.
-# ============================================================================
-
-
-class BeliefChange(Protocol):
-    """Protocol for belief changes returned by BeliefSystem"""
-
-    subject: str
-    predicate: str
-    importance: float
-    old_confidence: float
-    new_confidence: float
-
-
-class BeliefSystemProtocol(Protocol):
-    """Protocol for BeliefSystem component"""
-
-    async def update_beliefs(
-        self, observations: list[Observation], identity_context: str | None = None
-    ) -> list[BeliefChange]:
-        """Update beliefs based on observations"""
-        ...
-
-    async def get_all_beliefs(self, min_confidence: float = 0.0) -> list[Any]:
-        """Get all beliefs above confidence threshold"""
-        ...
-
-    async def update_belief(
-        self,
-        subject: str,
-        predicate: str,
-        belief_object: dict[str, Any],
-        confidence: float,
-        source: str,
-    ) -> Any:
-        """Update or create a single belief"""
-        ...
-
-
-class GoalSystemProtocol(Protocol):
-    """Protocol for GoalSystem component"""
-
-    async def get_goal(self, goal_id: Any) -> Any | None:
-        """Get a single goal by ID"""
-        ...
-
-    async def get_active_goals(self) -> list[Any]:
-        """Get all active goals"""
-        ...
-
-    async def get_pursuing_goals(self) -> list[Any]:
-        """Get all goals being pursued (active or in_progress)"""
-        ...
-
-    async def update_goal_progress(self, goal_id: Any, progress: dict[str, Any]) -> Any:
-        """Update goal progress"""
-        ...
-
-    async def complete_goal(
-        self, goal_id: Any, final_progress: dict[str, Any] | None = None
-    ) -> Any:
-        """Mark a goal as completed"""
-        ...
-
-    async def add_goal(
-        self,
-        goal_type: str,
-        description: str,
-        priority: int,
-        target: dict[str, Any],
-    ) -> Any:
-        """Add a new goal"""
-        ...
-
-    async def abandon_goal(self, goal_id: Any, reason: str) -> Any:
-        """Abandon a goal"""
-        ...
-
-    async def update_goal_priority(self, goal_id: Any, new_priority: int) -> Any:
-        """Update goal priority"""
-        ...
-
-    async def rollback(self) -> None:
-        """Rollback the underlying session after a failed operation."""
-        ...
-
-
-class IntentionStackProtocol(Protocol):
-    """Protocol for IntentionStack component"""
-
-    async def get_next_intention(self) -> Any | None:
-        """Get highest priority planned intention"""
-        ...
-
-    async def dependencies_satisfied(self, intention: Any) -> bool:
-        """Check if intention dependencies are satisfied"""
-        ...
-
-    async def start_intention(self, intention_id: Any) -> Any:
-        """Mark intention as in progress"""
-        ...
-
-    async def complete_intention(self, intention_id: Any, outcome: Any = None) -> Any:
-        """Mark intention as completed"""
-        ...
-
-    async def fail_intention(self, intention_id: Any, error: str) -> Any:
-        """Mark intention as failed"""
-        ...
-
-    async def get_intentions_for_goal(self, goal_id: Any) -> list[Any]:
-        """Get all intentions for a goal"""
-        ...
-
-    async def generate_plan_for_goal(
-        self,
-        goal: Any,
-        beliefs: list[Any],
-        llm_service: Any,
-        capabilities: list[str] | None = None,
-        identity_context: str | None = None,
-    ) -> list[Any]:
-        """Generate a plan for a goal using LLM"""
-        ...
-
-
-class MemorySystemProtocol(Protocol):
-    """Protocol for MemorySystem component"""
-
-    @property
-    def episodic(self) -> Any:
-        """Access episodic memory subsystem"""
-        ...
-
-    @property
-    def procedural(self) -> Any:
-        """Access procedural memory subsystem"""
-        ...
-
-    @property
-    def semantic(self) -> Any:
-        """Access semantic memory subsystem (long-term knowledge)"""
-        ...
-
-    @property
-    def working(self) -> Any:
-        """Access working memory subsystem (short-term attention)"""
-        ...
-
-
-class ToolSourceProtocol(Protocol):
-    """Protocol for tool sources (ToolRouter).
-
-    Defines the interface the agentic loop uses for tool discovery and execution.
-    """
-
-    def get_all_tool_schemas(self, employee_id: UUID) -> list[dict[str, Any]]:
-        """Get all available tool schemas for the employee."""
-        ...
-
-    async def execute_tool_call(
-        self, employee_id: UUID, tool_name: str, arguments: dict[str, Any]
-    ) -> Any:
-        """Execute a tool call and return an ActionResult."""
-        ...
-
-    def get_enabled_capabilities(self, employee_id: UUID) -> list[str]:
-        """List enabled capabilities for the employee."""
-        ...
-
-
-# ============================================================================
-# Proactive Execution Loop
-# ============================================================================
-
-
-class ProactiveExecutionLoop:
+class ProactiveExecutionLoop(
+    PerceptionMixin,
+    PlanningMixin,
+    GoalManagementMixin,
+    IntentionExecutionMixin,
+    ReflectionMixin,
+):
     """
     The continuous autonomous operation loop.
 
@@ -269,6 +107,10 @@ class ProactiveExecutionLoop:
     4. GOAL MANAGEMENT: Update goal progress
     5. INTENTION EXECUTION: Execute highest priority work
     6. LEARNING: Reflect on outcomes and learn
+
+    Phase logic lives in mixin classes (perception.py, planning.py, etc.)
+    while this class manages the cycle orchestration, lifecycle hooks,
+    and shared state.
 
     Example:
         >>> loop = ProactiveExecutionLoop(
@@ -289,12 +131,12 @@ class ProactiveExecutionLoop:
         goals: GoalSystemProtocol,
         intentions: IntentionStackProtocol,
         memory: MemorySystemProtocol,
-        llm_service: "LLMService | None" = None,
+        llm_service: LLMService | None = None,
         config: LoopConfig | None = None,
         status_checker: Callable[[Employee], Awaitable[None]] | None = None,
         hooks: HookRegistry | None = None,
         tool_router: ToolSourceProtocol | None = None,
-        identity: "EmployeeIdentity | None" = None,
+        identity: EmployeeIdentity | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop.
@@ -360,6 +202,10 @@ class ProactiveExecutionLoop:
             },
         )
 
+    # ========================================================================
+    # Identity
+    # ========================================================================
+
     async def _refresh_identity_prompt(self) -> None:
         """Recompute _identity_prompt with current goals from the GoalSystem."""
         if self._identity is None:
@@ -381,6 +227,10 @@ class ProactiveExecutionLoop:
                 extra={"employee_id": str(self.employee.id)},
                 exc_info=True,
             )
+
+    # ========================================================================
+    # Lifecycle
+    # ========================================================================
 
     async def start(self) -> None:
         """
@@ -417,6 +267,10 @@ class ProactiveExecutionLoop:
             f"Stopping proactive loop for {self.employee.name}",
             extra={"employee_id": str(self.employee.id), "total_cycles": self.cycle_count},
         )
+
+    # ========================================================================
+    # Main Loop
+    # ========================================================================
 
     async def run_continuous_loop(self) -> None:
         """
@@ -563,35 +417,85 @@ class ProactiveExecutionLoop:
             },
         )
 
-    async def _sleep_interruptible(self, seconds: float) -> None:
-        """Sleep in small increments so stop() takes effect promptly."""
-        remaining = seconds
-        while remaining > 0 and self.is_running:
-            chunk = min(0.1, remaining)
-            await asyncio.sleep(chunk)
-            remaining -= chunk
+    # ========================================================================
+    # Single Cycle (for testing / run_once)
+    # ========================================================================
 
-    async def _safe_commit(self, phase: str) -> None:
-        """Commit the shared session after a phase, rolling back on failure."""
+    async def _run_cycle(self) -> IntentionResult | None:
+        """
+        Execute a single BDI reasoning cycle.
+
+        This is the core of the proactive loop, extracted for use by
+        DigitalEmployee.run_once() for testing and manual control.
+        Lifecycle hooks are emitted at each phase boundary.
+
+        Returns:
+            IntentionResult if work was done, None if no work to do or cycle
+            completed without intention execution.
+
+        Raises:
+            Exception: If any phase fails critically (logged but not suppressed
+                      to allow caller to handle). HOOK_CYCLE_END with
+                      success=False is emitted before re-raising.
+        """
+        cycle_start = time.time()
+        self.cycle_count += 1
+        await self._refresh_identity_prompt()
+
+        logger.debug(
+            f"Single cycle {self.cycle_count} starting",
+            extra={"employee_id": str(self.employee.id)},
+        )
+
         try:
-            if hasattr(self.beliefs, "session"):
-                await self.beliefs.session.commit()
-        except Exception:
-            logger.warning(
-                "Commit failed after %s, rolling back",
-                phase,
-                exc_info=True,
-                extra={"employee_id": str(self.employee.id)},
+            await self._hooks.emit(
+                HOOK_CYCLE_START,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
             )
+
+            result = await self._execute_bdi_phases()
+
+            cycle_duration = time.time() - cycle_start
+            logger.debug(
+                f"Single cycle {self.cycle_count} complete",
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "duration_seconds": cycle_duration,
+                    "had_work": result is not None,
+                },
+            )
+
+            await self._hooks.emit(
+                HOOK_CYCLE_END,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
+                duration_seconds=cycle_duration,
+                success=True,
+            )
+
+        except Exception:
             try:
-                await self.beliefs.session.rollback()
+                await self._hooks.emit(
+                    HOOK_CYCLE_END,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                    duration_seconds=time.time() - cycle_start,
+                    success=False,
+                )
             except Exception:
                 logger.error(
-                    "Session rollback also failed after %s — session may be inconsistent",
-                    phase,
+                    "Failed to emit cycle_end hook during error handling",
                     exc_info=True,
                     extra={"employee_id": str(self.employee.id)},
                 )
+            raise
+        else:
+            return result
+
+    # ========================================================================
+    # BDI Phase Orchestration
+    # ========================================================================
 
     async def _execute_bdi_phases(self) -> IntentionResult | None:
         """Execute the core BDI phases with hook emissions.
@@ -775,2067 +679,36 @@ class ProactiveExecutionLoop:
 
         return result
 
-    async def _run_cycle(self) -> IntentionResult | None:
-        """
-        Execute a single BDI reasoning cycle.
+    # ========================================================================
+    # Utilities
+    # ========================================================================
 
-        This is the core of the proactive loop, extracted for use by
-        DigitalEmployee.run_once() for testing and manual control.
-        Lifecycle hooks are emitted at each phase boundary.
+    async def _sleep_interruptible(self, seconds: float) -> None:
+        """Sleep in small increments so stop() takes effect promptly."""
+        remaining = seconds
+        while remaining > 0 and self.is_running:
+            chunk = min(0.1, remaining)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
 
-        Returns:
-            IntentionResult if work was done, None if no work to do or cycle
-            completed without intention execution.
-
-        Raises:
-            Exception: If any phase fails critically (logged but not suppressed
-                      to allow caller to handle). HOOK_CYCLE_END with
-                      success=False is emitted before re-raising.
-        """
-        cycle_start = time.time()
-        self.cycle_count += 1
-        await self._refresh_identity_prompt()
-
-        logger.debug(
-            f"Single cycle {self.cycle_count} starting",
-            extra={"employee_id": str(self.employee.id)},
-        )
-
+    async def _safe_commit(self, phase: str) -> None:
+        """Commit the shared session after a phase, rolling back on failure."""
         try:
-            await self._hooks.emit(
-                HOOK_CYCLE_START,
-                employee_id=self.employee.id,
-                cycle_count=self.cycle_count,
-            )
-
-            result = await self._execute_bdi_phases()
-
-            cycle_duration = time.time() - cycle_start
-            logger.debug(
-                f"Single cycle {self.cycle_count} complete",
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "duration_seconds": cycle_duration,
-                    "had_work": result is not None,
-                },
-            )
-
-            await self._hooks.emit(
-                HOOK_CYCLE_END,
-                employee_id=self.employee.id,
-                cycle_count=self.cycle_count,
-                duration_seconds=cycle_duration,
-                success=True,
-            )
-
+            if hasattr(self.beliefs, "session"):
+                await self.beliefs.session.commit()
         except Exception:
+            logger.warning(
+                "Commit failed after %s, rolling back",
+                phase,
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
             try:
-                await self._hooks.emit(
-                    HOOK_CYCLE_END,
-                    employee_id=self.employee.id,
-                    cycle_count=self.cycle_count,
-                    duration_seconds=time.time() - cycle_start,
-                    success=False,
-                )
+                await self.beliefs.session.rollback()
             except Exception:
                 logger.error(
-                    "Failed to emit cycle_end hook during error handling",
+                    "Session rollback also failed after %s — session may be inconsistent",
+                    phase,
                     exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-            raise
-        else:
-            return result
-
-    # ========================================================================
-    # Phase 1: Perception
-    # ========================================================================
-
-    async def perceive_environment(self) -> PerceptionResult:
-        """
-        Collects observations from the environment via agentic perception.
-
-        Uses LLM-driven perception when LLM and tools are available.
-        Returns empty result otherwise.
-
-        Returns:
-            PerceptionResult with observations, opportunity/problem/risk counts,
-            duration, and sources checked.
-        """
-        start_time = time.time()
-
-        if self.llm_service is not None and self.tool_router is not None:
-            tool_schemas = self.tool_router.get_all_tool_schemas(self.employee.id)
-            if tool_schemas:
-                try:
-                    result = await self._perceive_agentic(tool_schemas)
-                    duration_ms = max(0.01, (time.time() - start_time) * 1000)
-                    result.perception_duration_ms = duration_ms
-                    return result
-                except Exception:
-                    logger.warning(
-                        "Agentic perception failed",
-                        exc_info=True,
-                        extra={"employee_id": str(self.employee.id)},
-                    )
-
-        # No LLM or no tools — return empty result
-        duration_ms = max(0.01, (time.time() - start_time) * 1000)
-        return PerceptionResult(
-            observations=[],
-            perception_duration_ms=duration_ms,
-        )
-
-    async def _perceive_agentic(self, tool_schemas: list[dict[str, Any]]) -> PerceptionResult:
-        """LLM-driven perception: check environment based on goals.
-
-        The LLM receives current goals and available tools, then decides
-        what to check. This replaces hardcoded perceive() methods with
-        goal-aware, adaptive environment scanning.
-
-        Args:
-            tool_schemas: Available tool schemas for the LLM.
-
-        Returns:
-            PerceptionResult with observations from tool calls.
-        """
-        from empla.llm.models import Message
-
-        # Build context for perception
-        goals_context = await self._format_goals_for_perception()
-        beliefs_context = await self._format_recent_beliefs_for_perception()
-
-        system_prompt = self._build_perception_system_prompt()
-
-        # Include working memory context (current attention/focus)
-        working_context = ""
-        if hasattr(self.memory, "working"):
-            try:
-                context_summary = await self.memory.working.get_context_summary()
-                items = context_summary.get("total_items", 0)
-                if items > 0:
-                    parts = []
-                    for key, val in context_summary.items():
-                        if key.startswith("active_") and val:
-                            type_name = key.replace("active_", "")
-                            summaries = [
-                                str(v.get("content", v))[:100]
-                                if isinstance(v, dict)
-                                else str(v)[:100]
-                                for v in val[:3]
-                            ]
-                            parts.append(f"  {type_name}: {', '.join(summaries)}")
-                    if parts:
-                        working_context = "\n\nCurrent focus:\n" + "\n".join(parts)
-            except Exception:
-                logger.debug(
-                    "Failed to load working memory context for perception",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-
-        user_prompt = (
-            f"Check your environment for changes relevant to your goals.\n\n"
-            f"Current goals:\n{goals_context}\n\n"
-            f"Recent beliefs:\n{beliefs_context}"
-            f"{working_context}\n\n"
-            f"Use the available tools to check for new information. "
-            f"Focus on what's most relevant to your highest-priority goals. "
-            f"Be efficient — don't check everything every time."
-        )
-
-        messages = [
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=user_prompt),
-        ]
-
-        observations: list[Observation] = []
-        sources_checked: set[str] = set()
-        max_perception_iterations = self.config.max_perception_iterations
-
-        for iteration in range(max_perception_iterations):
-            try:
-                response = await self.llm_service.generate_with_tools(
-                    messages=messages,
-                    tools=tool_schemas,
-                    tool_choice="auto",
-                    temperature=0.2,
-                )
-            except Exception:
-                logger.exception(
-                    "LLM call failed during agentic perception",
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "iteration": iteration,
-                    },
-                )
-                break
-
-            if not response.tool_calls:
-                break
-
-            # Add assistant message to conversation
-            assistant_msg = Message(
-                role="assistant",
-                content=response.content or "",
-                tool_calls=response.tool_calls,
-            )
-            messages.append(assistant_msg)
-
-            # Execute each tool call
-            if self.tool_router is None:
-                break
-
-            for tc in response.tool_calls:
-                source = tc.name.split(".")[0] if "." in tc.name else tc.name
-                sources_checked.add(source)
-
-                try:
-                    result = await self.tool_router.execute_tool_call(
-                        self.employee.id, tc.name, tc.arguments
-                    )
-                    result_output = result.output if hasattr(result, "output") else result
-                    result_error = getattr(result, "error", None)
-                    result_success = getattr(result, "success", True)
-
-                    obs_content: dict[str, Any] = {
-                        "tool_result": result_output,
-                        "arguments": tc.arguments,
-                    }
-                    if result_error:
-                        obs_content["error"] = result_error
-
-                    observations.append(
-                        Observation(
-                            employee_id=self.employee.id,
-                            tenant_id=self.employee.tenant_id,
-                            observation_type=tc.name,
-                            source=source,
-                            content=obs_content,
-                            priority=5,
-                            requires_action=False,
-                        )
-                    )
-
-                    result_payload: dict[str, Any] = {
-                        "success": result_success,
-                        "output": result_output,
-                    }
-                    if result_error:
-                        result_payload["error"] = result_error
-                    result_content = json.dumps(result_payload, default=str)
-                except Exception as e:
-                    logger.exception(
-                        "Tool call %s failed during perception",
-                        tc.name,
-                        extra={"employee_id": str(self.employee.id), "tool_name": tc.name},
-                    )
-                    result_content = json.dumps({"success": False, "error": str(e)})
-
-                messages.append(Message(role="tool", content=result_content, tool_call_id=tc.id))
-
-        # Classify observations
-        opportunities = sum(
-            1 for obs in observations if "opportunity" in obs.observation_type.lower()
-        )
-        problems = sum(
-            1
-            for obs in observations
-            if "problem" in obs.observation_type.lower() or "error" in obs.observation_type.lower()
-        )
-        risks = sum(
-            1 for obs in observations if "risk" in obs.observation_type.lower() or obs.priority >= 9
-        )
-
-        logger.info(
-            f"Agentic perception: {len(observations)} observations from {len(sources_checked)} sources",
-            extra={
-                "employee_id": str(self.employee.id),
-                "observations": len(observations),
-                "sources": list(sources_checked),
-            },
-        )
-
-        # Store key observations in working memory for short-term context
-        if hasattr(self.memory, "working") and observations:
-            try:
-                await self.memory.working.cleanup_expired()
-                await self.memory.working.clear_by_type("observation")
-                for obs in observations[:5]:
-                    await self.memory.working.add_item(
-                        item_type="observation",
-                        content={
-                            "source": obs.source,
-                            "type": obs.observation_type,
-                            "summary": str(obs.content)[:500],
-                        },
-                        importance=obs.priority / 10.0,
-                        ttl_seconds=1800,
-                    )
-            except Exception:
-                logger.debug(
-                    "Failed to store observations in working memory",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-
-        return PerceptionResult(
-            observations=observations,
-            opportunities_detected=opportunities,
-            problems_detected=problems,
-            risks_detected=risks,
-            perception_duration_ms=0.01,  # Updated by caller
-            sources_checked=list(sources_checked),
-        )
-
-    def _build_perception_system_prompt(self) -> str:
-        """Build system prompt for agentic perception."""
-        perception_instructions = (
-            "You are the perception system for a digital employee. "
-            "Your job is to check the environment for changes relevant to current goals. "
-            "Use the available tools to gather information. "
-            "Be efficient — focus on the most important sources first."
-        )
-        if self._identity_prompt:
-            return f"{self._identity_prompt}\n\n{perception_instructions}"
-        return perception_instructions
-
-    async def _format_goals_for_perception(self) -> str:
-        """Format current goals for the perception prompt."""
-        try:
-            active_goals = await self.goals.get_active_goals()
-            if not active_goals:
-                return "No active goals."
-            lines = []
-            for g in active_goals:
-                desc = getattr(g, "description", "Unknown")
-                priority = getattr(g, "priority", "?")
-                lines.append(f"- [{priority}] {desc}")
-            return "\n".join(lines)
-        except Exception as e:
-            logger.warning("Failed to format goals for perception: %s", e)
-            return "Unable to load goals."
-
-    async def _format_recent_beliefs_for_perception(self) -> str:
-        """Format recent beliefs for context in perception prompt."""
-        try:
-            beliefs = await self.beliefs.get_all_beliefs(min_confidence=0.5)
-            if not beliefs:
-                return "No current beliefs."
-            lines = []
-            for b in beliefs[:10]:
-                subject = getattr(b, "subject", "?")
-                predicate = getattr(b, "predicate", "?")
-                confidence = getattr(b, "confidence", "?")
-                lines.append(f"- {subject}.{predicate} (confidence: {confidence})")
-            return "\n".join(lines)
-        except Exception as e:
-            logger.warning("Failed to format beliefs for perception: %s", e)
-            return "Unable to load beliefs."
-
-    # ========================================================================
-    # Phase 2: Strategic Reasoning
-    # ========================================================================
-
-    def should_run_strategic_planning(self, changed_beliefs: list[BeliefChange]) -> bool:
-        """
-        Decide if belief changes warrant strategic replanning.
-
-        Strategic planning is expensive (multiple LLM calls), so only run when:
-        1. High-importance belief changed significantly
-        2. Belief related to current intentions changed
-        3. Belief about goal achievability changed
-        4. Scheduled time for strategic planning
-
-        Args:
-            changed_beliefs: List of belief changes from this cycle
-
-        Returns:
-            True if strategic planning should run, False otherwise
-        """
-        # 1. Check if scheduled time for strategic planning
-        if self.last_strategic_planning is None:
-            # Never run strategic planning - do it now
-            return True
-
-        hours_since_last_planning = (
-            datetime.now(UTC) - self.last_strategic_planning
-        ).total_seconds() / 3600
-
-        if hours_since_last_planning >= self.config.strategic_planning_interval_hours:
-            logger.info(
-                "Triggering strategic planning: scheduled interval reached",
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "hours_since_last": hours_since_last_planning,
-                },
-            )
-            return True
-
-        # 2. Check if significant belief changes
-        if self.config.force_strategic_planning_on_significant_change:
-            # High-importance belief changed significantly
-            important_changed = any(
-                b.importance > 0.7 and abs(b.new_confidence - b.old_confidence) > 0.3
-                for b in changed_beliefs
-            )
-
-            if important_changed:
-                logger.info(
-                    "Triggering strategic planning: significant belief change",
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                return True
-
-            # Belief about goal achievability changed
-            goal_beliefs_changed = any(
-                b.predicate in ["achievable", "blocked", "deadline", "priority"]
-                for b in changed_beliefs
-            )
-
-            if goal_beliefs_changed:
-                logger.info(
-                    "Triggering strategic planning: goal-related belief changed",
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                return True
-
-        return False
-
-    async def _evaluate_goals_progress(
-        self,
-        goals: list[Any],
-        changed_beliefs: list[BeliefChange],
-    ) -> dict[str, dict[str, Any]]:
-        """Evaluate progress for all pursuing goals using LLM-driven analysis.
-
-        Batches all goals into a single LLM call that interprets changed beliefs
-        in context. Returns empty if LLM is unavailable (will retry next cycle).
-
-        Args:
-            goals: All pursuing goals (filtered internally to those with numeric targets).
-            changed_beliefs: Belief changes from this cycle.
-
-        Returns:
-            Dict mapping goal_id (str) to progress dict.
-        """
-        if not changed_beliefs or not goals:
-            return {}
-
-        # Check for expired opportunity/problem goals (TTL)
-        now = datetime.now(UTC)
-        for goal in goals:
-            target = getattr(goal, "target", {}) or {}
-            max_age_hours = target.get("max_age_hours")
-            if max_age_hours:
-                created = getattr(goal, "created_at", None)
-                if created and (now - created).total_seconds() > max_age_hours * 3600:
-                    try:
-                        await self.goals.abandon_goal(goal.id)
-                        logger.info(
-                            "Abandoned expired goal: %s (age > %dh)",
-                            getattr(goal, "description", "")[:50],
-                            max_age_hours,
-                            extra={"employee_id": str(self.employee.id)},
-                        )
-                    except Exception:
-                        logger.warning(
-                            "Failed to abandon expired goal",
-                            exc_info=True,
-                            extra={"employee_id": str(self.employee.id)},
-                        )
-
-        # Filter to goals with numeric target metrics
-        evaluable_goals = []
-        for goal in goals:
-            target = getattr(goal, "target", {}) or {}
-            if target.get("metric") and target.get("value") is not None:
-                evaluable_goals.append(goal)
-
-        if not evaluable_goals:
-            return {}
-
-        # Format belief changes as text for the LLM
-        belief_lines = []
-        for bc in changed_beliefs:
-            belief = getattr(bc, "belief", None)
-            obj = getattr(belief, "object", {}) if belief else {}
-            belief_lines.append(
-                f"- {bc.subject} → {bc.predicate}: {obj} "
-                f"(confidence: {bc.old_confidence:.2f} → {bc.new_confidence:.2f})"
-            )
-        beliefs_text = "\n".join(belief_lines) if belief_lines else "No belief changes"
-
-        # Format goals for the LLM
-        goal_lines = []
-        for g in evaluable_goals:
-            target = getattr(g, "target", {}) or {}
-            goal_lines.append(
-                f"- goal_id={g.id}, metric={target['metric']}, "
-                f"target_value={target['value']}, description={getattr(g, 'description', '')}"
-            )
-        goals_text = "\n".join(goal_lines)
-
-        if self.llm_service is None:
-            logger.error(
-                "LLM service unavailable, cannot evaluate goal progress (will retry next cycle)",
-                extra={"employee_id": str(self.employee.id)},
-            )
-            return {}
-
-        try:
-            return await self._evaluate_goals_progress_via_llm(
-                evaluable_goals, beliefs_text, goals_text
-            )
-        except Exception as e:
-            logger.error(
-                "LLM goal evaluation failed (will retry next cycle): %s",
-                e,
-                exc_info=True,
-                extra={"employee_id": str(self.employee.id)},
-            )
-            return {}
-
-    async def _evaluate_goals_progress_via_llm(
-        self,
-        goals: list[Any],
-        beliefs_text: str,
-        goals_text: str,
-    ) -> dict[str, dict[str, Any]]:
-        """Call LLM to evaluate goal progress from belief changes.
-
-        Args:
-            goals: Goals being evaluated.
-            beliefs_text: Formatted belief changes text.
-            goals_text: Formatted goals text.
-
-        Returns:
-            Dict mapping goal_id (str) to progress dict.
-        """
-        system_prompt = (
-            "You are evaluating whether recent belief changes indicate progress "
-            "toward specific goals. For each goal, determine the current metric "
-            "value from the beliefs if possible. Only report a value when the "
-            "beliefs clearly contain information about the goal's metric."
-        )
-
-        prompt = f"""Recent belief changes:
-{beliefs_text}
-
-Goals to evaluate:
-{goals_text}
-
-For each goal, extract the current metric value from the belief changes if present.
-Only include goals where you can determine a numeric value."""
-
-        _, evaluation = await self.llm_service.generate_structured(
-            prompt=prompt,
-            system=system_prompt,
-            response_format=GoalProgressEvaluation,
-            temperature=0.1,
-        )
-        evaluation = cast(GoalProgressEvaluation, evaluation)
-
-        # Validate and convert to progress dicts
-        valid_goals = {str(g.id): (getattr(g, "target", {}) or {}).get("metric", "") for g in goals}
-        min_confidence = 0.3
-        result: dict[str, dict[str, Any]] = {}
-        for metric_result in evaluation.results:
-            if metric_result.current_value is None:
-                continue
-            if metric_result.confidence < min_confidence:
-                logger.debug(
-                    "LLM goal evaluation below confidence threshold (%.2f < %.2f) for goal %s, skipping",
-                    metric_result.confidence,
-                    min_confidence,
-                    metric_result.goal_id,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                continue
-            if metric_result.goal_id not in valid_goals:
-                logger.warning(
-                    "LLM returned unknown goal_id %r, skipping",
-                    metric_result.goal_id,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                continue
-            expected_metric = valid_goals[metric_result.goal_id]
-            if metric_result.metric != expected_metric:
-                logger.warning(
-                    "LLM returned metric %r for goal %s, expected %r, skipping",
-                    metric_result.metric,
-                    metric_result.goal_id,
-                    expected_metric,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                continue
-            result[metric_result.goal_id] = {
-                metric_result.metric: metric_result.current_value,
-                "llm_confidence": metric_result.confidence,
-                "llm_reasoning": metric_result.reasoning,
-            }
-
-        logger.debug(
-            "LLM goal evaluation: %d/%d goals with progress",
-            len(result),
-            len(goals),
-            extra={"employee_id": str(self.employee.id)},
-        )
-        return result
-
-    async def _check_goal_achievement(
-        self,
-        goal: Any,
-        progress: dict[str, Any],
-    ) -> None:
-        """
-        Check if a goal's target has been met and complete it if so.
-
-        For "maintain" goals (ongoing targets), the goal stays active.
-        For achievement goals, calls complete_goal() with retry logic.
-        If retries are exhausted, marks the goal as completion_pending
-        so subsequent cycles will reattempt completion.
-
-        Args:
-            goal: The goal to check
-            progress: The newly updated progress data
-        """
-        target = getattr(goal, "target", {}) or {}
-        metric = target.get("metric", "")
-        target_value = target.get("value")
-
-        if not metric or target_value is None:
-            return
-
-        current_value = progress.get(metric)
-        if current_value is None:
-            return
-
-        try:
-            achieved = float(current_value) >= float(target_value)
-        except (ValueError, TypeError):
-            logger.warning(
-                "Non-numeric goal target or progress: metric=%s current=%r target=%r",
-                metric,
-                current_value,
-                target_value,
-                extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
-            )
-            return
-
-        if not achieved:
-            return
-
-        goal_type = getattr(goal, "goal_type", "")
-
-        if goal_type in ("maintain", "maintenance"):
-            # Ongoing goals stay active — log that target is met
-            logger.info(
-                "Maintain goal target met: %s=%s (target=%s)",
-                metric,
-                current_value,
-                target_value,
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "goal_id": str(goal.id),
-                    "goal_type": goal_type,
-                },
-            )
-            return
-
-        # Achievement/one-time goals — mark completed with retry
-        await self._complete_goal_with_retry(goal, progress, metric, current_value, target_value)
-
-    async def _complete_goal_with_retry(
-        self,
-        goal: Any,
-        progress: dict[str, Any],
-        metric: str,
-        current_value: Any,
-        target_value: Any,
-        max_attempts: int = 3,
-    ) -> None:
-        """Complete an achievement goal with retry and completion_pending fallback.
-
-        Args:
-            goal: The goal to complete
-            progress: Progress data to pass to complete_goal
-            metric: The metric name (for logging)
-            current_value: Current metric value (for logging)
-            target_value: Target metric value (for logging)
-            max_attempts: Maximum retry attempts with exponential backoff
-        """
-        # Strip internal flag before persisting final progress
-        clean_progress = {k: v for k, v in progress.items() if k != "_completion_pending"}
-
-        for attempt in range(max_attempts):
-            try:
-                await self.goals.complete_goal(goal.id, clean_progress)
-            except Exception as e:
-                if attempt < max_attempts - 1:
-                    delay = 0.1 * (2**attempt)  # 0.1s, 0.2s, 0.4s
-                    logger.warning(
-                        "Retrying goal completion (attempt %d/%d) for %s: %s",
-                        attempt + 1,
-                        max_attempts,
-                        goal.id,
-                        e,
-                        extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
-                    )
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error(
-                        "Goal completion failed after %d attempts for %s: %s — marking completion_pending",
-                        max_attempts,
-                        goal.id,
-                        e,
-                        exc_info=True,
-                        extra={"employee_id": str(self.employee.id), "goal_id": str(goal.id)},
-                    )
-                    # Mark as completion_pending so subsequent cycles reattempt
-                    try:
-                        await self.goals.update_goal_progress(
-                            goal.id, {"_completion_pending": True}
-                        )
-                    except Exception as fallback_err:
-                        logger.error(
-                            "Failed to mark goal %s as completion_pending "
-                            "after completion failure: %s",
-                            goal.id,
-                            fallback_err,
-                            exc_info=True,
-                            extra={
-                                "employee_id": str(self.employee.id),
-                                "goal_id": str(goal.id),
-                            },
-                        )
-            else:
-                # complete_goal succeeded — log and emit hook outside retry scope
-                logger.info(
-                    "Goal completed: %s (metric %s=%s reached target %s)",
-                    goal.description,
-                    metric,
-                    current_value,
-                    target_value,
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "goal_id": str(goal.id),
-                    },
-                )
-                await self._hooks.emit(
-                    HOOK_GOAL_ACHIEVED,
-                    employee_id=self.employee.id,
-                    goal_id=goal.id,
-                    goal_description=getattr(goal, "description", ""),
-                    metric=metric,
-                    current_value=current_value,
-                    target_value=target_value,
-                    goal_type=getattr(goal, "goal_type", ""),
-                )
-                break
-
-    async def strategic_planning_cycle(self) -> None:
-        """
-        Deep strategic reasoning cycle.
-
-        This is computationally expensive (multiple LLM calls) and runs less
-        frequently than tactical execution.
-
-        Performs:
-        1. Comprehensive situation analysis
-        2. Gap analysis (current vs desired state)
-        3. Root cause analysis
-        4. Opportunity detection
-        5. Strategy generation and evaluation
-        6. Goal formation/abandonment
-        7. Strategy documentation
-        """
-        logger.info(
-            "Strategic planning cycle starting",
-            extra={"employee_id": str(self.employee.id)},
-        )
-
-        start_time = time.time()
-
-        try:
-            # ============ STEP 1: Gather Situation ============
-            # Get current beliefs, goals, and capabilities
-            beliefs = await self.beliefs.get_all_beliefs(min_confidence=0.5)
-            active_goals = await self.goals.get_active_goals()
-            available_capabilities = self._get_available_capabilities()
-
-            logger.debug(
-                "Strategic planning: gathered situation",
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "beliefs_count": len(beliefs),
-                    "active_goals_count": len(active_goals),
-                    "capabilities_count": len(available_capabilities),
-                },
-            )
-
-            # ============ STEP 2: LLM Situation Analysis ============
-            if self.llm_service:
-                situation_analysis = await self._analyze_situation_with_llm(
-                    beliefs=beliefs,
-                    goals=active_goals,
-                    capabilities=available_capabilities,
-                )
-
-                logger.info(
-                    "Strategic planning: situation analyzed",
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "gaps_identified": len(situation_analysis.gaps),
-                        "opportunities_identified": len(situation_analysis.opportunities),
-                        "problems_identified": len(situation_analysis.problems),
-                        "recommended_focus": situation_analysis.recommended_focus,
-                    },
-                )
-
-                # ============ STEP 3: Goal Management ============
-                await self._manage_goals_from_analysis(
-                    situation_analysis=situation_analysis,
-                    active_goals=active_goals,
-                )
-                # Goals changed — refresh identity prompt so subsequent LLM calls
-                # reflect the current goal set.
-                await self._refresh_identity_prompt()
-
-            # ============ STEP 4: Generate Plans for Goals Without Intentions ============
-            await self._generate_plans_for_unplanned_goals(
-                goals=active_goals,
-                beliefs=beliefs,
-                capabilities=available_capabilities,
-            )
-
-            # ============ STEP 5: Document in Episodic Memory ============
-            await self._record_strategic_planning_episode(
-                beliefs_count=len(beliefs),
-                goals_count=len(active_goals),
-            )
-
-        except Exception as e:
-            logger.error(
-                "Strategic planning cycle failed",
-                exc_info=True,
-                extra={"employee_id": str(self.employee.id), "error": str(e)},
-            )
-
-        duration_ms = (time.time() - start_time) * 1000
-
-        logger.info(
-            "Strategic planning cycle complete",
-            extra={"employee_id": str(self.employee.id), "duration_ms": duration_ms},
-        )
-
-        # Update last strategic planning time
-        self.last_strategic_planning = datetime.now(UTC)
-
-    def _get_available_capabilities(self) -> list[str]:
-        """Get list of available capability/integration names."""
-        if not self.tool_router:
-            return []
-
-        try:
-            return self.tool_router.get_enabled_capabilities(self.employee.id)
-        except Exception as e:
-            logger.warning(
-                f"Failed to get capabilities: {e}", extra={"employee_id": str(self.employee.id)}
-            )
-            return []
-
-    async def _analyze_situation_with_llm(
-        self,
-        beliefs: list[Any],
-        goals: list[Any],
-        capabilities: list[str],
-    ) -> SituationAnalysis:
-        """Use LLM to analyze current situation."""
-        if not self.llm_service:
-            return SituationAnalysis(
-                current_state_summary="No LLM service available",
-                gaps=[],
-                opportunities=[],
-                problems=[],
-                recommended_focus="Continue with current goals",
-            )
-
-        # Format beliefs for prompt
-        beliefs_text = self._format_beliefs_for_llm(beliefs)
-        goals_text = self._format_goals_for_llm(goals)
-
-        base_prompt = """Analyze your current beliefs (world model) and goals to identify:
-1. Gaps between current state and desired outcomes
-2. Opportunities that could be pursued
-3. Problems requiring immediate attention
-4. What you should focus on next
-
-IMPORTANT: Do NOT suggest opportunities or problems that are already covered by existing
-active goals. Review the goals list carefully — if a goal already addresses a topic,
-do not duplicate it as an opportunity or problem. Only suggest genuinely new items.
-
-Be specific and actionable in your analysis."""
-
-        system_prompt = (
-            f"{self._identity_prompt}\n\n{base_prompt}"
-            if self._identity_prompt
-            else f"You are a digital employee.\n\n{base_prompt}"
-        )
-
-        # Inject semantic memory (long-term entity knowledge)
-        entity_context = ""
-        if hasattr(self.memory, "semantic"):
-            try:
-                subjects = {getattr(b, "subject", "") for b in beliefs[:20]}
-                entity_lines = []
-                for subj in list(subjects)[:10]:
-                    if not subj:
-                        continue
-                    facts = await self.memory.semantic.query_facts(subject=subj, limit=3)
-                    for f in facts:
-                        entity_lines.append(f"  {f.subject} → {f.predicate}: {f.object}")
-                if entity_lines:
-                    entity_context = "\n\nKnown entity facts:\n" + "\n".join(entity_lines[:20])
-            except Exception:
-                logger.debug(
-                    "Failed to load semantic memory for strategic planning",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-
-        # Inject latest deep reflection insight
-        reflection_context = ""
-        if hasattr(self.memory, "episodic"):
-            try:
-                reflections = await self.memory.episodic.recall_recent(
-                    episode_type="deep_reflection", limit=1
-                )
-                if reflections:
-                    reflection_context = (
-                        f"\n\nRecent self-reflection:\n{reflections[0].description[:300]}"
-                    )
-            except Exception:
-                logger.debug(
-                    "Failed to load recent reflection for strategic planning",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-
-        user_prompt = f"""Current Beliefs (World Model):
-{beliefs_text}
-
-Active Goals:
-{goals_text}
-
-Available Capabilities: {", ".join(capabilities) if capabilities else "None specified"}
-{entity_context}{reflection_context}
-
-Analyze this situation and provide recommendations."""
-
-        try:
-            _, analysis = await self.llm_service.generate_structured(
-                prompt=user_prompt,
-                system=system_prompt,
-                response_format=SituationAnalysis,
-                temperature=0.3,
-            )
-            return cast(SituationAnalysis, analysis)
-        except Exception as e:
-            logger.warning(
-                f"LLM situation analysis failed: {e}",
-                extra={"employee_id": str(self.employee.id)},
-            )
-            return SituationAnalysis(
-                current_state_summary="Analysis failed",
-                gaps=[],
-                opportunities=[],
-                problems=[],
-                recommended_focus="Continue with current priorities",
-            )
-
-    def _format_beliefs_for_llm(self, beliefs: list[Any]) -> str:
-        """Format beliefs for LLM prompt."""
-        if not beliefs:
-            return "No current beliefs"
-
-        lines = []
-        for belief in beliefs[:20]:  # Limit to top 20
-            subject = getattr(belief, "subject", "unknown")
-            predicate = getattr(belief, "predicate", "unknown")
-            obj = getattr(belief, "object", {})
-            confidence = getattr(belief, "confidence", 0.0)
-            lines.append(f"- {subject} → {predicate}: {obj} (confidence: {confidence:.2f})")
-
-        if len(beliefs) > 20:
-            lines.append(f"... and {len(beliefs) - 20} more beliefs")
-
-        return "\n".join(lines)
-
-    def _format_goals_for_llm(self, goals: list[Any]) -> str:
-        """Format goals for LLM prompt."""
-        if not goals:
-            return "No active goals"
-
-        lines = []
-        for goal in goals:
-            description = getattr(goal, "description", "unknown")
-            priority = getattr(goal, "priority", 5)
-            target = getattr(goal, "target", {})
-            progress = getattr(goal, "current_progress", {})
-            lines.append(
-                f"- [{priority}/10] {description}\n  Target: {target}\n  Progress: {progress}"
-            )
-
-        return "\n".join(lines)
-
-    @staticmethod
-    def _words_overlap(a: str, b: str) -> float:
-        """Return word-level Jaccard similarity between two strings."""
-        words_a = set(a.split())
-        words_b = set(b.split())
-        if not words_a or not words_b:
-            return 0.0
-        intersection = words_a & words_b
-        union = words_a | words_b
-        return len(intersection) / len(union)
-
-    async def _safe_rollback_goals(self) -> None:
-        """Attempt to rollback the goals session after a failed flush."""
-        try:
-            await self.goals.rollback()
-        except Exception:
-            logger.error(
-                "Goals session rollback also failed",
-                extra={"employee_id": str(self.employee.id)},
-                exc_info=True,
-            )
-
-    async def _manage_goals_from_analysis(
-        self,
-        situation_analysis: SituationAnalysis,
-        active_goals: list[Any],
-    ) -> None:
-        """Create/abandon goals based on situation analysis."""
-        # Create new goals for identified opportunities
-        existing_descs = [getattr(g, "description", "").lower() for g in active_goals]
-        for opportunity in situation_analysis.opportunities[:3]:  # Limit to top 3
-            # Check if semantically similar goal already exists (bidirectional substring)
-            opp_lower = opportunity.lower()
-            exists = any(
-                opp_lower in desc or desc in opp_lower or self._words_overlap(opp_lower, desc) > 0.6
-                for desc in existing_descs
-            )
-            if not exists:
-                try:
-                    await self.goals.add_goal(
-                        goal_type="opportunity",
-                        description=f"Pursue opportunity: {opportunity}",
-                        priority=6,  # Medium priority for opportunities
-                        target={
-                            "type": "opportunity",
-                            "description": opportunity,
-                            "max_age_hours": 72,
-                        },
-                    )
-                    logger.info(
-                        f"Created goal for opportunity: {opportunity[:50]}...",
-                        extra={"employee_id": str(self.employee.id)},
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to create goal for opportunity: {e}",
-                        exc_info=True,
-                        extra={"employee_id": str(self.employee.id)},
-                    )
-                    # A failed flush invalidates the session — rollback
-                    # and stop trying to create more goals this cycle.
-                    await self._safe_rollback_goals()
-                    return
-
-        # Create goals for critical problems
-        for problem in situation_analysis.problems[:2]:  # Limit to top 2
-            prob_lower = problem.lower()
-            exists = any(
-                prob_lower in desc
-                or desc in prob_lower
-                or self._words_overlap(prob_lower, desc) > 0.6
-                for desc in existing_descs
-            )
-            if not exists:
-                try:
-                    await self.goals.add_goal(
-                        goal_type="problem",
-                        description=f"Address problem: {problem}",
-                        priority=8,  # High priority for problems
-                        target={"type": "problem", "description": problem, "max_age_hours": 48},
-                    )
-                    logger.info(
-                        f"Created goal for problem: {problem[:50]}...",
-                        extra={"employee_id": str(self.employee.id)},
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to create goal for problem: {e}",
-                        exc_info=True,
-                        extra={"employee_id": str(self.employee.id)},
-                    )
-                    await self._safe_rollback_goals()
-                    return
-
-    async def _generate_plans_for_unplanned_goals(
-        self,
-        goals: list[Any],
-        beliefs: list[Any],
-        capabilities: list[str],
-    ) -> None:
-        """Generate plans for goals that don't have intentions."""
-        if not self.llm_service:
-            logger.warning("No LLM service, skipping plan generation")
-            return
-
-        for goal in goals[:5]:  # Limit to top 5 goals
-            goal_id = getattr(goal, "id", None)
-            if not goal_id:
-                continue
-
-            # Check if goal already has intentions
-            try:
-                existing_intentions = await self.intentions.get_intentions_for_goal(goal_id)
-                if existing_intentions:
-                    continue  # Already has a plan
-            except Exception as e:
-                logger.warning(
-                    f"Failed to check existing intentions for goal {goal_id}: {e}",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                continue
-
-            # Query procedural memory for relevant past experience
-            past_procedures: list[Any] = []
-            if hasattr(self.memory, "procedural"):
-                try:
-                    past_procedures = await self.memory.procedural.find_procedures_for_situation(
-                        situation={
-                            "goal_type": getattr(goal, "goal_type", ""),
-                            "goal_description": getattr(goal, "description", ""),
-                        },
-                        procedure_type="intention_execution",
-                        min_success_rate=0.5,
-                        limit=3,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Procedural memory query failed for goal %s: %s",
-                        goal_id,
-                        e,
-                        extra={"employee_id": str(self.employee.id)},
-                    )
-
-            # Build procedural context for plan generation
-            procedural_context = ""
-            if past_procedures:
-                lines = ["Past experience (successful procedures):"]
-                for proc in past_procedures:
-                    steps_desc = ", ".join(
-                        s.get("action", "?") for s in (getattr(proc, "steps", []) or [])
-                    )
-                    rate = getattr(proc, "success_rate", 0) or 0
-                    lines.append(f"  - {proc.name}: [{steps_desc}] (success_rate={rate:.0%})")
-                procedural_context = "\n".join(lines)
-
-            # Generate plan for this goal
-            try:
-                enriched_identity = self._identity_prompt
-                if procedural_context and enriched_identity:
-                    enriched_identity = f"{enriched_identity}\n\n{procedural_context}"
-                elif procedural_context:
-                    enriched_identity = procedural_context
-
-                new_intentions = await self.intentions.generate_plan_for_goal(
-                    goal=goal,
-                    beliefs=beliefs,
-                    llm_service=self.llm_service,
-                    capabilities=capabilities,
-                    identity_context=enriched_identity,
-                )
-                if new_intentions:
-                    logger.info(
-                        f"Generated {len(new_intentions)} intentions for goal",
-                        extra={
-                            "employee_id": str(self.employee.id),
-                            "goal_id": str(goal_id),
-                            "intentions_count": len(new_intentions),
-                        },
-                    )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to generate plan for goal: {e}",
-                    extra={"employee_id": str(self.employee.id), "goal_id": str(goal_id)},
-                )
-
-    async def _record_strategic_planning_episode(
-        self,
-        beliefs_count: int,
-        goals_count: int,
-    ) -> None:
-        """Record strategic planning in episodic memory."""
-        try:
-            if hasattr(self.memory, "episodic"):
-                await self.memory.episodic.record_episode(
-                    episode_type="strategic_planning",
-                    description="Completed strategic planning cycle",
-                    content={
-                        "beliefs_analyzed": beliefs_count,
-                        "goals_analyzed": goals_count,
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    },
-                    importance=0.6,
-                )
-        except Exception as e:
-            logger.warning(
-                f"Failed to record strategic planning episode: {e}",
-                extra={"employee_id": str(self.employee.id)},
-            )
-
-    # ========================================================================
-    # Phase 3: Intention Execution
-    # ========================================================================
-
-    async def execute_intentions(self) -> IntentionResult | None:
-        """
-        Execute highest priority intention from intention stack.
-
-        Executes intention plan steps via the capability registry.
-        Each step in the intention's plan is converted to an Action and
-        executed by the appropriate capability.
-
-        Returns:
-            IntentionResult if work was done, None if no work to do
-        """
-        # Get next intention
-        intention = await self.intentions.get_next_intention()
-
-        if not intention:
-            logger.debug("No intentions to execute", extra={"employee_id": str(self.employee.id)})
-            return None
-
-        # Check dependencies
-        if not await self.intentions.dependencies_satisfied(intention):
-            logger.debug(
-                "Intention waiting on dependencies",
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "intention_id": str(intention.id),
-                },
-            )
-            return None
-
-        # Mark as in progress
-        await self.intentions.start_intention(intention.id)
-
-        # Store current intention in working memory as focus
-        if hasattr(self.memory, "working"):
-            try:
-                await self.memory.working.clear_by_type("task")
-                await self.memory.working.add_item(
-                    item_type="task",
-                    content={
-                        "intention": intention.description,
-                        "goal_id": str(intention.goal_id) if intention.goal_id else None,
-                        "type": intention.intention_type,
-                    },
-                    importance=intention.priority / 10.0,
-                    ttl_seconds=3600,
-                )
-            except Exception:
-                logger.debug(
-                    "Failed to store intention in working memory",
-                    exc_info=True,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-
-        logger.info(
-            f"Executing intention: {intention.description}",
-            extra={
-                "employee_id": str(self.employee.id),
-                "intention_id": str(intention.id),
-                "intention_type": intention.intention_type,
-                "priority": intention.priority,
-            },
-        )
-
-        start_time = time.time()
-
-        try:
-            # Execute the intention's plan via capabilities
-            execution_result = await self._execute_intention_plan(intention)
-
-            duration_ms = max(0.01, (time.time() - start_time) * 1000)
-
-            # Enrich outcome with goal context for procedural memory matching
-            _goal_id = getattr(intention, "goal_id", None)
-            execution_result["goal_id"] = str(_goal_id) if _goal_id else None
-            execution_result["intention_description"] = getattr(intention, "description", "")
-
-            result = IntentionResult(
-                intention_id=intention.id,
-                success=execution_result["success"],
-                outcome=execution_result,
-                duration_ms=duration_ms,
-            )
-
-            if result.success:
-                await self.intentions.complete_intention(intention.id, outcome=result.outcome)
-                logger.info(
-                    f"Intention completed: {intention.description}",
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "intention_id": str(intention.id),
-                        "success": True,
-                        "duration_ms": duration_ms,
-                        "steps_executed": execution_result.get("steps_completed", 0),
-                    },
-                )
-            else:
-                error_msg = execution_result.get("error", "Unknown error")
-                await self.intentions.fail_intention(intention.id, error=error_msg)
-                logger.warning(
-                    f"Intention failed: {intention.description}",
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "intention_id": str(intention.id),
-                        "error": error_msg,
-                        "duration_ms": duration_ms,
-                    },
-                )
-
-            return result
-
-        except Exception as e:
-            logger.error(
-                f"Intention execution error: {intention.description}",
-                exc_info=True,
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "intention_id": str(intention.id),
-                    "error": str(e),
-                },
-            )
-
-            await self.intentions.fail_intention(intention.id, error=str(e))
-
-            return IntentionResult(
-                intention_id=intention.id,
-                success=False,
-                outcome={"error": str(e)},
-                duration_ms=max(0.01, (time.time() - start_time) * 1000),
-            )
-
-    async def _execute_intention_plan(self, intention: Any) -> dict[str, Any]:
-        """
-        Execute an intention's plan via agentic LLM-driven tool calling.
-
-        Requires both an LLM service and tools to be available. Returns a
-        clear error if either is missing.
-
-        Args:
-            intention: The intention to execute
-
-        Returns:
-            Execution result with success status and outputs
-        """
-        if not self.llm_service or not self.tool_router:
-            return {
-                "success": False,
-                "error": "Agentic execution requires LLM service and tool router",
-                "agentic": True,
-            }
-
-        try:
-            tool_schemas = self.tool_router.get_all_tool_schemas(self.employee.id)
-        except Exception:
-            logger.error(
-                "Failed to collect tool schemas",
-                exc_info=True,
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "intention_id": str(intention.id),
-                },
-            )
-            return {
-                "success": False,
-                "error": "Failed to collect tool schemas",
-                "agentic": True,
-            }
-
-        if not tool_schemas:
-            return {
-                "success": False,
-                "error": "No tools available for execution",
-                "agentic": True,
-            }
-
-        logger.info(
-            "Using agentic execution with %d tool schemas",
-            len(tool_schemas),
-            extra={
-                "employee_id": str(self.employee.id),
-                "intention_id": str(intention.id),
-                "tool_count": len(tool_schemas),
-            },
-        )
-        return await self._execute_intention_with_tools(intention, tool_schemas)
-
-    # ========================================================================
-    # Phase 3b: Agentic Execution (LLM-driven tool calling)
-    # ========================================================================
-
-    async def _execute_intention_with_tools(
-        self, intention: Any, tool_schemas: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        """Execute intention using LLM function calling.
-
-        The LLM receives the intention description and available tools,
-        then drives execution by making tool calls. It can adapt based
-        on results, chain multiple calls, and decide when it's done.
-
-        Args:
-            intention: The intention to execute
-            tool_schemas: Tool schemas from capabilities
-
-        Returns:
-            Execution result dict
-        """
-        from empla.llm.models import Message
-
-        messages = [
-            Message(role="system", content=self._build_execution_system_prompt()),
-            Message(role="user", content=self._build_intention_prompt(intention)),
-        ]
-
-        max_iterations = 10
-        tool_calls_made: list[dict[str, Any]] = []
-
-        for iteration in range(max_iterations):
-            try:
-                response = await self.llm_service.generate_with_tools(
-                    messages=messages,
-                    tools=tool_schemas,
-                    tool_choice="auto",
-                    temperature=0.2,
-                )
-            except Exception as e:
-                logger.error(
-                    f"LLM generate_with_tools failed during agentic execution: {e}",
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "intention_id": str(intention.id),
-                        "iteration": iteration,
-                    },
-                )
-                return {
-                    "success": False,
-                    "error": f"LLM call failed: {e}",
-                    "tool_calls_made": len(tool_calls_made),
-                    "tools_used": [tc["tool"] for tc in tool_calls_made],
-                    "tool_results": tool_calls_made,
-                    "agentic": True,
-                }
-
-            # If no tool calls, LLM is done
-            if not response.tool_calls:
-                if not response.content or not response.content.strip():
-                    return {
-                        "success": False,
-                        "error": "Empty assistant response",
-                        "tool_calls_made": len(tool_calls_made),
-                        "tools_used": [tc["tool"] for tc in tool_calls_made],
-                        "tool_results": tool_calls_made,
-                        "agentic": True,
-                    }
-                return {
-                    "success": True,
-                    "message": response.content,
-                    "tool_calls_made": len(tool_calls_made),
-                    "tools_used": [tc["tool"] for tc in tool_calls_made],
-                    "tool_results": tool_calls_made,
-                    "agentic": True,
-                }
-
-            # Add assistant message with tool calls to conversation
-            assistant_msg = Message(
-                role="assistant",
-                content=response.content or "",
-                tool_calls=response.tool_calls,
-            )
-            messages.append(assistant_msg)
-
-            # Execute each tool call via tool_router
-            if self.tool_router is None:
-                logger.error(
-                    "No tool executor available — cannot execute tool calls",
-                    extra={"employee_id": str(self.employee.id)},
-                )
-                return {
-                    "success": False,
-                    "error": "No tool executor configured",
-                    "tool_calls_made": 0,
-                    "tools_used": [],
-                    "tool_results": [],
-                    "agentic": True,
-                }
-            for tool_call in response.tool_calls:
-                try:
-                    result = await self.tool_router.execute_tool_call(
-                        self.employee.id,
-                        tool_call.name,
-                        tool_call.arguments,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Tool call {tool_call.name} raised exception: {e}",
-                        extra={
-                            "employee_id": str(self.employee.id),
-                            "tool_name": tool_call.name,
-                        },
-                    )
-                    result_content = json.dumps(
-                        {"success": False, "error": f"{type(e).__name__}: {e}"}
-                    )
-                    tool_calls_made.append({"tool": tool_call.name, "success": False})
-                    messages.append(
-                        Message(role="tool", content=result_content, tool_call_id=tool_call.id)
-                    )
-                    continue
-
-                tool_calls_made.append({"tool": tool_call.name, "success": result.success})
-
-                result_content = json.dumps(
-                    {
-                        "success": result.success,
-                        "output": result.output,
-                        "error": result.error,
-                    },
-                    default=str,
-                )
-                messages.append(
-                    Message(role="tool", content=result_content, tool_call_id=tool_call.id)
-                )
-
-                logger.debug(
-                    f"Tool call {tool_call.name}: {'success' if result.success else 'failed'}",
-                    extra={
-                        "employee_id": str(self.employee.id),
-                        "tool_name": tool_call.name,
-                        "success": result.success,
-                        "iteration": iteration,
-                    },
-                )
-
-        # Max iterations reached — incomplete execution
-        logger.warning(
-            "Agentic execution reached max iterations without completing",
-            extra={
-                "employee_id": str(self.employee.id),
-                "intention_id": str(intention.id),
-                "max_iterations": max_iterations,
-                "tool_calls_made": len(tool_calls_made),
-            },
-        )
-        return {
-            "success": False,
-            "error": f"Agentic execution exhausted iteration budget (max_iterations={max_iterations})",
-            "tool_calls_made": len(tool_calls_made),
-            "tools_used": [tc["tool"] for tc in tool_calls_made],
-            "agentic": True,
-        }
-
-    def _build_execution_system_prompt(self) -> str:
-        """Build system prompt for agentic execution."""
-        execution_instructions = (
-            "Use the available tools to accomplish the intention. "
-            "Call tools as needed, adapt based on results, and stop when done. "
-            "Be efficient — don't make unnecessary tool calls."
-        )
-        if self._identity_prompt:
-            return f"{self._identity_prompt}\n\n{execution_instructions}"
-        return f"You are a digital employee. {execution_instructions}"
-
-    def _build_intention_prompt(self, intention: Any) -> str:
-        """Build user prompt from intention context and plan."""
-        parts = [f"Execute this intention: {intention.description}"]
-        context = getattr(intention, "context", None)
-        if context and isinstance(context, dict):
-            if "reasoning" in context:
-                parts.append(f"Reasoning: {context['reasoning']}")
-            if "success_criteria" in context:
-                parts.append(f"Success criteria: {context['success_criteria']}")
-
-        # Include generated plan steps if available
-        plan = getattr(intention, "plan", None)
-        if plan and isinstance(plan, dict):
-            steps = plan.get("steps", [])
-            if steps:
-                step_lines = []
-                for i, step in enumerate(steps):
-                    desc = step.get("description", step.get("action", ""))
-                    if desc:
-                        step_lines.append(f"{i + 1}. {desc}")
-                if step_lines:
-                    parts.append(
-                        "Planned steps:\n"
-                        + "\n".join(step_lines)
-                        + "\n\nFollow this plan, adapting as needed based on tool results."
-                    )
-
-        return "\n".join(parts)
-
-    # ========================================================================
-    # Phase 4: Learning & Reflection
-    # ========================================================================
-
-    async def reflection_cycle(self, result: IntentionResult) -> None:
-        """
-        Learn from execution result.
-
-        Updates procedural memory and beliefs based on what worked/failed.
-        This is called after every intention execution.
-
-        Args:
-            result: Result of intention execution
-        """
-        logger.debug(
-            "Reflection cycle starting",
-            extra={
-                "employee_id": str(self.employee.id),
-                "intention_id": str(result.intention_id),
-                "success": result.success,
-            },
-        )
-
-        try:
-            # ============ STEP 1: Record in Episodic Memory ============
-            await self._record_execution_episode(result)
-
-            # ============ STEP 2: Update Procedural Memory ============
-            await self._update_procedural_memory(result)
-
-            # ============ STEP 3: Update Effectiveness Beliefs ============
-            await self._update_effectiveness_beliefs(result)
-
-            logger.debug(
-                "Reflection cycle complete",
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "intention_id": str(result.intention_id),
-                },
-            )
-
-        except Exception as e:
-            logger.warning(
-                f"Reflection cycle error: {e}",
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "intention_id": str(result.intention_id),
-                },
-            )
-
-    async def _record_execution_episode(self, result: IntentionResult) -> None:
-        """Record execution outcome in episodic memory."""
-        try:
-            if hasattr(self.memory, "episodic"):
-                await self.memory.episodic.record_episode(
-                    episode_type="intention_execution",
-                    description=f"Executed intention {result.intention_id}",
-                    content={
-                        "intention_id": str(result.intention_id),
-                        "success": result.success,
-                        "outcome": result.outcome,
-                        "duration_ms": result.duration_ms,
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    },
-                    importance=0.7
-                    if result.success
-                    else 0.8,  # Failures more important to remember
-                )
-        except Exception as e:
-            logger.warning(
-                f"Failed to record execution episode: {e}",
-                extra={"employee_id": str(self.employee.id)},
-            )
-
-    async def _update_procedural_memory(self, result: IntentionResult) -> None:
-        """Update procedural memory based on execution outcome."""
-        try:
-            if not hasattr(self.memory, "procedural"):
-                return
-
-            outcome = result.outcome or {}
-            tools_used = outcome.get("tools_used", [])
-
-            # Build trigger_conditions from goal context so
-            # find_procedures_for_situation can match on goal_type/goal_description
-            trigger_conditions = await self._build_procedure_trigger_conditions(outcome)
-            intention_desc = outcome.get("intention_description", "")
-            procedure_name = (
-                intention_desc[:120] if intention_desc else f"intention_{result.intention_id}"
-            )
-
-            # Record procedure for successful executions
-            if result.success and tools_used:
-                # Prefer per-tool results for accurate success/failure per step
-                tool_results = outcome.get("tool_results", [])
-                if tool_results:
-                    steps = [
-                        {"action": tr.get("tool", "unknown"), "success": tr.get("success", True)}
-                        for tr in tool_results
-                    ]
-                else:
-                    steps = [{"action": tool, "success": True} for tool in tools_used]
-
-                await self.memory.procedural.record_procedure(
-                    procedure_type="intention_execution",
-                    name=procedure_name,
-                    steps=steps,
-                    trigger_conditions=trigger_conditions,
-                    outcome=f"success:{len(tools_used)}_tools",
-                    success=True,
-                    execution_time=result.duration_ms / 1000.0,
-                    context={
-                        "intention_id": str(result.intention_id),
-                        "tool_count": len(tools_used),
-                    },
-                )
-
-            # For failures, record the failure pattern to avoid
-            elif not result.success:
-                error = outcome.get("error", "Unknown error")
-
-                await self.memory.procedural.record_procedure(
-                    procedure_type="intention_failure",
-                    name=f"failed: {procedure_name}",
-                    steps=[{"action": "failed", "error": error}],
-                    trigger_conditions=trigger_conditions,
-                    outcome=f"failure:{error[:100]}",
-                    success=False,
-                    execution_time=result.duration_ms / 1000.0,
-                    context={
-                        "intention_id": str(result.intention_id),
-                        "error": error,
-                    },
-                )
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to update procedural memory: {e}",
-                extra={"employee_id": str(self.employee.id)},
-            )
-
-    async def _build_procedure_trigger_conditions(self, outcome: dict[str, Any]) -> dict[str, Any]:
-        """Build trigger_conditions dict for procedural memory from outcome's goal context.
-
-        Looks up goal_type from the goals system if a goal_id is present.
-        Returns a dict with goal_type and goal_description that
-        find_procedures_for_situation can match against.
-        """
-        conditions: dict[str, Any] = {}
-        goal_id_str = outcome.get("goal_id")
-        if goal_id_str:
-            try:
-                from uuid import UUID as _UUID
-
-                goal = await self.goals.get_goal(_UUID(goal_id_str))
-                if goal:
-                    goal_type = getattr(goal, "goal_type", "")
-                    goal_desc = getattr(goal, "description", "")
-                    if goal_type:
-                        conditions["goal_type"] = goal_type
-                    if goal_desc:
-                        conditions["goal_description"] = goal_desc
-            except Exception as e:
-                logger.warning(
-                    "Failed to look up goal %s for procedure trigger conditions: %s",
-                    goal_id_str,
-                    e,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-        return conditions
-
-    async def _update_effectiveness_beliefs(self, result: IntentionResult) -> None:
-        """Update beliefs about per-tool effectiveness based on execution outcome."""
-        try:
-            outcome = result.outcome or {}
-            tool_results = outcome.get("tool_results", [])
-
-            if not tool_results:
-                return
-
-            for tr in tool_results:
-                tool_name = tr.get("tool", "")
-                if not tool_name:
-                    continue
-                tool_success = tr.get("success", False)
-                confidence = 0.8 if tool_success else 0.3
-                await self.beliefs.update_belief(
-                    subject=tool_name,
-                    predicate="effectiveness",
-                    belief_object={
-                        "value": 1.0 if tool_success else 0.0,
-                        "last_result": tool_success,
-                    },
-                    confidence=confidence,
-                    source="execution_outcome",
-                )
-
-        except Exception as e:
-            logger.warning(
-                "Failed to update effectiveness beliefs: %s",
-                e,
-                extra={"employee_id": str(self.employee.id)},
-            )
-
-    def should_run_deep_reflection(self) -> bool:
-        """
-        Decide if it's time for deep reflection.
-
-        Deep reflection analyzes recent outcomes to identify meta-patterns
-        and skill gaps. It runs less frequently (e.g., daily).
-
-        Returns:
-            True if deep reflection should run, False otherwise
-        """
-        if self.last_deep_reflection is None:
-            # Never run deep reflection - do it now
-            return True
-
-        hours_since_last = (datetime.now(UTC) - self.last_deep_reflection).total_seconds() / 3600
-
-        return hours_since_last >= self.config.deep_reflection_interval_hours
-
-    async def deep_reflection_cycle(self) -> None:
-        """
-        Periodic deep reflection on patterns and learnings.
-
-        Runs less frequently (e.g., daily) to identify meta-patterns across
-        recent outcomes, identify skill gaps, and form learning goals.
-        """
-        logger.info(
-            "Deep reflection cycle starting",
-            extra={"employee_id": str(self.employee.id)},
-        )
-
-        start_time = time.time()
-
-        try:
-            # ============ STEP 1: Gather Recent Episodes ============
-            recent_episodes = await self._get_recent_episodes(days=1)
-
-            if not recent_episodes:
-                logger.debug("No recent episodes to reflect on")
-                self.last_deep_reflection = datetime.now(UTC)
-                return
-
-            # ============ STEP 2: Analyze Patterns ============
-            success_count = sum(
-                1 for ep in recent_episodes if ep.get("content", {}).get("success", False)
-            )
-            failure_count = len(recent_episodes) - success_count
-            success_rate = success_count / len(recent_episodes) if recent_episodes else 0
-
-            # ============ STEP 3: Update Beliefs About Performance ============
-            await self.beliefs.update_belief(
-                subject="self",
-                predicate="recent_success_rate",
-                belief_object={
-                    "value": success_rate,
-                    "successes": success_count,
-                    "failures": failure_count,
-                    "total_episodes": len(recent_episodes),
-                },
-                confidence=0.9,
-                source="deep_reflection",
-            )
-
-            # ============ STEP 4: Identify Patterns with LLM ============
-            if self.llm_service and len(recent_episodes) >= 3:
-                await self._analyze_patterns_with_llm(recent_episodes, success_rate)
-
-            # ============ STEP 5: Reinforce/Decay Memory ============
-            await self._maintain_memory_health()
-
-            duration_ms = (time.time() - start_time) * 1000
-
-            logger.info(
-                "Deep reflection cycle complete",
-                extra={
-                    "employee_id": str(self.employee.id),
-                    "episodes_analyzed": len(recent_episodes),
-                    "success_rate": f"{success_rate:.2%}",
-                    "duration_ms": duration_ms,
-                },
-            )
-
-        except Exception as e:
-            logger.error(
-                "Deep reflection cycle failed",
-                exc_info=True,
-                extra={"employee_id": str(self.employee.id), "error": str(e)},
-            )
-
-        self.last_deep_reflection = datetime.now(UTC)
-
-    async def _get_recent_episodes(self, days: int = 1) -> list[dict[str, Any]]:
-        """Get recent episodes from episodic memory."""
-        try:
-            if hasattr(self.memory, "episodic"):
-                episodes = await self.memory.episodic.recall_recent(
-                    days=days,
-                    limit=100,
-                    episode_type="intention_execution",
-                )
-                # Convert to dicts for easier processing
-                return [
-                    {
-                        "id": str(ep.id),
-                        "type": ep.episode_type,
-                        "description": ep.description,
-                        "content": ep.content,
-                        "importance": ep.importance,
-                        "occurred_at": ep.occurred_at.isoformat() if ep.occurred_at else None,
-                    }
-                    for ep in episodes
-                ]
-        except Exception as e:
-            logger.warning(
-                f"Failed to get recent episodes: {e}", extra={"employee_id": str(self.employee.id)}
-            )
-        return []
-
-    async def _analyze_patterns_with_llm(
-        self, episodes: list[dict[str, Any]], success_rate: float
-    ) -> None:
-        """Use LLM to identify patterns in recent execution history."""
-        if not self.llm_service:
-            return
-
-        # Format episodes for prompt
-        episodes_text = "\n".join(
-            [
-                f"- {ep.get('description', 'Unknown')}: "
-                f"{'Success' if ep.get('content', {}).get('success') else 'Failed'}"
-                for ep in episodes[:20]
-            ]
-        )
-
-        base_prompt = """Analyze your recent execution history.
-Identify patterns in what succeeded and failed. Focus on:
-1. Common factors in successes
-2. Common factors in failures
-3. Recommended improvements"""
-
-        system_prompt = (
-            f"{self._identity_prompt}\n\n{base_prompt}"
-            if self._identity_prompt
-            else f"You are a digital employee.\n\n{base_prompt}"
-        )
-
-        user_prompt = f"""Recent execution history (success rate: {success_rate:.1%}):
-
-{episodes_text}
-
-Analyze the patterns and provide brief recommendations."""
-
-        try:
-            response = await self.llm_service.generate(
-                prompt=user_prompt,
-                system=system_prompt,
-                temperature=0.3,
-                max_tokens=500,
-            )
-
-            # Store analysis in episodic memory
-            if hasattr(self.memory, "episodic"):
-                await self.memory.episodic.record_episode(
-                    episode_type="deep_reflection",
-                    description=response.content[:300] if response.content else "Pattern analysis",
-                    content={
-                        "analysis": response.content,
-                        "episodes_analyzed": len(episodes),
-                        "success_rate": success_rate,
-                    },
-                    importance=0.8,
-                )
-
-            # Store insight in semantic memory for use in future strategic planning
-            if hasattr(self.memory, "semantic") and response.content:
-                try:
-                    await self.memory.semantic.store_fact(
-                        subject="self",
-                        predicate="execution_patterns",
-                        fact_object=response.content[:500],
-                        confidence=0.7,
-                        source="deep_reflection",
-                        fact_type="rule",
-                    )
-                except Exception:
-                    logger.debug(
-                        "Failed to store reflection insight in semantic memory",
-                        exc_info=True,
-                        extra={"employee_id": str(self.employee.id)},
-                    )
-
-        except Exception as e:
-            logger.warning(
-                f"LLM pattern analysis failed: {e}", extra={"employee_id": str(self.employee.id)}
-            )
-
-    async def _maintain_memory_health(self) -> None:
-        """Perform memory maintenance: reinforce and decay."""
-        if hasattr(self.memory, "episodic"):
-            try:
-                reinforced = await self.memory.episodic.reinforce_frequently_recalled(
-                    min_recall_count=3,
-                    importance_boost=1.05,
-                )
-                decayed = await self.memory.episodic.decay_rarely_recalled(
-                    min_days_old=30,
-                    importance_decay=0.95,
-                )
-                logger.debug(
-                    "Memory maintenance: reinforced %d, decayed %d",
-                    reinforced,
-                    decayed,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-            except Exception as e:
-                logger.warning(
-                    "Episodic memory maintenance failed: %s",
-                    e,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-
-        if hasattr(self.memory, "procedural"):
-            try:
-                await self.memory.procedural.reinforce_successful_procedures(
-                    min_success_rate=0.8,
-                    min_executions=3,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Procedural memory reinforcement failed: %s",
-                    e,
-                    extra={"employee_id": str(self.employee.id)},
-                )
-            try:
-                await self.memory.procedural.archive_poor_procedures(
-                    max_success_rate=0.2,
-                    min_executions=3,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Procedural memory archiving failed: %s",
-                    e,
                     extra={"employee_id": str(self.employee.id)},
                 )
