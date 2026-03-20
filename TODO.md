@@ -1,21 +1,21 @@
 # empla - Roadmap
 
-> **Updated:** 2026-03-18
-> **Strategy:** Architecture review revealed the BDI loop works but has excessive
-> LLM calls (4–38/cycle), dead subsystems, and structural gaps. Priority is now
-> reducing LLM cost, wiring orphaned subsystems, and closing the learning loop
-> before adding more integrations.
-> **Reference:** `docs/design/architecture-review-2026-03-18.md`
+> **Updated:** 2026-03-20
+> **Strategy:** Phase 3B (Real-World Integrations) complete. BDI loop optimized,
+> direct HubSpot/Calendar/Email connectors live, trust boundary + health monitoring
+> active. Next: Prometheus metrics, test coverage push, production hardening.
+> **Reference:** `ARCHITECTURE.md`, `docs/designs/real-integrations-2026-03.md`
 
 ---
 
 ## Current State
 
-Tests: 843 passed, 62% coverage | Employees: SalesAE, CSM
-Working: Full BDI loop runs autonomously with Vertex AI + MCP tools (calendar,
-CRM via stdio). Employee creates deals, schedules calls, forms beliefs, learns
-from outcomes. Dashboard shows Activity, Goals, Intentions, Beliefs tabs.
-MCP servers added via API, runner loads from DB at startup.
+Tests: 787 collected, ~57% coverage | Employees: SalesAE, CSM
+Working: Optimized BDI loop (batch beliefs, all memory wired, transaction boundaries).
+Direct HubSpot CRM + Google Calendar + Email connectors via httpx. Trust boundary
+(taint-based, global deny, role restrictions). Integration health monitoring with
+BDI belief generation. OAuth credential injection at startup. Dashboard with BDI
+tabs (Goals, Intentions, Beliefs). Execution loop split into 7 focused modules.
 
 ---
 
@@ -165,4 +165,4 @@ prompt improvement. Architecture review.
 
 ---
 
-**Last Updated:** 2026-03-18
+**Last Updated:** 2026-03-20
