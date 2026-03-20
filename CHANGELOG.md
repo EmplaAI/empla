@@ -6,6 +6,24 @@
 
 ---
 
+## 2026-03-19 - HubSpot + Google Calendar Direct Connectors
+
+**Phase:** Phase 3B - Real-World Integrations (Step 4: Integration Tools)
+
+### Added
+
+- **HubSpot CRM connector** (`empla/integrations/hubspot/`) — direct API v3
+  integration via httpx. 7 tools: pipeline metrics, deals CRUD, contacts CRUD,
+  contact search. Calls HubSpot REST API directly — no adapter abstraction.
+- **Google Calendar connector** (`empla/integrations/google_calendar/`) — direct
+  Calendar API v3 via httpx. 5 tools: upcoming events, event CRUD, availability
+  check via FreeBusy API.
+- **IntegrationRouter `on_init`/`on_shutdown` callbacks** — clean lifecycle
+  hooks for connectors that don't use the adapter factory pattern.
+- **17 new tests** with mocked HTTP calls covering all tool operations.
+
+---
+
 ## 2026-03-19 - OAuth Credential Injection
 
 **Phase:** Phase 3B - Real-World Integrations (Step 3: OAuth Injection)

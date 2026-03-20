@@ -18,7 +18,7 @@ Example:
 
 import inspect
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from empla.core.tools.decorator import _build_parameters_schema
@@ -44,9 +44,13 @@ class IntegrationRouter:
         self,
         name: str,
         adapter_factory: Callable[..., Any] | None = None,
+        on_init: Callable[..., Awaitable[None]] | None = None,
+        on_shutdown: Callable[..., Awaitable[None]] | None = None,
     ) -> None:
         self.name = name
         self._adapter_factory = adapter_factory
+        self._on_init = on_init
+        self._on_shutdown = on_shutdown
         self._adapter: Any = None
         self._tools: list[dict[str, Any]] = []
         self._mcp_config: dict[str, Any] | None = None
@@ -77,6 +81,11 @@ class IntegrationRouter:
         """
         if self._mcp_config is not None:
             await self._initialize_mcp(config)
+            return
+
+        # Direct connector: call on_init callback (no adapter needed)
+        if self._on_init is not None:
+            await self._on_init(**config)
             return
 
         if self._adapter_factory:
@@ -133,11 +142,22 @@ class IntegrationRouter:
         )
 
     async def shutdown(self) -> None:
-        """Clean up adapter connection."""
+        """Clean up adapter/connector connection. Each step is independent."""
         if hasattr(self, "_mcp_bridge"):
-            await self._mcp_bridge.disconnect_all()
+            try:
+                await self._mcp_bridge.disconnect_all()
+            except Exception:
+                logger.exception("Error disconnecting MCP bridge for %s", self.name)
+        if self._on_shutdown is not None:
+            try:
+                await self._on_shutdown()
+            except Exception:
+                logger.exception("Error in shutdown callback for %s", self.name)
         if self._adapter and hasattr(self._adapter, "shutdown"):
-            await self._adapter.shutdown()
+            try:
+                await self._adapter.shutdown()
+            except Exception:
+                logger.exception("Error shutting down adapter for %s", self.name)
 
     def tool(self, name: str | None = None, description: str = "") -> Callable[..., Any]:
         """Decorator that registers a tool on this integration.
