@@ -6,6 +6,20 @@
 
 ---
 
+## 2026-03-20 - ARCHITECTURE.md Rewrite
+
+**Phase:** Phase 3B - Real-World Integrations (Step 8: Documentation)
+
+### Changed
+
+- **Rewrote ARCHITECTURE.md** from scratch — replaced stale Oct 2025 vision doc
+  (2,091 lines describing 7 layers that didn't exist) with current-state
+  architecture (265 lines reflecting what's actually built). Includes system
+  diagram, BDI loop flow, subsystem descriptions, tech stack, project structure.
+- **Updated TODO.md** current state section to reflect Phase 3B completion.
+
+---
+
 ## 2026-03-20 - Integration Health Monitoring
 
 **Phase:** Phase 3B - Real-World Integrations (Step 5: Health Monitoring)
