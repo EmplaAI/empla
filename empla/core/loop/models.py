@@ -222,6 +222,25 @@ class GoalProgressEvaluation(BaseModel):
     )
 
 
+class NonNumericGoalEvaluation(BaseModel):
+    """LLM evaluation of whether non-numeric goals (opportunity/problem) are complete."""
+
+    goal_id: str = Field(..., description="The goal ID being evaluated")
+    is_complete: bool = Field(
+        ..., description="Whether the goal has been effectively addressed or resolved"
+    )
+    confidence: float = Field(..., description="Confidence in the assessment (0-1)", ge=0.0, le=1.0)
+    reasoning: str = Field(..., description="Brief reasoning for the assessment")
+
+
+class NonNumericGoalBatchEvaluation(BaseModel):
+    """Batched evaluation of non-numeric goals."""
+
+    results: list[NonNumericGoalEvaluation] = Field(
+        default_factory=list, description="Per-goal completion evaluations"
+    )
+
+
 # Role-specific configurations
 ROLE_CONFIGS: dict[str, LoopConfig] = {
     "sales_ae": LoopConfig(

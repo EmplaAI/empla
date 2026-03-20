@@ -13,7 +13,7 @@ import time
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from empla.core.loop.protocols import SituationAnalysis
+from empla.core.loop.protocols import GoalRecommendation, SituationAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,16 @@ class PlanningMixin:
                     situation_analysis=situation_analysis,
                     active_goals=active_goals,
                 )
+
+                # ============ STEP 3.5: Goal Recommendations ============
+                # Ask LLM to recommend goal abandonment/reprioritization
+                # based on the full situation context.
+                await self._apply_goal_recommendations(
+                    beliefs=beliefs,
+                    active_goals=active_goals,
+                    situation_analysis=situation_analysis,
+                )
+
                 # Goals changed — refresh identity prompt so subsequent LLM calls
                 # reflect the current goal set.
                 await self._refresh_identity_prompt()
@@ -441,6 +451,167 @@ Analyze this situation and provide recommendations."""
                     )
                     await self._safe_rollback_goals()
                     return
+
+    async def _apply_goal_recommendations(
+        self,
+        beliefs: list[Any],
+        active_goals: list[Any],
+        situation_analysis: SituationAnalysis,
+    ) -> None:
+        """Ask LLM to recommend goal abandonment, reprioritization, or new goals.
+
+        Uses the situation analysis context to make holistic recommendations
+        about the goal portfolio. Matches goal descriptions via fuzzy matching
+        (not UUIDs) since LLMs handle natural language better than identifiers.
+        """
+        if not self.llm_service:
+            return
+
+        # Format context for the LLM
+        goals_text = self._format_goals_for_llm(active_goals)
+        beliefs_text = self._format_beliefs_for_llm(beliefs[:15])
+
+        system_prompt = (
+            f"{self._identity_prompt}\n\n"
+            if self._identity_prompt
+            else "You are a digital employee.\n\n"
+        )
+        system_prompt += (
+            "Review the current goals, beliefs, and situation analysis. "
+            "Recommend which goals should be abandoned (no longer relevant or achievable), "
+            "which goals need priority adjustments, and whether any new goals should be created. "
+            "Be conservative — only recommend changes when clearly warranted. "
+            "Use goal descriptions (not IDs) when referring to goals."
+        )
+
+        user_prompt = f"""Current Goals:
+{goals_text}
+
+Current Beliefs:
+{beliefs_text}
+
+Situation Analysis:
+- Focus: {situation_analysis.recommended_focus}
+- Gaps: {", ".join(situation_analysis.gaps[:5]) if situation_analysis.gaps else "None"}
+- Opportunities: {", ".join(situation_analysis.opportunities[:3]) if situation_analysis.opportunities else "None"}
+- Problems: {", ".join(situation_analysis.problems[:3]) if situation_analysis.problems else "None"}
+
+What changes do you recommend to the goal portfolio?"""
+
+        try:
+            _, recommendation = await self.llm_service.generate_structured(
+                prompt=user_prompt,
+                system=system_prompt,
+                response_format=GoalRecommendation,
+                temperature=0.2,
+            )
+            recommendation = cast(GoalRecommendation, recommendation)
+        except Exception as e:
+            logger.warning(
+                "LLM goal recommendation failed: %s",
+                e,
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return
+
+        # Process abandonment recommendations via fuzzy matching
+        existing_descs = {getattr(g, "description", ""): g for g in active_goals}
+        abandoned_count = 0
+        for abandon_desc in recommendation.goals_to_abandon[:3]:
+            matched_goal = self._fuzzy_match_goal(abandon_desc, existing_descs)
+            if matched_goal is None:
+                logger.debug(
+                    "GoalRecommendation: no match for abandon description: %s",
+                    abandon_desc[:60],
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                continue
+
+            try:
+                await self.goals.abandon_goal(matched_goal.id)
+                abandoned_count += 1
+                logger.info(
+                    "Abandoned goal per LLM recommendation: %s",
+                    getattr(matched_goal, "description", "")[:60],
+                    extra={"employee_id": str(self.employee.id)},
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to abandon recommended goal: %s",
+                    e,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                await self._safe_rollback_goals()
+                return
+
+        # Process priority adjustments
+        adjusted_count = 0
+        for adj in recommendation.priority_adjustments[:3]:
+            desc = adj.get("description", "")
+            new_priority = adj.get("new_priority")
+            if not desc or new_priority is None:
+                continue
+
+            matched_goal = self._fuzzy_match_goal(desc, existing_descs)
+            if matched_goal is None:
+                continue
+
+            try:
+                new_priority = max(1, min(10, int(new_priority)))
+                await self.goals.update_goal_priority(matched_goal.id, new_priority)
+                adjusted_count += 1
+                logger.info(
+                    "Adjusted goal priority per LLM: %s → %d",
+                    getattr(matched_goal, "description", "")[:60],
+                    new_priority,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to adjust goal priority: %s",
+                    e,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        if abandoned_count or adjusted_count:
+            logger.info(
+                "Goal recommendations applied: %d abandoned, %d reprioritized",
+                abandoned_count,
+                adjusted_count,
+                extra={
+                    "employee_id": str(self.employee.id),
+                    "reasoning": recommendation.reasoning[:200],
+                },
+            )
+
+    def _fuzzy_match_goal(
+        self,
+        description: str,
+        goals_by_desc: dict[str, Any],
+    ) -> Any | None:
+        """Find the best-matching active goal for a description string.
+
+        Uses word-level Jaccard similarity (via _words_overlap). Returns the
+        goal with the highest overlap above the 0.4 threshold, or None.
+        """
+        desc_lower = description.lower()
+        best_score = 0.0
+        best_goal = None
+
+        for goal_desc, goal in goals_by_desc.items():
+            goal_desc_lower = goal_desc.lower()
+
+            # Exact substring match
+            if desc_lower in goal_desc_lower or goal_desc_lower in desc_lower:
+                return goal
+
+            # Fuzzy word overlap
+            score = self._words_overlap(desc_lower, goal_desc_lower)
+            if score > best_score:
+                best_score = score
+                best_goal = goal
+
+        return best_goal if best_score >= 0.4 else None
 
     async def _generate_plans_for_unplanned_goals(
         self,

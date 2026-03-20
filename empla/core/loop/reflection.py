@@ -427,10 +427,109 @@ Analyze the patterns and provide brief recommendations."""
                         extra={"employee_id": str(self.employee.id)},
                     )
 
+            # Convert insights into typed beliefs so planning can act on them.
+            # Each insight type gets its own belief predicate to avoid collapse.
+            await self._convert_insights_to_beliefs(response.content, success_rate)
+
         except Exception as e:
             logger.warning(
                 f"LLM pattern analysis failed: {e}", extra={"employee_id": str(self.employee.id)}
             )
+
+    async def _convert_insights_to_beliefs(self, analysis: str | None, success_rate: float) -> None:
+        """Convert deep reflection insights into actionable beliefs.
+
+        Creates typed beliefs from the LLM analysis so strategic planning
+        can use them. Each insight type gets a distinct predicate to avoid
+        all insights collapsing into a single belief.
+
+        Args:
+            analysis: LLM analysis text from deep reflection.
+            success_rate: Recent execution success rate.
+        """
+        if not analysis:
+            return
+
+        # Strategy effectiveness belief — always update from success rate
+        try:
+            effectiveness = (
+                "effective"
+                if success_rate >= 0.7
+                else ("struggling" if success_rate < 0.4 else "mixed")
+            )
+            await self.beliefs.update_belief(
+                subject="self",
+                predicate="strategy_effectiveness",
+                belief_object={
+                    "assessment": effectiveness,
+                    "success_rate": round(success_rate, 3),
+                    "insight": analysis[:200],
+                },
+                confidence=0.85,
+                source="deep_reflection",
+            )
+        except Exception:
+            logger.debug(
+                "Failed to update strategy_effectiveness belief",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+
+        # Extract pattern-based beliefs from the analysis text.
+        # Use simple heuristic: if analysis mentions failures/improvements, create beliefs.
+        analysis_lower = analysis.lower()
+
+        if any(kw in analysis_lower for kw in ["fail", "error", "problem", "issue", "wrong"]):
+            try:
+                await self.beliefs.update_belief(
+                    subject="self",
+                    predicate="known_failure_patterns",
+                    belief_object={"patterns": analysis[:300], "from_reflection": True},
+                    confidence=0.7,
+                    source="deep_reflection",
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to update known_failure_patterns belief",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        if any(kw in analysis_lower for kw in ["improv", "better", "learn", "adapt", "skill"]):
+            try:
+                await self.beliefs.update_belief(
+                    subject="self",
+                    predicate="improvement_opportunities",
+                    belief_object={"opportunities": analysis[:300], "from_reflection": True},
+                    confidence=0.65,
+                    source="deep_reflection",
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to update improvement_opportunities belief",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        # Update procedural memory with success/failure patterns
+        if hasattr(self.memory, "procedural") and success_rate < 0.5:
+            try:
+                await self.memory.procedural.record_procedure(
+                    name="reflection_adjustment",
+                    description=f"Strategy adjustment needed: {analysis[:200]}",
+                    steps=[
+                        "Review failing patterns from deep reflection",
+                        "Adjust approach based on identified issues",
+                    ],
+                    effectiveness=success_rate,
+                    context={"source": "deep_reflection", "success_rate": success_rate},
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to record procedural memory from reflection",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
 
     async def _maintain_memory_health(self) -> None:
         """Perform memory maintenance: reinforce and decay."""

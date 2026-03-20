@@ -32,16 +32,25 @@ class SituationAnalysis(BaseModel):
 
 
 class GoalRecommendation(BaseModel):
-    """LLM recommendation for goal changes."""
+    """LLM recommendation for goal changes.
 
-    new_goals: list[dict[str, Any]] = Field(default_factory=list, description="New goals to create")
+    Uses goal descriptions (not UUIDs) for abandonment and priority changes.
+    The loop fuzzy-matches descriptions against active goals via _words_overlap().
+    """
+
+    new_goals: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="New goals to create, each with 'description', 'priority' (1-10), 'goal_type'",
+    )
     goals_to_abandon: list[str] = Field(
-        default_factory=list, description="Goal IDs to abandon with reasons"
+        default_factory=list,
+        description="Descriptions of goals that should be abandoned (no longer relevant or achievable)",
     )
     priority_adjustments: list[dict[str, Any]] = Field(
-        default_factory=list, description="Goals needing priority changes"
+        default_factory=list,
+        description="Goals needing priority changes, each with 'description' and 'new_priority' (1-10)",
     )
-    reasoning: str = Field(..., description="Reasoning for recommendations")
+    reasoning: str = Field(..., description="Brief reasoning for the recommendations")
 
 
 # ============================================================================
