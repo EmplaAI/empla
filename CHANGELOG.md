@@ -6,6 +6,23 @@
 
 ---
 
+## 2026-03-19 - CRM + Calendar Native Integration Tools
+
+**Phase:** Phase 3B - Real-World Integrations (Step 4: Integration Tools)
+
+### Added
+
+- **CRM integration** (`empla/integrations/crm/`) — native @tool functions for
+  deal management, contact management, pipeline metrics, and contact search.
+  Adapter pattern supports swappable providers (in-memory test, future HubSpot).
+- **Calendar integration** (`empla/integrations/calendar/`) — native @tool
+  functions for event management, availability checking, and scheduling.
+  Adapter pattern supports swappable providers (in-memory test, future Google Calendar).
+- **22 new tests** covering all CRM and calendar tool operations including
+  edge cases (nonexistent records, empty results, time conflicts).
+
+---
+
 ## 2026-03-19 - OAuth Credential Injection
 
 **Phase:** Phase 3B - Real-World Integrations (Step 3: OAuth Injection)
