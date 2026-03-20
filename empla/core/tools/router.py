@@ -27,6 +27,7 @@ from uuid import UUID
 from empla.core.tools.base import ActionResult
 
 from .base import ToolImplementation
+from .health import IntegrationHealthMonitor
 from .registry import ToolRegistry
 from .trust import TrustBoundary
 
@@ -74,6 +75,7 @@ class ToolRouter:
         self._integrations: dict[str, Any] = {}
         self._trust = trust_boundary if trust_boundary is not None else TrustBoundary()
         self._tool_timeout = tool_timeout
+        self._health = IntegrationHealthMonitor()
 
     def register_integration(self, router: Any) -> None:
         """Register all tools from an IntegrationRouter.
@@ -141,6 +143,11 @@ class ToolRouter:
         """
         return self._tool_registry.get_all_tool_schemas()
 
+    @staticmethod
+    def _parse_integration(tool_name: str) -> str:
+        """Extract integration name from tool name (prefix before the dot)."""
+        return tool_name.split(".")[0] if "." in tool_name else tool_name
+
     async def execute_tool_call(
         self,
         employee_id: UUID,
@@ -202,6 +209,7 @@ class ToolRouter:
             )
 
         # ---- Execute with timeout ----
+        integration = self._parse_integration(tool_name)
         start = time.monotonic()
         try:
             async with asyncio.timeout(self._tool_timeout):
@@ -218,15 +226,38 @@ class ToolRouter:
                     "timeout_seconds": self._tool_timeout,
                 },
             )
+            self._health.record(
+                integration=integration,
+                success=False,
+                duration_ms=duration_ms,
+                error="timeout",
+                is_timeout=True,
+            )
             return ActionResult(
                 success=False,
                 error=f"Tool '{tool_name}' timed out after {self._tool_timeout}s",
                 metadata={"timeout": True, "duration_ms": duration_ms},
             )
+        except Exception:
+            # Unexpected error — still record health before re-raising
+            duration_ms = (time.monotonic() - start) * 1000
+            self._health.record(
+                integration=integration,
+                success=False,
+                duration_ms=duration_ms,
+                error="unexpected_error",
+            )
+            raise
 
-        # Add timing metadata
+        # Add timing metadata and record health
         duration_ms = (time.monotonic() - start) * 1000
         result.metadata["duration_ms"] = duration_ms
+        self._health.record(
+            integration=integration,
+            success=result.success,
+            duration_ms=duration_ms,
+            error=result.error,
+        )
         return result
 
     async def _execute_standalone_tool(
@@ -258,6 +289,18 @@ class ToolRouter:
     def get_trust_stats(self) -> dict[str, Any]:
         """Return trust boundary stats for observability."""
         return self._trust.get_cycle_stats()
+
+    def get_integration_health(self, integration: str) -> dict[str, Any]:
+        """Get health status for a specific integration."""
+        return self._health.get_status(integration)
+
+    def get_all_integration_health(self) -> list[dict[str, Any]]:
+        """Get health status for all tracked integrations."""
+        return self._health.get_all_status()
+
+    def get_health_beliefs(self) -> list[dict[str, Any]]:
+        """Get BDI-compatible beliefs from integration health. Feed into belief system."""
+        return self._health.get_beliefs()
 
     def __repr__(self) -> str:
         tool_count = len(self._tool_registry)

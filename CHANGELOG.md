@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-03-20 - Integration Health Monitoring
+
+**Phase:** Phase 3B - Real-World Integrations (Step 5: Health Monitoring)
+
+### Added
+
+- **IntegrationHealthMonitor** — tracks per-integration tool call success,
+  failure, timeout, and latency. Derives health status: healthy/degraded/down.
+- **ToolRouter health recording** — every tool call result automatically
+  updates the health monitor (success, failure, or timeout).
+- **BDI belief generation** — `get_health_beliefs()` produces belief-compatible
+  dicts for degraded/down integrations ("CRM is down", "Calendar is degraded").
+  The BDI loop can query this to adapt employee strategy.
+- **Health API** — `get_integration_health()` on ToolRouter for dashboard.
+- **19 new tests** covering health state derivation, belief generation,
+  ToolRouter integration (success/failure/timeout recording).
+
+---
+
 ## 2026-03-19 - HubSpot + Google Calendar Direct Connectors
 
 **Phase:** Phase 3B - Real-World Integrations (Step 4: Integration Tools)

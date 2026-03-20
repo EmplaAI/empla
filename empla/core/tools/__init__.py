@@ -44,6 +44,7 @@ Example Usage:
 from .base import ActionResult, Tool, ToolCapability, ToolExecutor, ToolImplementation, ToolResult
 from .decorator import collect_tools, tool
 from .executor import ToolExecutionEngine
+from .health import IntegrationHealthMonitor
 from .mcp_bridge import MCPBridge, MCPServerConfig
 from .registry import ToolRegistry
 from .router import ToolRouter
@@ -51,6 +52,7 @@ from .trust import TrustBoundary, TrustDecision
 
 __all__ = [
     "ActionResult",
+    "IntegrationHealthMonitor",
     "MCPBridge",
     "MCPServerConfig",
     "Tool",
