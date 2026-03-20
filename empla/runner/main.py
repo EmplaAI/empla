@@ -213,8 +213,9 @@ async def run_employee(
 
     employee = employee_class(config)
 
-    # Load MCP server configs from DB (added via dashboard/API)
+    # Load MCP server configs from DB
     mcp_configs: list[MCPServerConfig] = []
+    creds: dict[str, dict[str, Any]] = {}
     try:
         from empla.services.integrations.mcp_service import MCPIntegrationService
         from empla.services.integrations.token_manager import get_token_manager
@@ -223,13 +224,15 @@ async def run_employee(
             tm = get_token_manager()
             mcp_service = MCPIntegrationService(mcp_session, tm)
             raw_configs = await mcp_service.get_active_mcp_servers(tenant_id)
+
             for cfg in raw_configs:
                 try:
                     mcp_configs.append(MCPServerConfig(**cfg))
                 except Exception:
                     logger.warning(
-                        "Skipping invalid MCP server config: %s",
-                        cfg,
+                        "Skipping invalid MCP server config: name=%s, keys=%s",
+                        cfg.get("name", "<unnamed>"),
+                        list(cfg.keys()),
                         exc_info=True,
                         extra={"employee_id": str(employee_id)},
                     )
@@ -241,8 +244,43 @@ async def run_employee(
                     extra={"employee_id": str(employee_id)},
                 )
     except Exception:
-        logger.warning(
-            "Failed to load MCP servers from DB, continuing without them",
+        logger.error(
+            "Failed to load MCP server configs — employee will have no integrations",
+            exc_info=True,
+            extra={"employee_id": str(employee_id)},
+        )
+
+    # Resolve OAuth credentials and inject into MCP server configs.
+    # stdio servers get OAUTH_ACCESS_TOKEN in env; HTTP servers get Authorization header.
+    try:
+        from empla.services.integrations.credential_injector import CredentialInjector
+
+        async with session_factory() as cred_session:
+            tm = get_token_manager()
+            injector = CredentialInjector(cred_session, tm)
+            creds = await injector.get_credentials(employee_id, tenant_id)
+
+            for mcp_cfg in mcp_configs:
+                provider = mcp_cfg.env.get("OAUTH_PROVIDER")
+                if provider and provider in creds:
+                    token = creds[provider].get("access_token")
+                    if token:
+                        if mcp_cfg.transport == "http":
+                            mcp_cfg.headers["Authorization"] = f"Bearer {token}"
+                        else:
+                            mcp_cfg.env["OAUTH_ACCESS_TOKEN"] = token
+                        logger.debug(
+                            "Injected OAuth token for MCP server '%s' (provider: %s, transport: %s)",
+                            mcp_cfg.name,
+                            provider,
+                            mcp_cfg.transport,
+                            extra={"employee_id": str(employee_id)},
+                        )
+
+            await cred_session.commit()
+    except Exception:
+        logger.error(
+            "Failed to resolve OAuth credentials — MCP servers will start without tokens",
             exc_info=True,
             extra={"employee_id": str(employee_id)},
         )

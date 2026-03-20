@@ -26,6 +26,7 @@ def _make_employee() -> Mock:
     """Create a mock Employee for testing."""
     employee = Mock(spec=Employee)
     employee.id = uuid4()
+    employee.tenant_id = uuid4()
     employee.name = "Test Employee"
     employee.status = "active"
     employee.role = "sales_ae"
@@ -170,11 +171,13 @@ async def test_agentic_execution_single_tool_call():
     assert result["agentic"] is True
     assert result["message"] == "Email sent successfully."
 
-    # Verify tool was called with correct arguments
+    # Verify tool was called with correct arguments (including trust boundary params)
     tool_router.execute_tool_call.assert_called_once_with(
         employee.id,
         "email.send_email",
         {"to": ["lead@example.com"], "subject": "Welcome!", "body": "Hello!"},
+        employee_role=employee.role,
+        tenant_id=employee.tenant_id,
     )
 
 

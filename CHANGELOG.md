@@ -6,6 +6,24 @@
 
 ---
 
+## 2026-03-19 - OAuth Credential Injection
+
+**Phase:** Phase 3B - Real-World Integrations (Step 3: OAuth Injection)
+
+### Added
+
+- **CredentialInjector service** — resolves fresh OAuth tokens for an employee's
+  integrations. Decrypts via TokenManager, auto-refreshes near-expiry tokens
+  (within 5-minute buffer), graceful degradation if refresh fails (returns stale
+  token, lets API call fail naturally).
+- **Runner credential injection** — at startup, resolves OAuth credentials and
+  injects `OAUTH_ACCESS_TOKEN` into MCP server env vars. MCP servers with an
+  `oauth_provider` field get their tokens automatically.
+- **9 new tests** covering credential resolution, provider mapping, token refresh,
+  decryption failure, and graceful degradation scenarios.
+
+---
+
 ## 2026-03-19 - LLM Trust Boundary + Tool Execution Timeout
 
 **Phase:** Phase 3B - Real-World Integrations (Step 2: Trust Boundary)
