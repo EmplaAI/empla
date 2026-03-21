@@ -17,7 +17,7 @@ from uuid import uuid4
 import pytest
 
 from empla.core.loop.models import NonNumericGoalBatchEvaluation, NonNumericGoalEvaluation
-from empla.core.loop.protocols import GoalRecommendation
+from empla.core.loop.protocols import GoalRecommendation, SituationAnalysis
 
 # ============================================================================
 # Mock Helpers
@@ -391,3 +391,283 @@ class TestGoalRecommendationModel:
         )
         assert len(rec.new_goals) == 1
         assert rec.new_goals[0]["priority"] == 7
+
+
+# ============================================================================
+# Behavioral Tests — _apply_goal_recommendations
+# ============================================================================
+
+
+class TestApplyGoalRecommendations:
+    """Behavioral tests for the full _apply_goal_recommendations method."""
+
+    def _make_mixin(self):
+        from empla.core.loop.planning import PlanningMixin
+
+        mixin = PlanningMixin()
+        mixin.employee = Mock(id=uuid4())
+        mixin.llm_service = MockLLMService()
+        mixin.goals = Mock()
+        mixin.goals.abandon_goal = AsyncMock()
+        mixin.goals.update_goal_priority = AsyncMock()
+        mixin._identity_prompt = "You are a sales AE."
+        return mixin
+
+    @pytest.mark.asyncio
+    async def test_abandons_matching_goal(self):
+        """LLM recommends abandonment, matching goal is abandoned."""
+        mixin = self._make_mixin()
+        goal = MockGoal(description="Pursue opportunity: expand into enterprise")
+        rec = GoalRecommendation(
+            goals_to_abandon=["expand into enterprise"],
+            priority_adjustments=[],
+            new_goals=[],
+            reasoning="Market shifted, enterprise no longer viable",
+        )
+        mixin.llm_service.generate_structured = AsyncMock(return_value=(None, rec))
+
+        analysis = SituationAnalysis(
+            current_state_summary="ok",
+            recommended_focus="pipeline",
+        )
+        await mixin._apply_goal_recommendations(
+            beliefs=[], active_goals=[goal], situation_analysis=analysis
+        )
+
+        mixin.goals.abandon_goal.assert_called_once_with(
+            goal.id, reason="Market shifted, enterprise no longer viable"[:200]
+        )
+
+    @pytest.mark.asyncio
+    async def test_adjusts_priority_of_matching_goal(self):
+        """LLM recommends priority change, matching goal is updated."""
+        mixin = self._make_mixin()
+        goal = MockGoal(description="Maintain 3x pipeline coverage", priority=5)
+        rec = GoalRecommendation(
+            goals_to_abandon=[],
+            priority_adjustments=[{"description": "pipeline coverage", "new_priority": 9}],
+            new_goals=[],
+            reasoning="Pipeline is critical",
+        )
+        mixin.llm_service.generate_structured = AsyncMock(return_value=(None, rec))
+
+        analysis = SituationAnalysis(
+            current_state_summary="ok",
+            recommended_focus="pipeline",
+        )
+        await mixin._apply_goal_recommendations(
+            beliefs=[], active_goals=[goal], situation_analysis=analysis
+        )
+
+        mixin.goals.update_goal_priority.assert_called_once_with(goal.id, 9)
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_returns_gracefully(self):
+        """LLM error should not crash; no goals modified."""
+        mixin = self._make_mixin()
+        mixin.llm_service.generate_structured = AsyncMock(side_effect=Exception("API timeout"))
+
+        goal = MockGoal(description="Test goal")
+        analysis = SituationAnalysis(
+            current_state_summary="ok",
+            recommended_focus="test",
+        )
+        await mixin._apply_goal_recommendations(
+            beliefs=[], active_goals=[goal], situation_analysis=analysis
+        )
+
+        mixin.goals.abandon_goal.assert_not_called()
+        mixin.goals.update_goal_priority.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unmatched_descriptions_skipped(self):
+        """Descriptions that don't match any goal are silently skipped."""
+        mixin = self._make_mixin()
+        goal = MockGoal(description="Maintain 3x pipeline coverage")
+        rec = GoalRecommendation(
+            goals_to_abandon=["something completely unrelated"],
+            priority_adjustments=[],
+            new_goals=[],
+            reasoning="test",
+        )
+        mixin.llm_service.generate_structured = AsyncMock(return_value=(None, rec))
+
+        analysis = SituationAnalysis(
+            current_state_summary="ok",
+            recommended_focus="test",
+        )
+        await mixin._apply_goal_recommendations(
+            beliefs=[], active_goals=[goal], situation_analysis=analysis
+        )
+
+        mixin.goals.abandon_goal.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_llm_service_returns_immediately(self):
+        """Without LLM service, method returns without error."""
+        mixin = self._make_mixin()
+        mixin.llm_service = None
+
+        analysis = SituationAnalysis(
+            current_state_summary="ok",
+            recommended_focus="test",
+        )
+        await mixin._apply_goal_recommendations(
+            beliefs=[], active_goals=[], situation_analysis=analysis
+        )
+
+    @pytest.mark.asyncio
+    async def test_priority_clamped_to_1_10(self):
+        """Priority values outside 1-10 should be clamped."""
+        mixin = self._make_mixin()
+        goal = MockGoal(description="Test goal")
+        rec = GoalRecommendation(
+            goals_to_abandon=[],
+            priority_adjustments=[{"description": "Test goal", "new_priority": 50}],
+            new_goals=[],
+            reasoning="test",
+        )
+        mixin.llm_service.generate_structured = AsyncMock(return_value=(None, rec))
+
+        analysis = SituationAnalysis(
+            current_state_summary="ok",
+            recommended_focus="test",
+        )
+        await mixin._apply_goal_recommendations(
+            beliefs=[], active_goals=[goal], situation_analysis=analysis
+        )
+
+        mixin.goals.update_goal_priority.assert_called_once_with(goal.id, 10)
+
+
+# ============================================================================
+# Behavioral Tests — _evaluate_non_numeric_goals
+# ============================================================================
+
+
+class TestEvaluateNonNumericGoals:
+    """Behavioral tests for _evaluate_non_numeric_goals."""
+
+    def _make_mixin(self):
+        from empla.core.loop.goal_management import GoalManagementMixin
+
+        mixin = GoalManagementMixin()
+        mixin.employee = Mock(id=uuid4())
+        mixin.llm_service = MockLLMService()
+        mixin.goals = Mock()
+        mixin.goals.complete_goal = AsyncMock()
+        mixin._hooks = Mock()
+        mixin._hooks.emit = AsyncMock()
+        return mixin
+
+    @pytest.mark.asyncio
+    async def test_completes_goal_above_confidence_threshold(self):
+        """Goal marked complete with confidence >= 0.7 should be completed."""
+        mixin = self._make_mixin()
+        goal = MockGoal(
+            description="Pursue opportunity: fix pipeline issue",
+            goal_type="opportunity",
+            target={"type": "opportunity", "description": "fix pipeline"},
+        )
+        eval_result = NonNumericGoalBatchEvaluation(
+            results=[
+                NonNumericGoalEvaluation(
+                    goal_id=str(goal.id),
+                    is_complete=True,
+                    confidence=0.85,
+                    reasoning="Pipeline issue resolved",
+                )
+            ]
+        )
+        mixin.llm_service.generate_structured = AsyncMock(return_value=(None, eval_result))
+
+        beliefs = [MockBeliefChange()]
+        await mixin._evaluate_non_numeric_goals([goal], beliefs)
+
+        mixin.goals.complete_goal.assert_called_once_with(goal.id)
+
+    @pytest.mark.asyncio
+    async def test_skips_goal_below_confidence_threshold(self):
+        """Goal with confidence < 0.7 should NOT be completed."""
+        mixin = self._make_mixin()
+        goal = MockGoal(
+            description="Address problem: slow response",
+            goal_type="problem",
+            target={"type": "problem", "description": "slow response"},
+        )
+        eval_result = NonNumericGoalBatchEvaluation(
+            results=[
+                NonNumericGoalEvaluation(
+                    goal_id=str(goal.id),
+                    is_complete=True,
+                    confidence=0.5,  # Below 0.7 threshold
+                    reasoning="Maybe resolved",
+                )
+            ]
+        )
+        mixin.llm_service.generate_structured = AsyncMock(return_value=(None, eval_result))
+
+        await mixin._evaluate_non_numeric_goals([goal], [MockBeliefChange()])
+
+        mixin.goals.complete_goal.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_numeric_goals(self):
+        """Goals with numeric metrics should not be evaluated here."""
+        mixin = self._make_mixin()
+        goal = MockGoal(
+            description="Maintain pipeline",
+            goal_type="maintain",
+            target={"metric": "pipeline_coverage", "value": 3.0},
+        )
+
+        await mixin._evaluate_non_numeric_goals([goal], [MockBeliefChange()])
+
+        mixin.llm_service.generate_structured.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_llm_returns_early(self):
+        """Without LLM service, method returns without error."""
+        mixin = self._make_mixin()
+        mixin.llm_service = None
+
+        goal = MockGoal(goal_type="opportunity")
+        await mixin._evaluate_non_numeric_goals([goal], [MockBeliefChange()])
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_falls_back_gracefully(self):
+        """LLM failure should log and return, not crash."""
+        mixin = self._make_mixin()
+        mixin.llm_service.generate_structured = AsyncMock(side_effect=Exception("API error"))
+
+        goal = MockGoal(
+            goal_type="opportunity",
+            target={"type": "opportunity"},
+        )
+        await mixin._evaluate_non_numeric_goals([goal], [MockBeliefChange()])
+
+        mixin.goals.complete_goal.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_invalid_goal_id_from_llm_skipped(self):
+        """LLM returning a goal_id not in the active set is skipped."""
+        mixin = self._make_mixin()
+        goal = MockGoal(
+            goal_type="opportunity",
+            target={"type": "opportunity"},
+        )
+        eval_result = NonNumericGoalBatchEvaluation(
+            results=[
+                NonNumericGoalEvaluation(
+                    goal_id=str(uuid4()),  # Different from goal.id
+                    is_complete=True,
+                    confidence=0.9,
+                    reasoning="Done",
+                )
+            ]
+        )
+        mixin.llm_service.generate_structured = AsyncMock(return_value=(None, eval_result))
+
+        await mixin._evaluate_non_numeric_goals([goal], [MockBeliefChange()])
+
+        mixin.goals.complete_goal.assert_not_called()

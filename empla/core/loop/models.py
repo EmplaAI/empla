@@ -225,7 +225,7 @@ class GoalProgressEvaluation(BaseModel):
 class NonNumericGoalEvaluation(BaseModel):
     """LLM evaluation of whether non-numeric goals (opportunity/problem) are complete."""
 
-    goal_id: str = Field(..., description="The goal ID being evaluated")
+    goal_id: str = Field(..., min_length=1, description="The goal ID being evaluated")
     is_complete: bool = Field(
         ..., description="Whether the goal has been effectively addressed or resolved"
     )

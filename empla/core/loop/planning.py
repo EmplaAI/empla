@@ -510,9 +510,15 @@ What changes do you recommend to the goal portfolio?"""
             logger.warning(
                 "LLM goal recommendation failed: %s",
                 e,
+                exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )
             return
+
+        # NOTE: recommendation.new_goals is intentionally not processed here.
+        # New goals are already created by _manage_goals_from_analysis() based
+        # on the situation analysis. GoalRecommendation focuses on portfolio
+        # maintenance (abandon/reprioritize), not creation.
 
         # Process abandonment recommendations via fuzzy matching
         existing_descs = {getattr(g, "description", ""): g for g in active_goals}
@@ -541,6 +547,7 @@ What changes do you recommend to the goal portfolio?"""
                 logger.warning(
                     "Failed to abandon recommended goal: %s",
                     e,
+                    exc_info=True,
                     extra={"employee_id": str(self.employee.id)},
                 )
                 await self._safe_rollback_goals()
@@ -572,8 +579,11 @@ What changes do you recommend to the goal portfolio?"""
                 logger.warning(
                     "Failed to adjust goal priority: %s",
                     e,
+                    exc_info=True,
                     extra={"employee_id": str(self.employee.id)},
                 )
+                await self._safe_rollback_goals()
+                return
 
         if abandoned_count or adjusted_count:
             logger.info(

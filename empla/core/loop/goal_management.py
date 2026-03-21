@@ -284,6 +284,7 @@ Only include goals where you can determine a numeric value."""
             logger.warning(
                 "LLM non-numeric goal evaluation failed (TTL-only fallback): %s",
                 e,
+                exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )
             return
@@ -294,21 +295,42 @@ Only include goals where you can determine a numeric value."""
             if result.goal_id not in valid_ids:
                 continue
             if result.is_complete and result.confidence >= 0.7:
+                # Validate goal_id format before DB operations
                 try:
                     from uuid import UUID
 
                     goal_uuid = UUID(result.goal_id)
-                    await self.goals.complete_goal(goal_uuid)
-                    logger.info(
-                        "Completed non-numeric goal per LLM evaluation: %s (confidence=%.2f)",
-                        result.reasoning[:60],
-                        result.confidence,
+                except ValueError:
+                    logger.warning(
+                        "LLM returned invalid goal_id format: %r",
+                        result.goal_id,
                         extra={"employee_id": str(self.employee.id)},
                     )
+                    continue
 
-                    # Emit achievement hook
-                    matched = [g for g in non_numeric if str(g.id) == result.goal_id]
-                    if matched and hasattr(self, "_hooks"):
+                # Complete the goal in DB
+                try:
+                    await self.goals.complete_goal(goal_uuid)
+                except Exception:
+                    logger.error(
+                        "Failed to complete non-numeric goal %s in database",
+                        result.goal_id,
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                    continue
+
+                logger.info(
+                    "Completed non-numeric goal per LLM evaluation: %s (confidence=%.2f)",
+                    result.reasoning[:60],
+                    result.confidence,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+                # Emit achievement hook (optional — failure here is non-critical)
+                matched = [g for g in sent_goals if str(g.id) == result.goal_id]
+                if matched and hasattr(self, "_hooks"):
+                    try:
                         await self._hooks.emit(
                             HOOK_GOAL_ACHIEVED,
                             {
@@ -317,13 +339,13 @@ Only include goals where you can determine a numeric value."""
                                 "reasoning": result.reasoning,
                             },
                         )
-                except Exception:
-                    logger.warning(
-                        "Failed to complete non-numeric goal %s",
-                        result.goal_id,
-                        exc_info=True,
-                        extra={"employee_id": str(self.employee.id)},
-                    )
+                    except Exception:
+                        logger.debug(
+                            "Hook emission failed for goal %s",
+                            result.goal_id,
+                            exc_info=True,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
 
     async def _check_goal_achievement(
         self,

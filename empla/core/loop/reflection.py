@@ -469,7 +469,7 @@ Analyze the patterns and provide brief recommendations."""
                 source="deep_reflection",
             )
         except Exception:
-            logger.debug(
+            logger.warning(
                 "Failed to update strategy_effectiveness belief",
                 exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
@@ -489,7 +489,7 @@ Analyze the patterns and provide brief recommendations."""
                     source="deep_reflection",
                 )
             except Exception:
-                logger.debug(
+                logger.warning(
                     "Failed to update known_failure_patterns belief",
                     exc_info=True,
                     extra={"employee_id": str(self.employee.id)},
@@ -505,7 +505,7 @@ Analyze the patterns and provide brief recommendations."""
                     source="deep_reflection",
                 )
             except Exception:
-                logger.debug(
+                logger.warning(
                     "Failed to update improvement_opportunities belief",
                     exc_info=True,
                     extra={"employee_id": str(self.employee.id)},
