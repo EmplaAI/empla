@@ -528,7 +528,9 @@ What changes do you recommend to the goal portfolio?"""
                 continue
 
             try:
-                await self.goals.abandon_goal(matched_goal.id)
+                await self.goals.abandon_goal(
+                    matched_goal.id, reason=recommendation.reasoning[:200]
+                )
                 abandoned_count += 1
                 logger.info(
                     "Abandoned goal per LLM recommendation: %s",

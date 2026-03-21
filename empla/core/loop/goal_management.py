@@ -253,8 +253,9 @@ Only include goals where you can determine a numeric value."""
             )
         beliefs_text = "\n".join(belief_lines) if belief_lines else "No belief changes"
 
+        sent_goals = non_numeric[:5]
         goal_lines = []
-        for g in non_numeric[:5]:
+        for g in sent_goals:
             goal_lines.append(
                 f"- goal_id={g.id}, type={getattr(g, 'goal_type', '')}, "
                 f"description={getattr(g, 'description', '')}"
@@ -288,7 +289,7 @@ Only include goals where you can determine a numeric value."""
             return
 
         # Process results
-        valid_ids = {str(g.id) for g in non_numeric}
+        valid_ids = {str(g.id) for g in sent_goals}
         for result in evaluation.results:
             if result.goal_id not in valid_ids:
                 continue

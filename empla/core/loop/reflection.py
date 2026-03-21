@@ -447,7 +447,7 @@ Analyze the patterns and provide brief recommendations."""
             analysis: LLM analysis text from deep reflection.
             success_rate: Recent execution success rate.
         """
-        if not analysis:
+        if not analysis or not analysis.strip():
             return
 
         # Strategy effectiveness belief — always update from success rate

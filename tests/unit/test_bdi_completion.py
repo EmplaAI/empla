@@ -292,6 +292,14 @@ class TestDeepReflectionBeliefConversion:
         mixin.beliefs.update_belief.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_whitespace_only_analysis_skips(self):
+        """Whitespace-only analysis should skip (LLM could return just spaces)."""
+        mixin = self._make_mixin()
+
+        await mixin._convert_insights_to_beliefs("   \n\t  ", 0.5)
+        mixin.beliefs.update_belief.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_belief_update_failure_continues(self):
         """Belief update failure should log and continue, not crash."""
         mixin = self._make_mixin()
