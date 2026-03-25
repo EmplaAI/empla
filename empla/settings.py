@@ -92,6 +92,14 @@ class EmplaSettings(BaseSettings):
             raise ValueError("frontend_base_url must include a host (e.g. http://localhost:5173)")
         return v.rstrip("/")
 
+    # -- JWT Authentication ----------------------------------------------------
+    # EMPLA_JWT_SECRET must be set in production. In development, a default
+    # is used for convenience. Generate a real secret with:
+    #   python -c "import secrets; print(secrets.token_urlsafe(32))"
+    jwt_secret: str = "empla-dev-secret-CHANGE-IN-PRODUCTION"
+    jwt_expiry_hours: int = 24
+    jwt_algorithm: str = "HS256"
+
     # -- Logging ---------------------------------------------------------------
     log_level: str = "INFO"
 

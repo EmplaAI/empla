@@ -1,19 +1,22 @@
 """
 empla.api.v1.endpoints.auth - Authentication Endpoints
 
-Stub authentication for development.
-In production, replace with proper JWT authentication.
+JWT-based authentication using HS256. Tokens contain user_id, tenant_id,
+and role claims with configurable expiry (default 24h).
 """
 
 import logging
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, status
+import jwt
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 
-from empla.api.deps import DBSession
+from empla.api.deps import CurrentUser, DBSession
 from empla.models.tenant import Tenant, User
+from empla.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +43,27 @@ class LoginResponse(BaseModel):
     role: str
 
 
-class TokenInfo(BaseModel):
-    """Token introspection response."""
+def create_access_token(user_id: UUID, tenant_id: UUID, role: str) -> str:
+    """Create a signed JWT access token.
 
-    valid: bool
-    user_id: UUID | None = None
-    tenant_id: UUID | None = None
-    role: str | None = None
+    Args:
+        user_id: User UUID to encode in the token.
+        tenant_id: Tenant UUID to encode in the token.
+        role: User role (e.g. "admin", "member").
+
+    Returns:
+        Encoded JWT string.
+    """
+    settings = get_settings()
+    now = datetime.now(UTC)
+    payload = {
+        "sub": str(user_id),
+        "tid": str(tenant_id),
+        "role": role,
+        "iat": now,
+        "exp": now + timedelta(hours=settings.jwt_expiry_hours),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 @router.post("/login", response_model=LoginResponse, response_model_by_alias=True)
@@ -55,17 +72,14 @@ async def login(
     data: LoginRequest,
 ) -> LoginResponse:
     """
-    Login and get an authentication token.
-
-    This is a stub implementation for development.
-    In production, this should validate password/OAuth/SAML.
+    Login and get a JWT authentication token.
 
     Args:
         db: Database session
-        data: Login credentials
+        data: Login credentials (email + tenant slug)
 
     Returns:
-        Authentication token
+        JWT token and user info
 
     Raises:
         HTTPException: If credentials are invalid
@@ -107,9 +121,7 @@ async def login(
             detail="Invalid credentials",
         )
 
-    # Generate stub token (user_id:tenant_id)
-    # TODO: Replace with proper JWT
-    token = f"{user.id}:{tenant.id}"
+    token = create_access_token(user.id, tenant.id, user.role)
 
     logger.info(
         "User logged in",
@@ -128,79 +140,24 @@ async def login(
 
 @router.get("/me", response_model=LoginResponse, response_model_by_alias=True)
 async def get_current_user_info(
-    db: DBSession,
-    authorization: str = Header(..., alias="Authorization"),
+    auth: CurrentUser,
 ) -> LoginResponse:
     """
-    Get current user info from token.
+    Get current user info from JWT token.
+
+    Uses the shared get_current_user dependency for token validation.
 
     Args:
-        db: Database session
-        authorization: Authorization header (Bearer token)
+        auth: Authenticated user context (injected by FastAPI)
 
     Returns:
-        Current user info
-
-    Raises:
-        HTTPException: If token is invalid
+        Current user info (token field is empty since the caller already has it)
     """
-    # Extract token from "Bearer <token>" format
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    token = authorization[7:]  # Remove "Bearer " prefix
-
-    try:
-        parts = token.split(":")
-        if len(parts) != 2:
-            raise ValueError("Invalid format")
-
-        user_id = UUID(parts[0])
-        tenant_id = UUID(parts[1])
-    except (ValueError, IndexError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        ) from e
-
-    # Fetch user
-    result = await db.execute(
-        select(User).where(
-            User.id == user_id,
-            User.deleted_at.is_(None),
-        )
-    )
-    user = result.scalar_one_or_none()
-
-    if user is None or user.tenant_id != tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        )
-
-    # Fetch tenant
-    result = await db.execute(
-        select(Tenant).where(
-            Tenant.id == tenant_id,
-            Tenant.deleted_at.is_(None),
-        )
-    )
-    tenant = result.scalar_one_or_none()
-
-    if tenant is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        )
-
     return LoginResponse(
-        token=token,
-        user_id=user.id,
-        tenant_id=tenant.id,
-        user_name=user.name,
-        tenant_name=tenant.name,
-        role=user.role,
+        token="",  # Don't echo the token back
+        user_id=auth.user_id,
+        tenant_id=auth.tenant_id,
+        user_name=auth.user.name,
+        tenant_name=auth.tenant.name,
+        role=auth.user.role,
     )
