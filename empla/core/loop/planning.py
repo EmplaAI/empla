@@ -681,60 +681,32 @@ What changes do you recommend to the goal portfolio?"""
                 )
                 continue
 
-            # Check for matching playbook FIRST (skip LLM if found)
-            playbook_used = False
-            if hasattr(self.memory, "procedural") and hasattr(
-                self.memory.procedural, "find_playbooks"
-            ):
-                try:
-                    playbooks = await self.memory.procedural.find_playbooks(
-                        situation={
-                            "goal_type": getattr(goal, "goal_type", ""),
-                            "goal_description": getattr(goal, "description", ""),
-                        },
-                        min_success_rate=0.6,
-                        limit=1,
-                    )
-                    if playbooks:
-                        playbook = playbooks[0]
-                        # Create intention directly from playbook steps
-                        await self.intentions.add_intention(
-                            description=f"Execute playbook: {playbook.name}",
-                            intention_type="action",
-                            priority=getattr(goal, "priority", 5),
-                            goal_id=goal_id,
-                            plan={"steps": playbook.steps},
-                            context={
-                                "playbook_id": str(playbook.id),
-                                "playbook_name": playbook.name,
-                            },
-                        )
-                        playbook.execution_count += 1
-                        playbook.last_executed_at = datetime.now(UTC)
-                        playbook_used = True
-                        logger.info(
-                            "Using playbook for goal (skipping LLM): %s",
-                            playbook.name,
-                            extra={
-                                "employee_id": str(self.employee.id),
-                                "goal_id": str(goal_id),
-                                "playbook_id": str(playbook.id),
-                                "playbook_success_rate": playbook.success_rate,
-                            },
-                        )
-                except Exception:
-                    logger.warning(
-                        "Playbook lookup failed, falling back to LLM",
-                        exc_info=True,
-                        extra={"employee_id": str(self.employee.id)},
-                    )
-
-            if playbook_used:
-                continue
-
-            # Query procedural memory for relevant past experience
+            # Gather playbooks and past procedures — presented to the LLM as
+            # options. The LLM decides whether to reuse, adapt, or generate fresh.
+            # This keeps the system agentic rather than rule-based.
+            available_playbooks: list[Any] = []
             past_procedures: list[Any] = []
             if hasattr(self.memory, "procedural"):
+                # Find proven playbooks (high success, promoted)
+                if hasattr(self.memory.procedural, "find_playbooks"):
+                    try:
+                        available_playbooks = await self.memory.procedural.find_playbooks(
+                            situation={
+                                "goal_type": getattr(goal, "goal_type", ""),
+                                "goal_description": getattr(goal, "description", ""),
+                            },
+                            min_success_rate=0.6,
+                            limit=3,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Playbook lookup failed for goal %s",
+                            goal_id,
+                            exc_info=True,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
+
+                # Find past procedures (not yet playbooks, but informative)
                 try:
                     past_procedures = await self.memory.procedural.find_procedures_for_situation(
                         situation={
@@ -753,17 +725,45 @@ What changes do you recommend to the goal portfolio?"""
                         extra={"employee_id": str(self.employee.id)},
                     )
 
-            # Build procedural context for plan generation
+            # Build context for LLM — playbooks are presented as reusable
+            # recipes the LLM can choose to follow, adapt, or ignore.
             procedural_context = ""
+            context_lines: list[str] = []
+
+            if available_playbooks:
+                context_lines.append(
+                    "AVAILABLE PLAYBOOKS (proven recipes you can reuse as-is or adapt):"
+                )
+                for pb in available_playbooks:
+                    steps_desc = ", ".join(
+                        s.get("action", s.get("step", "?"))
+                        for s in (getattr(pb, "steps", []) or [])
+                    )
+                    rate = getattr(pb, "success_rate", 0) or 0
+                    count = getattr(pb, "execution_count", 0) or 0
+                    context_lines.append(
+                        f"  PLAYBOOK '{pb.name}': [{steps_desc}] "
+                        f"(success_rate={rate:.0%}, used {count} times)"
+                    )
+                context_lines.append(
+                    "If a playbook fits this goal, you can reuse its steps directly "
+                    "or modify them. You are NOT required to use a playbook — "
+                    "generate a fresh plan if none are appropriate."
+                )
+
             if past_procedures:
-                lines = ["Past experience (successful procedures):"]
+                context_lines.append("Past experience (successful procedures):")
                 for proc in past_procedures:
                     steps_desc = ", ".join(
                         s.get("action", "?") for s in (getattr(proc, "steps", []) or [])
                     )
                     rate = getattr(proc, "success_rate", 0) or 0
-                    lines.append(f"  - {proc.name}: [{steps_desc}] (success_rate={rate:.0%})")
-                procedural_context = "\n".join(lines)
+                    context_lines.append(
+                        f"  - {proc.name}: [{steps_desc}] (success_rate={rate:.0%})"
+                    )
+
+            if context_lines:
+                procedural_context = "\n".join(context_lines)
 
             # Generate plan for this goal
             try:

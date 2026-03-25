@@ -144,8 +144,8 @@ class TestPlaybookSelectionInPlanning:
         return goal
 
     @pytest.mark.asyncio
-    async def test_uses_playbook_when_available(self):
-        """When a matching playbook exists, skip LLM and use playbook steps."""
+    async def test_playbooks_included_in_llm_context(self):
+        """When playbooks exist, they should be passed to the LLM as context options."""
         mixin = self._make_planning_mixin()
         goal = self._make_goal()
 
@@ -153,24 +153,41 @@ class TestPlaybookSelectionInPlanning:
             name="prospecting_playbook",
             is_playbook=True,
             steps=[{"action": "search_leads"}, {"action": "send_email"}],
+            success_rate=0.85,
         )
+        playbook.execution_count = 10
         mixin.memory.procedural.find_playbooks = AsyncMock(return_value=[playbook])
 
         await mixin._generate_plans_for_unplanned_goals(goals=[goal], beliefs=[], capabilities=[])
 
-        # Should create intention from playbook, not call LLM
-        mixin.intentions.add_intention.assert_called_once()
-        call_kwargs = mixin.intentions.add_intention.call_args.kwargs
-        assert "playbook" in call_kwargs["description"].lower()
-        assert call_kwargs["plan"] == {"steps": playbook.steps}
-        assert call_kwargs["context"]["playbook_name"] == "prospecting_playbook"
+        # LLM should be called (playbooks are context, not bypass)
+        mixin.intentions.generate_plan_for_goal.assert_called_once()
 
-        # LLM should NOT be called
-        mixin.intentions.generate_plan_for_goal.assert_not_called()
+        # The identity_context should include playbook info
+        call_kwargs = mixin.intentions.generate_plan_for_goal.call_args.kwargs
+        identity = call_kwargs.get("identity_context", "")
+        assert "PLAYBOOK" in identity
+        assert "prospecting_playbook" in identity
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_llm_when_no_playbook(self):
-        """When no playbook matches, fall back to LLM generation."""
+    async def test_llm_called_even_with_playbooks(self):
+        """The LLM always decides — playbooks are suggestions, not bypasses."""
+        mixin = self._make_planning_mixin()
+        goal = self._make_goal()
+
+        playbook = MockProceduralMemory(name="test", is_playbook=True)
+        mixin.memory.procedural.find_playbooks = AsyncMock(return_value=[playbook])
+
+        await mixin._generate_plans_for_unplanned_goals(goals=[goal], beliefs=[], capabilities=[])
+
+        # LLM should always be called
+        mixin.intentions.generate_plan_for_goal.assert_called_once()
+        # add_intention should NOT be called directly (no bypass)
+        mixin.intentions.add_intention.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_works_without_playbooks(self):
+        """When no playbooks exist, LLM generates plan normally."""
         mixin = self._make_planning_mixin()
         goal = self._make_goal()
 
@@ -178,12 +195,11 @@ class TestPlaybookSelectionInPlanning:
 
         await mixin._generate_plans_for_unplanned_goals(goals=[goal], beliefs=[], capabilities=[])
 
-        # LLM should be called
         mixin.intentions.generate_plan_for_goal.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_falls_back_on_playbook_error(self):
-        """Playbook lookup failure should fall back to LLM, not crash."""
+    async def test_playbook_lookup_error_still_calls_llm(self):
+        """Playbook lookup failure should not prevent LLM plan generation."""
         mixin = self._make_planning_mixin()
         goal = self._make_goal()
 
@@ -191,21 +207,7 @@ class TestPlaybookSelectionInPlanning:
 
         await mixin._generate_plans_for_unplanned_goals(goals=[goal], beliefs=[], capabilities=[])
 
-        # Should still try LLM
         mixin.intentions.generate_plan_for_goal.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_increments_playbook_execution_count(self):
-        """Using a playbook should increment its execution_count."""
-        mixin = self._make_planning_mixin()
-        goal = self._make_goal()
-
-        playbook = MockProceduralMemory(name="test", is_playbook=True, execution_count=5)
-        mixin.memory.procedural.find_playbooks = AsyncMock(return_value=[playbook])
-
-        await mixin._generate_plans_for_unplanned_goals(goals=[goal], beliefs=[], capabilities=[])
-
-        assert playbook.execution_count == 6
 
 
 # ============================================================================

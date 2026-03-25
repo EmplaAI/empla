@@ -540,9 +540,14 @@ Analyze the patterns and provide brief recommendations."""
     async def _update_playbook_success(self, result: IntentionResult) -> None:
         """Update playbook success_rate based on execution outcome.
 
-        If the intention was created from a playbook (has playbook_id in context),
-        update the playbook's success tracking. Auto-demotes playbooks that fall
-        below the quality threshold.
+        If the intention's context contains a playbook_id (set when the LLM
+        explicitly selected a playbook), update the playbook's success tracking.
+        Auto-demotes playbooks that fall below the quality threshold.
+
+        Note: The primary feedback loop for playbooks is through record_procedure
+        in _update_procedural_memory, which updates execution stats for all
+        procedures including playbooks. This method provides additional explicit
+        tracking when the LLM references a specific playbook by ID.
         """
         if not hasattr(self.memory, "procedural"):
             return
