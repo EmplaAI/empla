@@ -77,7 +77,7 @@ async def record_cycle_metrics(
     duration_seconds: float,
     success: bool,
     tool_stats: list[dict[str, Any]] | None = None,
-) -> None:
+) -> dict[str, float] | None:
     """Record metrics for a completed BDI cycle.
 
     Creates multiple Metric rows — one per metric name — so the dashboard
@@ -91,6 +91,10 @@ async def record_cycle_metrics(
         duration_seconds: Wall-clock cycle duration.
         success: Whether the cycle completed without error.
         tool_stats: Optional list of dicts from IntegrationHealthMonitor.get_all_status().
+
+    Returns:
+        New tool stats snapshot to persist in _previous_tool_stats (caller
+        should assign only after successful commit), or None if no tool stats.
     """
     metrics = [
         Metric(
@@ -149,9 +153,6 @@ async def record_cycle_metrics(
 
     try:
         await db.flush()
-        # Only advance the baseline after successful flush
-        if new_snapshot is not None:
-            _previous_tool_stats[employee_id] = new_snapshot
     except Exception:
         logger.warning(
             "Failed to flush cycle metrics, rolling back",
@@ -162,3 +163,7 @@ async def record_cycle_metrics(
             await db.rollback()
         except Exception:
             logger.debug("Rollback after metrics flush failure also failed", exc_info=True)
+        return None
+
+    # Return snapshot for caller to persist after commit
+    return new_snapshot

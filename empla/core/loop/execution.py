@@ -333,9 +333,6 @@ class ProactiveExecutionLoop(
                 # ============ METRICS ============
                 cycle_duration = time.time() - cycle_start
 
-                # Persist cycle metrics to DB for dashboard visibility
-                await self._record_cycle_metrics(cycle_duration, success=True)
-
                 logger.debug(
                     f"Loop cycle {self.cycle_count} complete",
                     extra={
@@ -351,6 +348,10 @@ class ProactiveExecutionLoop(
                     duration_seconds=cycle_duration,
                     success=True,
                 )
+
+                # Record success metric AFTER hooks complete — avoids writing
+                # success=True then overwriting with success=False if hook raises.
+                await self._record_cycle_metrics(cycle_duration, success=True)
 
                 # ============ SLEEP ============
                 # Wait before next cycle (check is_running flag during sleep for prompt shutdown)
@@ -699,24 +700,29 @@ class ProactiveExecutionLoop(
         """Persist cycle metrics to DB using a short-lived independent session.
 
         Uses a separate session so metrics writes don't pollute the BDI
-        loop's long-lived session. Committed independently.
+        loop's long-lived session. Cache update deferred until after commit.
         """
-        # Get the sessionmaker from the employee (set during start())
         sessionmaker = getattr(self.employee, "_sessionmaker", None)
         if sessionmaker is None:
             return
         try:
-            from empla.services.metrics import record_cycle_metrics
+            from empla.services.metrics import (
+                _previous_tool_stats,
+                record_cycle_metrics,
+            )
 
-            # Collect tool stats from health monitor if available
+            # Collect tool stats — isolated so failure doesn't lose base metrics
             tool_stats = None
-            if self.tool_router and hasattr(self.tool_router, "health_monitor"):
-                monitor = self.tool_router.health_monitor
-                if hasattr(monitor, "get_all_status"):
-                    tool_stats = monitor.get_all_status()
+            try:
+                if self.tool_router and hasattr(self.tool_router, "health_monitor"):
+                    monitor = self.tool_router.health_monitor
+                    if hasattr(monitor, "get_all_status"):
+                        tool_stats = monitor.get_all_status()
+            except Exception:
+                logger.debug("Health monitor query failed, recording without tool stats")
 
             async with sessionmaker() as metrics_session:
-                await record_cycle_metrics(
+                snapshot = await record_cycle_metrics(
                     metrics_session,
                     tenant_id=self.employee.tenant_id,
                     employee_id=self.employee.id,
@@ -726,6 +732,9 @@ class ProactiveExecutionLoop(
                     tool_stats=tool_stats,
                 )
                 await metrics_session.commit()
+                # Only advance cache AFTER commit succeeds
+                if snapshot is not None:
+                    _previous_tool_stats[self.employee.id] = snapshot
         except Exception:
             logger.debug(
                 "Failed to record cycle metrics",

@@ -135,6 +135,10 @@ class TestRecordCycleMetrics:
         failed = next(m for m in metrics if m.metric_name == "tool.calls_failed")
         assert failed.value == 2.0
 
+        # Weighted latency numerator: 150*10 + 80*5 = 1900
+        latency_sum = next(m for m in metrics if m.metric_name == "tool.latency_sum_ms")
+        assert latency_sum.value == 1900.0
+
     @pytest.mark.asyncio
     async def test_tool_stats_computes_deltas_across_cycles(self, mock_db):
         """Second cycle should record only the delta from first cycle."""
@@ -142,7 +146,7 @@ class TestRecordCycleMetrics:
         tid = uuid4()
 
         # Cycle 1: cumulative = 10 calls
-        await record_cycle_metrics(
+        snapshot1 = await record_cycle_metrics(
             mock_db,
             tenant_id=tid,
             employee_id=eid,
@@ -153,6 +157,9 @@ class TestRecordCycleMetrics:
                 {"total_calls": 10, "failure_count": 1, "timeout_count": 0, "avg_latency_ms": 100.0}
             ],
         )
+        # Simulate caller persisting snapshot after commit
+        if snapshot1 is not None:
+            _previous_tool_stats[eid] = snapshot1
 
         mock_db.reset_mock()
 
@@ -175,6 +182,10 @@ class TestRecordCycleMetrics:
 
         failed = next(m for m in metrics if m.metric_name == "tool.calls_failed")
         assert failed.value == 2.0  # 3 - 1
+
+        # Latency delta: (120*18 - 100*10) = 2160 - 1000 = 1160
+        latency = next(m for m in metrics if m.metric_name == "tool.latency_sum_ms")
+        assert latency.value == 1160.0
 
     @pytest.mark.asyncio
     async def test_no_tool_stats_skips_tool_metrics(self, mock_db):
@@ -223,19 +234,14 @@ class TestRecordCycleMetrics:
         mock_db.rollback.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_flush_failure_preserves_tool_stats_cache(self, mock_db):
-        """On flush failure, _previous_tool_stats should NOT advance."""
-        eid = uuid4()
-        # Seed baseline
-        _previous_tool_stats[eid] = {"total": 5, "failed": 1, "latency_sum": 500.0}
-        original = _previous_tool_stats[eid].copy()
-
+    async def test_flush_failure_returns_none(self, mock_db):
+        """On flush failure, record_cycle_metrics should return None (no snapshot)."""
         mock_db.flush = AsyncMock(side_effect=Exception("DB error"))
 
-        await record_cycle_metrics(
+        result = await record_cycle_metrics(
             mock_db,
             tenant_id=uuid4(),
-            employee_id=eid,
+            employee_id=uuid4(),
             cycle_count=2,
             duration_seconds=1.0,
             success=True,
@@ -244,8 +250,8 @@ class TestRecordCycleMetrics:
             ],
         )
 
-        # Cache should not have advanced
-        assert _previous_tool_stats[eid] == original
+        assert result is None  # Caller should not update cache
+        mock_db.rollback.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_each_metric_gets_own_tags_dict(self, mock_db):
