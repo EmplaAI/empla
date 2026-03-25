@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from empla.core.hooks import HOOK_GOAL_ACHIEVED
-from empla.core.loop.models import GoalProgressEvaluation
+from empla.core.loop.models import GoalProgressEvaluation, NonNumericGoalBatchEvaluation
 from empla.core.loop.protocols import BeliefChange
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ class GoalManagementMixin:
 
         # Check for expired opportunity/problem goals (TTL)
         now = datetime.now(UTC)
+        abandoned_ids: set[Any] = set()
         for goal in goals:
             target = getattr(goal, "target", {}) or {}
             max_age_hours = target.get("max_age_hours")
@@ -60,6 +61,7 @@ class GoalManagementMixin:
                 if created and (now - created).total_seconds() > max_age_hours * 3600:
                     try:
                         await self.goals.abandon_goal(goal.id)
+                        abandoned_ids.add(goal.id)
                         logger.info(
                             "Abandoned expired goal: %s (age > %dh)",
                             getattr(goal, "description", "")[:50],
@@ -72,6 +74,12 @@ class GoalManagementMixin:
                             exc_info=True,
                             extra={"employee_id": str(self.employee.id)},
                         )
+
+        # Exclude TTL-abandoned goals so LLM doesn't evaluate stale entries
+        remaining_goals = [g for g in goals if g.id not in abandoned_ids]
+
+        # LLM completion check for opportunity/problem goals (no numeric target)
+        await self._evaluate_non_numeric_goals(remaining_goals, changed_beliefs)
 
         # Filter to goals with numeric target metrics
         evaluable_goals = []
@@ -210,6 +218,146 @@ Only include goals where you can determine a numeric value."""
             extra={"employee_id": str(self.employee.id)},
         )
         return result
+
+    async def _evaluate_non_numeric_goals(
+        self,
+        goals: list[Any],
+        changed_beliefs: list[BeliefChange],
+    ) -> None:
+        """Evaluate whether non-numeric goals (opportunity/problem) are complete.
+
+        Opportunity and problem goals don't have numeric targets, so TTL is
+        the primary expiry mechanism. This adds an LLM-based check: ask whether
+        the goal has been effectively addressed based on recent belief changes.
+
+        Goals that the LLM confidently marks as complete are achieved; others continue.
+        Falls back to TTL-only when LLM is unavailable.
+        """
+        if not self.llm_service or not changed_beliefs:
+            return
+
+        # Filter to non-numeric opportunity/problem goals
+        non_numeric = []
+        for goal in goals:
+            goal_type = getattr(goal, "goal_type", "")
+            target = getattr(goal, "target", {}) or {}
+            if goal_type in ("opportunity", "problem") and not target.get("metric"):
+                non_numeric.append(goal)
+
+        if not non_numeric:
+            return
+
+        # Format for LLM
+        belief_lines = []
+        for bc in changed_beliefs[:15]:
+            belief = getattr(bc, "belief", None)
+            obj = getattr(belief, "object", {}) if belief else {}
+            belief_lines.append(
+                f"- {bc.subject} → {bc.predicate}: {obj} "
+                f"(confidence: {bc.old_confidence:.2f} → {bc.new_confidence:.2f})"
+            )
+        beliefs_text = "\n".join(belief_lines) if belief_lines else "No belief changes"
+
+        sent_goals = non_numeric[:5]
+        goal_lines = []
+        for g in sent_goals:
+            goal_lines.append(
+                f"- goal_id={g.id}, type={getattr(g, 'goal_type', '')}, "
+                f"description={getattr(g, 'description', '')}"
+            )
+        goals_text = "\n".join(goal_lines)
+
+        try:
+            _, evaluation = await self.llm_service.generate_structured(
+                prompt=(
+                    f"Recent belief changes:\n{beliefs_text}\n\n"
+                    f"Goals to evaluate for completion:\n{goals_text}\n\n"
+                    "For each goal, determine whether it has been effectively "
+                    "addressed or resolved based on the belief changes. "
+                    "Be conservative — only mark as complete when clearly resolved."
+                ),
+                system=(
+                    "You are evaluating whether opportunity/problem goals have "
+                    "been effectively addressed. These goals don't have numeric targets, "
+                    "so assess qualitatively from the belief changes."
+                ),
+                response_format=NonNumericGoalBatchEvaluation,
+                temperature=0.1,
+            )
+            evaluation = cast(NonNumericGoalBatchEvaluation, evaluation)
+        except Exception as e:
+            logger.warning(
+                "LLM non-numeric goal evaluation failed (TTL-only fallback): %s",
+                e,
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return
+
+        # Process results
+        valid_ids = {str(g.id) for g in sent_goals}
+        for result in evaluation.results:
+            if result.goal_id not in valid_ids:
+                continue
+            if result.is_complete and result.confidence >= 0.7:
+                # Validate goal_id format before DB operations
+                try:
+                    from uuid import UUID
+
+                    goal_uuid = UUID(result.goal_id)
+                except ValueError:
+                    logger.warning(
+                        "LLM returned invalid goal_id format: %r",
+                        result.goal_id,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                    continue
+
+                # Complete the goal in DB
+                try:
+                    completed = await self.goals.complete_goal(goal_uuid)
+                except Exception:
+                    logger.error(
+                        "Failed to complete non-numeric goal %s in database",
+                        result.goal_id,
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                    continue
+
+                if completed is None:
+                    logger.warning(
+                        "Goal %s not found when completing (may already be done)",
+                        result.goal_id,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                    continue
+
+                logger.info(
+                    "Completed non-numeric goal per LLM evaluation: %s (confidence=%.2f)",
+                    result.reasoning[:60],
+                    result.confidence,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+                # Emit achievement hook (optional — failure here is non-critical)
+                matched = [g for g in sent_goals if str(g.id) == result.goal_id]
+                if matched and hasattr(self, "_hooks"):
+                    try:
+                        await self._hooks.emit(
+                            HOOK_GOAL_ACHIEVED,
+                            goal_id=result.goal_id,
+                            goal_description=getattr(matched[0], "description", ""),
+                            goal_type=getattr(matched[0], "goal_type", ""),
+                            reasoning=result.reasoning,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Hook emission failed for goal %s",
+                            result.goal_id,
+                            exc_info=True,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
 
     async def _check_goal_achievement(
         self,
