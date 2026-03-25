@@ -25,6 +25,7 @@ continuous loop, lifecycle hooks, and shared state.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -332,9 +333,8 @@ class ProactiveExecutionLoop(
                 # ============ METRICS ============
                 cycle_duration = time.time() - cycle_start
 
-                # TODO: Add actual metrics collection (Prometheus, etc.)
-                # metrics.histogram("proactive_loop.cycle_duration", cycle_duration)
-                # metrics.gauge("proactive_loop.cycle_count", self.cycle_count)
+                # Persist cycle metrics to DB for dashboard visibility
+                await self._record_cycle_metrics(cycle_duration, success=True)
 
                 logger.debug(
                     f"Loop cycle {self.cycle_count} complete",
@@ -387,8 +387,8 @@ class ProactiveExecutionLoop(
                         extra={"employee_id": str(self.employee.id)},
                     )
 
-                # TODO: Add metrics for errors
-                # metrics.increment("proactive_loop.errors")
+                with contextlib.suppress(Exception):
+                    await self._record_cycle_metrics(cycle_duration, success=False)
 
                 # Back off on errors (check is_running flag during sleep for prompt shutdown)
                 if not self.is_running:
@@ -694,6 +694,36 @@ class ProactiveExecutionLoop(
             chunk = min(0.1, remaining)
             await asyncio.sleep(chunk)
             remaining -= chunk
+
+    async def _record_cycle_metrics(self, duration_seconds: float, *, success: bool) -> None:
+        """Persist cycle metrics to DB for dashboard visibility."""
+        if not hasattr(self.beliefs, "session"):
+            return
+        try:
+            from empla.services.metrics import record_cycle_metrics
+
+            # Collect tool stats from health monitor if available
+            tool_stats = None
+            if self.tool_router and hasattr(self.tool_router, "health_monitor"):
+                monitor = self.tool_router.health_monitor
+                if hasattr(monitor, "get_all_status"):
+                    tool_stats = monitor.get_all_status()
+
+            await record_cycle_metrics(
+                self.beliefs.session,
+                tenant_id=self.employee.tenant_id,
+                employee_id=self.employee.id,
+                cycle_count=self.cycle_count,
+                duration_seconds=duration_seconds,
+                success=success,
+                tool_stats=tool_stats,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to record cycle metrics",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     async def _safe_commit(self, phase: str) -> None:
         """Commit the shared session after a phase, rolling back on failure."""
