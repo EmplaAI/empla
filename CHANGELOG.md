@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-03-25 - Playbook System with Autonomous Discovery
+
+**Phase:** Phase 4 — Efficiency + Intelligence (PR 1 of 4)
+
+### Added
+
+- **Playbook system** extending ProceduralMemory. Procedures that demonstrate
+  consistent success (3+ executions, 70%+ success rate) are automatically
+  promoted to executable playbooks. Planning checks for matching playbooks
+  before calling the LLM — when found, creates intentions directly from
+  playbook steps, skipping the LLM call entirely.
+- **Autonomous playbook discovery** in deep reflection cycle. Evaluates
+  procedures for promotion after each reflection, promoting eligible ones
+  with logging.
+- **Playbook success feedback loop.** Execution outcomes update playbook
+  success_rate. Auto-demotes playbooks with <50% success after 5+ runs.
+- New model fields: `is_playbook`, `promoted_at` on ProceduralMemory.
+- New methods: `find_playbooks()`, `promote_to_playbook()`,
+  `evaluate_for_promotion()`.
+- Playbook index for fast tenant-scoped lookup.
+
+### Fixed
+
+- JSONB query bind parameter collision (was using same `:cond` name for
+  multiple conditions, causing overly broad matching).
+- Preserved `learned_from` on promotion (was unconditionally overwriting).
+
+---
+
 ## 2026-03-24 - Dashboard-Native Cycle Metrics
 
 **Phase:** Production Foundation
