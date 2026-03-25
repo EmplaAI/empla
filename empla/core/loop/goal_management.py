@@ -52,6 +52,7 @@ class GoalManagementMixin:
 
         # Check for expired opportunity/problem goals (TTL)
         now = datetime.now(UTC)
+        abandoned_ids: set[Any] = set()
         for goal in goals:
             target = getattr(goal, "target", {}) or {}
             max_age_hours = target.get("max_age_hours")
@@ -60,6 +61,7 @@ class GoalManagementMixin:
                 if created and (now - created).total_seconds() > max_age_hours * 3600:
                     try:
                         await self.goals.abandon_goal(goal.id)
+                        abandoned_ids.add(goal.id)
                         logger.info(
                             "Abandoned expired goal: %s (age > %dh)",
                             getattr(goal, "description", "")[:50],
@@ -73,8 +75,11 @@ class GoalManagementMixin:
                             extra={"employee_id": str(self.employee.id)},
                         )
 
+        # Exclude TTL-abandoned goals so LLM doesn't evaluate stale entries
+        remaining_goals = [g for g in goals if g.id not in abandoned_ids]
+
         # LLM completion check for opportunity/problem goals (no numeric target)
-        await self._evaluate_non_numeric_goals(goals, changed_beliefs)
+        await self._evaluate_non_numeric_goals(remaining_goals, changed_beliefs)
 
         # Filter to goals with numeric target metrics
         evaluable_goals = []

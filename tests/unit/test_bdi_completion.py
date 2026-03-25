@@ -275,12 +275,19 @@ class TestDeepReflectionBeliefConversion:
 
     @pytest.mark.asyncio
     async def test_records_procedural_memory_on_low_success(self):
-        """Low success rate should trigger procedural memory recording."""
+        """Low success rate should trigger procedural memory recording with correct kwargs."""
         mixin = self._make_mixin()
 
         await mixin._convert_insights_to_beliefs("Strategy failing badly", 0.3)
 
         mixin.memory.procedural.record_procedure.assert_called_once()
+        call_kwargs = mixin.memory.procedural.record_procedure.call_args.kwargs
+        assert isinstance(call_kwargs["procedure_type"], str)
+        assert len(call_kwargs["procedure_type"]) > 0
+        assert isinstance(call_kwargs["steps"], list)
+        assert len(call_kwargs["steps"]) > 0
+        assert all(isinstance(s, dict) for s in call_kwargs["steps"])
+        assert isinstance(call_kwargs["success"], bool)
 
     @pytest.mark.asyncio
     async def test_no_procedural_memory_on_high_success(self):

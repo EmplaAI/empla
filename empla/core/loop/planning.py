@@ -171,6 +171,10 @@ class PlanningMixin:
                 # reflect the current goal set.
                 await self._refresh_identity_prompt()
 
+            # Re-fetch active goals after mutations (abandon/create/reprioritize)
+            # so plan generation works with the current set, not a stale snapshot.
+            active_goals = await self.goals.get_active_goals()
+
             # ============ STEP 4: Generate Plans for Goals Without Intentions ============
             await self._generate_plans_for_unplanned_goals(
                 goals=active_goals,
