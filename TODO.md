@@ -1,101 +1,57 @@
 # empla - Roadmap
 
-> **Updated:** 2026-03-20
-> **Strategy:** Phase 3B (Real-World Integrations) complete. BDI loop optimized,
-> direct HubSpot/Calendar/Email connectors live, trust boundary + health monitoring
-> active. Next: Prometheus metrics, test coverage push, production hardening.
-> **Reference:** `ARCHITECTURE.md`, `docs/designs/real-integrations-2026-03.md`
+> **Updated:** 2026-03-24
+> **Strategy:** Production Foundation in progress. BDI loop complete (including
+> GoalRecommendation, deep reflection → beliefs, non-numeric goal completion).
+> JWT auth shipped. Next: dashboard metrics, test coverage push, then re-plan
+> Phase 4 direction.
+> **Reference:** `ARCHITECTURE.md`, `docs/designs/product-strategy-2026-03.md`
 
 ---
 
 ## Current State
 
-Tests: 787 collected, ~57% coverage | Employees: SalesAE, CSM
-Working: Optimized BDI loop (batch beliefs, all memory wired, transaction boundaries).
-Direct HubSpot CRM + Google Calendar + Email connectors via httpx. Trust boundary
-(taint-based, global deny, role restrictions). Integration health monitoring with
-BDI belief generation. OAuth credential injection at startup. Dashboard with BDI
-tabs (Goals, Intentions, Beliefs). Execution loop split into 7 focused modules.
+Tests: 781 collected, ~52% coverage | Employees: SalesAE, CSM
+Working: Complete BDI loop with GoalRecommendation, deep reflection belief
+conversion, non-numeric goal LLM completion checks. Direct HubSpot CRM +
+Google Calendar + Email connectors via httpx. Trust boundary (taint-based,
+global deny, role restrictions). Integration health monitoring with BDI belief
+generation. OAuth credential injection at startup. JWT authentication (HS256)
+with production guards. Dashboard with BDI tabs (Goals, Intentions, Beliefs).
+Execution loop split into 7 focused modules.
 
 ---
 
-## Phase 3C: Loop Optimization & Subsystem Wiring (~3 days with Claude Code)
+## Production Foundation (in progress)
 
-Architecture review items. Fix the loop before adding more integrations.
+Remaining items from the Production Foundation plan (CEO + Eng reviewed).
 
-### Sprint 1: LLM Call Reduction & Dead Code (~1.5 days)
+### 1. Dashboard metrics
 
-1. **Batch belief extraction** — single LLM call for all observations instead
-   of one per observation. Biggest cost savings (eliminates 5–15 LLM calls/cycle).
+Persist cycle duration, LLM call counts, LLM token/cost estimates, and tool
+success/failure per cycle in the database. Expose via API endpoints. Add
+Metrics tab to dashboard. Uses existing IntegrationHealthMonitor data.
 
-2. **Feed plan into execution** — pass `intention.plan` steps to the execution
-   LLM prompt. Currently generated plans are stored but ignored at execution time.
+### 2. Test coverage push (52% → 80%)
 
-3. **Wire belief decay** — call `decay_beliefs()` at cycle start. Currently
-   beliefs accumulate without bound.
-
-4. **Wire `GoalRecommendation`** — let strategic planning abandon/reprioritize
-   goals. Model exists but is never used. Goals only grow today.
-
-5. **Add transaction boundaries** — commit at phase boundaries instead of
-   relying on a single uncommitted session for the entire cycle.
-
-6. **Fix opportunity/problem goals** — add TTL or LLM-based completion check.
-   Currently these goals can never complete (no numeric target).
-
-### Sprint 2: Wire Orphaned Subsystems (~1.5 days)
-
-7. **Wire working memory** — use as LLM context window during perception and
-   execution. Store current focus, recent tool results, active context.
-
-8. **Wire semantic memory** — accumulate domain knowledge (company info, contact
-   details, learned facts) across cycles. Feed into perception and planning prompts.
-
-9. **Close deep reflection loop** — read back `deep_reflection` episodes and
-   convert insights into beliefs or procedural memory adjustments.
-
-10. **Direct tool-to-belief mapping** — structured tool results (CRM metrics,
-    calendar events) should update beliefs without LLM intermediation. Reserve
-    LLM extraction for unstructured content (emails, documents).
+Write tests for untested paths across the codebase. Focus on: BDI loop
+integration paths, API endpoints (TestClient), LLM service error handling,
+integration connectors, and settings validation.
 
 ---
 
-## Phase 3B: Core Integrations (~2 days with Claude Code)
+## Phase 4: TBD — Re-plan After Production Data
 
-After the loop is optimized, add integrations for real-world work.
+Direction to be decided after Production Foundation ships and we have metrics
+data from real usage. Candidates (from CEO review):
 
-### 1. CRM adapter (HubSpot / Salesforce)
+- **Efficiency + Intelligence** — Playbook system, adaptive cycle frequency,
+  event-driven triggers. Drops LLM cost from ~$65/day to ~$10-15/day.
+- **Native Workspace** — empla-native contacts, pipeline, tasks. Competitive
+  moat. Decouples from external APIs.
+- **Hybrid** — cherry-pick from both based on production observations.
 
-MCP server or native tool for read/write CRM access — contacts, deals,
-pipeline stages. Required for SalesAE and CSM to do real work.
-
-### 2. Calendar adapter (Google Calendar)
-
-Read/write calendar events. OAuth infrastructure exists for Google.
-
-### 3. Gmail send completion
-
-Receive works via MCP bridge. Complete the send path.
-
----
-
-## Phase 4: Playbooks & Event-Driven (~3 days with Claude Code)
-
-### 1. Playbook system
-
-Codified tool call sequences (prospecting, pipeline review, lead response)
-that the LLM selects and parameterizes instead of regenerating from scratch.
-Evolution of procedural memory into executable recipes.
-
-### 2. Event-driven triggers
-
-React to new emails, CRM changes, calendar events instead of polling every
-5 minutes. Proactive loop becomes fallback for "nothing happened."
-
-### 3. Adaptive cycle frequency
-
-If nothing changed, wait longer. If significant changes detected, cycle faster.
-Currently fixed at `cycle_interval_seconds`.
+Run `/plan-ceo-review` after Production Foundation merges to decide.
 
 ---
 
@@ -111,10 +67,12 @@ Currently fixed at `cycle_interval_seconds`.
 
 ## Backlog
 
+- Password/OAuth verification on login — User model needs password field,
+  bcrypt hashing, or OAuth/SAML flow. Required before multi-tenant production.
 - Dashboard trust boundary controls — per-tenant settings for high-risk
-  tool classification, global deny lists, and role restrictions. Currently
-  code-level config in `empla/core/tools/trust.py`. Build alongside the
-  integrations dashboard (Phase 3B Step 5) as a "Trust & Security" panel.
+  tool classification, global deny lists, and role restrictions
+- Token revocation — jti claim, revocation list for compromised tokens
+- Rate limiting on auth endpoints
 - Observation prioritization — let perception LLM classify importance
 - Structured world model — replace SPO belief triples with typed domain model
 - Goal-task trees — hierarchical decomposition instead of flat goals + intentions
@@ -157,12 +115,29 @@ plan influence
 **Phase 3A.5 — E2E Validation (2026-03-17/18):**
 Full E2E test with production code + test MCP servers (15 tests). Runner wires
 MCP servers from DB. Vertex AI schema sanitization. Fixed DB constraint
-mismatches (integrations, beliefs, procedural memory). Fixed intention
-start/complete/fail UUID passing. Activity recorder commit fix. Dashboard:
-is_running from DB status, roles trailing slash, BDI tabs (Goals, Intentions,
-Beliefs endpoints + React hooks + UI). Goal/intention dedup. Belief extraction
-prompt improvement. Architecture review.
+mismatches. Dashboard BDI tabs. Goal/intention dedup. Belief extraction
+prompt improvement.
+
+**Phase 3B — Real-World Integrations (PRs #61-#67, 2026-03-19/20):**
+Direct HubSpot CRM + Google Calendar + Email connectors via httpx. OAuth
+credential injection at startup. LLM trust boundary (taint-based, global deny,
+role restrictions). Integration health monitoring with BDI belief generation.
+Execution loop refactored into 7 focused modules via mixin pattern.
+ARCHITECTURE.md rewritten to reflect reality.
+
+**Phase 3C — BDI Loop Completion (PR #68, 2026-03-24):**
+GoalRecommendation wired into strategic planning (description-based fuzzy
+matching). Deep reflection insights converted to typed beliefs
+(strategy_effectiveness, known_failure_patterns, improvement_opportunities)
+and procedural memory. Non-numeric goal LLM completion checks alongside TTL.
+37 new tests.
+
+**Production Foundation — JWT Auth (PR #69, 2026-03-24):**
+Replaced stub user_id:tenant_id tokens with JWT (HS256). Production guards
+(fail-fast on default/short secret in non-dev, algorithm locked to HMAC
+family). Unified error messages prevent tenant enumeration. PyJWTError catch
+for config errors. 27 new tests.
 
 ---
 
-**Last Updated:** 2026-03-20
+**Last Updated:** 2026-03-24
