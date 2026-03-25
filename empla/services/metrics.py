@@ -37,6 +37,11 @@ def _compute_tool_deltas(
 
     Returns (deltas, new_snapshot). The caller must persist new_snapshot
     to _previous_tool_stats only after successful DB flush.
+
+    TODO: Current implementation aggregates all integrations before computing
+    deltas. If an individual tool resets (e.g. MCP server restart), its counter
+    drop can mask increases from other tools. Fix by storing per-tool snapshots
+    keyed by tool name, computing per-tool deltas (clamped to 0), then summing.
     """
     current_total = sum(s.get("total_calls", 0) for s in tool_stats)
     current_failed = sum(s.get("failure_count", 0) + s.get("timeout_count", 0) for s in tool_stats)

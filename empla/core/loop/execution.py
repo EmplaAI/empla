@@ -706,6 +706,8 @@ class ProactiveExecutionLoop(
         if sessionmaker is None:
             return
         try:
+            # Deferred import: empla.services.metrics imports empla.models which
+            # may not be available at module load time in all contexts (e.g. tests).
             from empla.services.metrics import (
                 _previous_tool_stats,
                 record_cycle_metrics,

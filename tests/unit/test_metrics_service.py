@@ -219,29 +219,36 @@ class TestRecordCycleMetrics:
 
     @pytest.mark.asyncio
     async def test_flush_failure_rolls_back(self, mock_db):
-        """Flush failure should attempt rollback, not crash."""
+        """Flush failure should attempt rollback and preserve cache."""
+        eid = uuid4()
+        _previous_tool_stats[eid] = {"total": 5, "failed": 1, "latency_sum": 500.0}
+        original = _previous_tool_stats[eid].copy()
         mock_db.flush = AsyncMock(side_effect=Exception("DB error"))
 
         await record_cycle_metrics(
             mock_db,
             tenant_id=uuid4(),
-            employee_id=uuid4(),
+            employee_id=eid,
             cycle_count=1,
             duration_seconds=1.0,
             success=True,
         )
 
         mock_db.rollback.assert_called_once()
+        assert _previous_tool_stats[eid] == original
 
     @pytest.mark.asyncio
     async def test_flush_failure_returns_none(self, mock_db):
-        """On flush failure, record_cycle_metrics should return None (no snapshot)."""
+        """On flush failure, return None and preserve cache."""
+        eid = uuid4()
+        _previous_tool_stats[eid] = {"total": 10, "failed": 2, "latency_sum": 1000.0}
+        original = _previous_tool_stats[eid].copy()
         mock_db.flush = AsyncMock(side_effect=Exception("DB error"))
 
         result = await record_cycle_metrics(
             mock_db,
             tenant_id=uuid4(),
-            employee_id=uuid4(),
+            employee_id=eid,
             cycle_count=2,
             duration_seconds=1.0,
             success=True,
@@ -250,8 +257,9 @@ class TestRecordCycleMetrics:
             ],
         )
 
-        assert result is None  # Caller should not update cache
+        assert result is None
         mock_db.rollback.assert_called_once()
+        assert _previous_tool_stats[eid] == original
 
     @pytest.mark.asyncio
     async def test_each_metric_gets_own_tags_dict(self, mock_db):
