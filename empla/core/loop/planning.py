@@ -534,14 +534,8 @@ What changes do you recommend to the goal portfolio?"""
                 continue
 
             try:
-                await self.goals.abandon_goal(
+                abandoned = await self.goals.abandon_goal(
                     matched_goal.id, reason=recommendation.reasoning[:200]
-                )
-                abandoned_count += 1
-                logger.info(
-                    "Abandoned goal per LLM recommendation: %s",
-                    getattr(matched_goal, "description", "")[:60],
-                    extra={"employee_id": str(self.employee.id)},
                 )
             except Exception as e:
                 logger.warning(
@@ -552,6 +546,22 @@ What changes do you recommend to the goal portfolio?"""
                 )
                 await self._safe_rollback_goals()
                 return
+
+            if abandoned is None:
+                logger.warning(
+                    "Goal not found when abandoning: %s",
+                    getattr(matched_goal, "description", "")[:60],
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                await self._safe_rollback_goals()
+                return
+
+            abandoned_count += 1
+            logger.info(
+                "Abandoned goal per LLM recommendation: %s",
+                getattr(matched_goal, "description", "")[:60],
+                extra={"employee_id": str(self.employee.id)},
+            )
 
         # Process priority adjustments
         adjusted_count = 0
@@ -567,14 +577,7 @@ What changes do you recommend to the goal portfolio?"""
 
             try:
                 new_priority = max(1, min(10, int(new_priority)))
-                await self.goals.update_goal_priority(matched_goal.id, new_priority)
-                adjusted_count += 1
-                logger.info(
-                    "Adjusted goal priority per LLM: %s → %d",
-                    getattr(matched_goal, "description", "")[:60],
-                    new_priority,
-                    extra={"employee_id": str(self.employee.id)},
-                )
+                updated = await self.goals.update_goal_priority(matched_goal.id, new_priority)
             except Exception as e:
                 logger.warning(
                     "Failed to adjust goal priority: %s",
@@ -584,6 +587,23 @@ What changes do you recommend to the goal portfolio?"""
                 )
                 await self._safe_rollback_goals()
                 return
+
+            if updated is None:
+                logger.warning(
+                    "Goal not found when adjusting priority: %s",
+                    getattr(matched_goal, "description", "")[:60],
+                    extra={"employee_id": str(self.employee.id)},
+                )
+                await self._safe_rollback_goals()
+                return
+
+            adjusted_count += 1
+            logger.info(
+                "Adjusted goal priority per LLM: %s → %d",
+                getattr(matched_goal, "description", "")[:60],
+                new_priority,
+                extra={"employee_id": str(self.employee.id)},
+            )
 
         if abandoned_count or adjusted_count:
             logger.info(
@@ -606,6 +626,9 @@ What changes do you recommend to the goal portfolio?"""
         Uses word-level Jaccard similarity (via _words_overlap). Returns the
         goal with the highest overlap above the 0.4 threshold, or None.
         """
+        if not description or not description.strip():
+            return None
+
         desc_lower = description.lower()
         best_score = 0.0
         best_goal = None

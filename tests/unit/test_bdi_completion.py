@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from empla.core.loop.models import NonNumericGoalBatchEvaluation, NonNumericGoalEvaluation
 from empla.core.loop.protocols import GoalRecommendation, SituationAnalysis
@@ -89,7 +90,7 @@ class TestGoalRecommendation:
 
     def test_model_validates_required_fields(self):
         """GoalRecommendation requires reasoning field."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             GoalRecommendation(
                 goals_to_abandon=[],
                 priority_adjustments=[],
@@ -156,6 +157,16 @@ class TestFuzzyMatchGoal:
 
         result = mixin._fuzzy_match_goal("improve customer satisfaction scores", goals_by_desc)
         assert result is None
+
+    def test_empty_description_returns_none(self):
+        """Empty or whitespace-only description should not match any goal."""
+        mixin = self._make_mixin()
+        goal = MockGoal(description="Some goal")
+        goals_by_desc = {"Some goal": goal}
+
+        assert mixin._fuzzy_match_goal("", goals_by_desc) is None
+        assert mixin._fuzzy_match_goal("   ", goals_by_desc) is None
+        assert mixin._fuzzy_match_goal("\n\t", goals_by_desc) is None
 
     def test_empty_goals_returns_none(self):
         """Empty goals dict should return None."""
@@ -350,7 +361,7 @@ class TestNonNumericGoalEvaluation:
 
     def test_confidence_range_validation(self):
         """Confidence must be between 0 and 1."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             NonNumericGoalEvaluation(
                 goal_id=str(uuid4()),
                 is_complete=True,
@@ -408,8 +419,8 @@ class TestApplyGoalRecommendations:
         mixin.employee = Mock(id=uuid4())
         mixin.llm_service = MockLLMService()
         mixin.goals = Mock()
-        mixin.goals.abandon_goal = AsyncMock()
-        mixin.goals.update_goal_priority = AsyncMock()
+        mixin.goals.abandon_goal = AsyncMock(return_value=Mock())  # truthy = success
+        mixin.goals.update_goal_priority = AsyncMock(return_value=Mock())  # truthy = success
         mixin._identity_prompt = "You are a sales AE."
         return mixin
 
@@ -555,7 +566,7 @@ class TestEvaluateNonNumericGoals:
         mixin.employee = Mock(id=uuid4())
         mixin.llm_service = MockLLMService()
         mixin.goals = Mock()
-        mixin.goals.complete_goal = AsyncMock()
+        mixin.goals.complete_goal = AsyncMock(return_value=Mock())  # truthy = success
         mixin._hooks = Mock()
         mixin._hooks.emit = AsyncMock()
         return mixin

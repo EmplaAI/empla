@@ -515,13 +515,13 @@ Analyze the patterns and provide brief recommendations."""
         if hasattr(self.memory, "procedural") and success_rate < 0.5:
             try:
                 await self.memory.procedural.record_procedure(
-                    name="reflection_adjustment",
-                    description=f"Strategy adjustment needed: {analysis[:200]}",
+                    procedure_type="reflection_adjustment",
+                    name=f"Strategy adjustment: {analysis[:100]}",
                     steps=[
-                        "Review failing patterns from deep reflection",
-                        "Adjust approach based on identified issues",
+                        {"action": "Review failing patterns from deep reflection"},
+                        {"action": "Adjust approach based on identified issues"},
                     ],
-                    effectiveness=success_rate,
+                    success=success_rate >= 0.5,
                     context={"source": "deep_reflection", "success_rate": success_rate},
                 )
             except Exception:

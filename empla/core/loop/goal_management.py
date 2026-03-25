@@ -310,12 +310,20 @@ Only include goals where you can determine a numeric value."""
 
                 # Complete the goal in DB
                 try:
-                    await self.goals.complete_goal(goal_uuid)
+                    completed = await self.goals.complete_goal(goal_uuid)
                 except Exception:
                     logger.error(
                         "Failed to complete non-numeric goal %s in database",
                         result.goal_id,
                         exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+                    continue
+
+                if completed is None:
+                    logger.warning(
+                        "Goal %s not found when completing (may already be done)",
+                        result.goal_id,
                         extra={"employee_id": str(self.employee.id)},
                     )
                     continue
@@ -333,11 +341,10 @@ Only include goals where you can determine a numeric value."""
                     try:
                         await self._hooks.emit(
                             HOOK_GOAL_ACHIEVED,
-                            {
-                                "goal_id": result.goal_id,
-                                "description": getattr(matched[0], "description", ""),
-                                "reasoning": result.reasoning,
-                            },
+                            goal_id=result.goal_id,
+                            goal_description=getattr(matched[0], "description", ""),
+                            goal_type=getattr(matched[0], "goal_type", ""),
+                            reasoning=result.reasoning,
                         )
                     except Exception:
                         logger.debug(
