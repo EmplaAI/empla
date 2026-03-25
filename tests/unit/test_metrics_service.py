@@ -223,6 +223,31 @@ class TestRecordCycleMetrics:
         mock_db.rollback.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_flush_failure_preserves_tool_stats_cache(self, mock_db):
+        """On flush failure, _previous_tool_stats should NOT advance."""
+        eid = uuid4()
+        # Seed baseline
+        _previous_tool_stats[eid] = {"total": 5, "failed": 1, "latency_sum": 500.0}
+        original = _previous_tool_stats[eid].copy()
+
+        mock_db.flush = AsyncMock(side_effect=Exception("DB error"))
+
+        await record_cycle_metrics(
+            mock_db,
+            tenant_id=uuid4(),
+            employee_id=eid,
+            cycle_count=2,
+            duration_seconds=1.0,
+            success=True,
+            tool_stats=[
+                {"total_calls": 20, "failure_count": 3, "timeout_count": 0, "avg_latency_ms": 100.0}
+            ],
+        )
+
+        # Cache should not have advanced
+        assert _previous_tool_stats[eid] == original
+
+    @pytest.mark.asyncio
     async def test_each_metric_gets_own_tags_dict(self, mock_db):
         """Each metric should have its own tags dict (no shared reference)."""
         await record_cycle_metrics(

@@ -696,8 +696,14 @@ class ProactiveExecutionLoop(
             remaining -= chunk
 
     async def _record_cycle_metrics(self, duration_seconds: float, *, success: bool) -> None:
-        """Persist cycle metrics to DB for dashboard visibility."""
-        if not hasattr(self.beliefs, "session"):
+        """Persist cycle metrics to DB using a short-lived independent session.
+
+        Uses a separate session so metrics writes don't pollute the BDI
+        loop's long-lived session. Committed independently.
+        """
+        # Get the sessionmaker from the employee (set during start())
+        sessionmaker = getattr(self.employee, "_sessionmaker", None)
+        if sessionmaker is None:
             return
         try:
             from empla.services.metrics import record_cycle_metrics
@@ -709,15 +715,17 @@ class ProactiveExecutionLoop(
                 if hasattr(monitor, "get_all_status"):
                     tool_stats = monitor.get_all_status()
 
-            await record_cycle_metrics(
-                self.beliefs.session,
-                tenant_id=self.employee.tenant_id,
-                employee_id=self.employee.id,
-                cycle_count=self.cycle_count,
-                duration_seconds=duration_seconds,
-                success=success,
-                tool_stats=tool_stats,
-            )
+            async with sessionmaker() as metrics_session:
+                await record_cycle_metrics(
+                    metrics_session,
+                    tenant_id=self.employee.tenant_id,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                    duration_seconds=duration_seconds,
+                    success=success,
+                    tool_stats=tool_stats,
+                )
+                await metrics_session.commit()
         except Exception:
             logger.debug(
                 "Failed to record cycle metrics",

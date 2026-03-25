@@ -9,7 +9,7 @@ Metrics recorded per cycle:
   cycle.success             — gauge     — 1.0 if cycle succeeded, 0.0 if failed
   tool.calls_total          — counter   — tool calls this cycle (delta, not cumulative)
   tool.calls_failed         — counter   — failed tool calls this cycle (delta)
-  tool.avg_latency_ms       — gauge     — average tool call latency this cycle
+  tool.latency_sum_ms       — counter   — total tool latency this cycle (for weighted avg)
 """
 
 from __future__ import annotations
@@ -32,11 +32,11 @@ _previous_tool_stats: dict[UUID, dict[str, float]] = {}
 def _compute_tool_deltas(
     employee_id: UUID,
     tool_stats: list[dict[str, Any]],
-) -> dict[str, float]:
+) -> tuple[dict[str, float], dict[str, float]]:
     """Compute per-cycle tool call deltas from cumulative HealthMonitor stats.
 
-    The IntegrationHealthMonitor tracks cumulative counts. We store the
-    previous cycle's totals and subtract to get per-cycle values.
+    Returns (deltas, new_snapshot). The caller must persist new_snapshot
+    to _previous_tool_stats only after successful DB flush.
     """
     current_total = sum(s.get("total_calls", 0) for s in tool_stats)
     current_failed = sum(s.get("failure_count", 0) + s.get("timeout_count", 0) for s in tool_stats)
@@ -52,20 +52,20 @@ def _compute_tool_deltas(
     delta_total = max(0, current_total - prev_total)
     delta_failed = max(0, current_failed - prev_failed)
     delta_latency_sum = max(0, current_latency_sum - prev_latency_sum)
-    delta_avg_latency = delta_latency_sum / delta_total if delta_total > 0 else 0.0
 
-    # Store current as previous for next cycle
-    _previous_tool_stats[employee_id] = {
+    new_snapshot = {
         "total": current_total,
         "failed": current_failed,
         "latency_sum": current_latency_sum,
     }
 
-    return {
+    deltas = {
         "total": float(delta_total),
         "failed": float(delta_failed),
-        "avg_latency": round(delta_avg_latency, 1),
+        "latency_sum": round(delta_latency_sum, 1),
     }
+
+    return deltas, new_snapshot
 
 
 async def record_cycle_metrics(
@@ -112,8 +112,9 @@ async def record_cycle_metrics(
     ]
 
     # Tool call stats — compute per-cycle deltas from cumulative counters
+    new_snapshot = None
     if tool_stats:
-        deltas = _compute_tool_deltas(employee_id, tool_stats)
+        deltas, new_snapshot = _compute_tool_deltas(employee_id, tool_stats)
         metrics.extend(
             [
                 Metric(
@@ -135,9 +136,9 @@ async def record_cycle_metrics(
                 Metric(
                     tenant_id=tenant_id,
                     employee_id=employee_id,
-                    metric_name="tool.avg_latency_ms",
-                    metric_type="gauge",
-                    value=deltas["avg_latency"],
+                    metric_name="tool.latency_sum_ms",
+                    metric_type="counter",
+                    value=deltas["latency_sum"],
                     tags={"cycle": cycle_count},
                 ),
             ]
@@ -148,6 +149,9 @@ async def record_cycle_metrics(
 
     try:
         await db.flush()
+        # Only advance the baseline after successful flush
+        if new_snapshot is not None:
+            _previous_tool_stats[employee_id] = new_snapshot
     except Exception:
         logger.warning(
             "Failed to flush cycle metrics, rolling back",

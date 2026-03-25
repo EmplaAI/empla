@@ -117,7 +117,8 @@ async def get_metric_summary(
         Metric.deleted_at.is_(None),
     )
     success_result = await db.execute(success_query)
-    success_rate = float(success_result.scalar() or 0.0)
+    success_scalar = success_result.scalar()
+    success_rate = float(success_scalar) if success_scalar is not None else 0.0
 
     # Tool call totals
     tool_total_query = select(func.sum(Metric.value)).where(
@@ -140,15 +141,16 @@ async def get_metric_summary(
 
     tool_failure_rate = tool_failed / tool_total if tool_total > 0 else 0.0
 
-    # Avg tool latency
-    latency_query = select(func.avg(Metric.value)).where(
+    # Weighted avg tool latency: SUM(latency_sum) / SUM(calls_total)
+    latency_sum_query = select(func.sum(Metric.value)).where(
         Metric.tenant_id == auth.tenant_id,
         Metric.employee_id == employee_id,
-        Metric.metric_name == "tool.avg_latency_ms",
+        Metric.metric_name == "tool.latency_sum_ms",
         Metric.timestamp >= since,
         Metric.deleted_at.is_(None),
     )
-    avg_latency = float((await db.execute(latency_query)).scalar() or 0)
+    latency_sum = float((await db.execute(latency_sum_query)).scalar() or 0)
+    avg_latency = latency_sum / tool_total if tool_total > 0 else 0.0
 
     return MetricSummary(
         employee_id=employee_id,
