@@ -306,6 +306,9 @@ class ReflectionMixin:
             # ============ STEP 5: Reinforce/Decay Memory ============
             await self._maintain_memory_health()
 
+            # ============ STEP 6: Autonomous Playbook Discovery ============
+            await self._discover_playbooks()
+
             duration_ms = (time.time() - start_time) * 1000
 
             logger.info(
@@ -530,6 +533,61 @@ Analyze the patterns and provide brief recommendations."""
                     exc_info=True,
                     extra={"employee_id": str(self.employee.id)},
                 )
+
+    async def _discover_playbooks(self) -> None:
+        """Autonomous playbook discovery — promote successful procedures.
+
+        Evaluates procedures that have been executed enough times with
+        sufficient success rate and promotes them to executable playbooks.
+        This is the core learning mechanism: employees get cheaper over time
+        because playbooks skip LLM calls for known patterns.
+        """
+        if not hasattr(self.memory, "procedural"):
+            return
+        if not hasattr(self.memory.procedural, "evaluate_for_promotion"):
+            return
+
+        try:
+            candidates = await self.memory.procedural.evaluate_for_promotion(
+                min_executions=3,
+                min_success_rate=0.7,
+                limit=5,
+            )
+
+            promoted_count = 0
+            for proc in candidates:
+                try:
+                    result = await self.memory.procedural.promote_to_playbook(proc.id)
+                    if result and result.is_playbook:
+                        promoted_count += 1
+                        logger.info(
+                            "Promoted procedure to playbook: %s (success_rate=%.0f%%, executions=%d)",
+                            proc.name,
+                            proc.success_rate * 100,
+                            proc.execution_count,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
+                except Exception:
+                    logger.debug(
+                        "Failed to promote procedure %s",
+                        proc.name,
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+
+            if promoted_count:
+                logger.info(
+                    "Playbook discovery: promoted %d procedures to playbooks",
+                    promoted_count,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        except Exception:
+            logger.debug(
+                "Playbook discovery failed",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     async def _maintain_memory_health(self) -> None:
         """Perform memory maintenance: reinforce and decay."""

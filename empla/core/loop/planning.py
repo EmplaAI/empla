@@ -681,6 +681,56 @@ What changes do you recommend to the goal portfolio?"""
                 )
                 continue
 
+            # Check for matching playbook FIRST (skip LLM if found)
+            playbook_used = False
+            if hasattr(self.memory, "procedural") and hasattr(
+                self.memory.procedural, "find_playbooks"
+            ):
+                try:
+                    playbooks = await self.memory.procedural.find_playbooks(
+                        situation={
+                            "goal_type": getattr(goal, "goal_type", ""),
+                            "goal_description": getattr(goal, "description", ""),
+                        },
+                        min_success_rate=0.6,
+                        limit=1,
+                    )
+                    if playbooks:
+                        playbook = playbooks[0]
+                        # Create intention directly from playbook steps
+                        await self.intentions.add_intention(
+                            description=f"Execute playbook: {playbook.name}",
+                            intention_type="action",
+                            priority=getattr(goal, "priority", 5),
+                            goal_id=goal_id,
+                            plan=playbook.steps,
+                            context={
+                                "playbook_id": str(playbook.id),
+                                "playbook_name": playbook.name,
+                            },
+                        )
+                        playbook.execution_count += 1
+                        playbook_used = True
+                        logger.info(
+                            "Using playbook for goal (skipping LLM): %s",
+                            playbook.name,
+                            extra={
+                                "employee_id": str(self.employee.id),
+                                "goal_id": str(goal_id),
+                                "playbook_id": str(playbook.id),
+                                "playbook_success_rate": playbook.success_rate,
+                            },
+                        )
+                except Exception:
+                    logger.debug(
+                        "Playbook lookup failed, falling back to LLM",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+
+            if playbook_used:
+                continue
+
             # Query procedural memory for relevant past experience
             past_procedures: list[Any] = []
             if hasattr(self.memory, "procedural"):

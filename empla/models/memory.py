@@ -434,6 +434,20 @@ class ProceduralMemory(TenantScopedModel):
         Vector(1024), nullable=True, comment="1024-dim embedding for semantic similarity"
     )
 
+    # Playbook fields (procedures promoted to executable playbooks)
+    is_playbook: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        comment="Whether this procedure has been promoted to a reusable playbook",
+    )
+
+    promoted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When this procedure was promoted to a playbook (UTC)",
+    )
+
     # Metadata
     learned_from: Mapped[str | None] = mapped_column(
         String(50),
@@ -451,11 +465,13 @@ class ProceduralMemory(TenantScopedModel):
             name="ck_procedural_success_rate",
         ),
         CheckConstraint(
-            "procedure_type IN ('skill', 'workflow', 'heuristic', 'intention_execution')",
+            "procedure_type IN ('skill', 'workflow', 'heuristic', 'intention_execution', "
+            "'playbook', 'reflection_adjustment')",
             name="ck_procedural_procedure_type",
         ),
         CheckConstraint(
-            "learned_from IN ('human_demonstration', 'trial_and_error', 'instruction', 'pre_built')",
+            "learned_from IN ('human_demonstration', 'trial_and_error', 'instruction', "
+            "'pre_built', 'autonomous_discovery', 'deep_reflection')",
             name="ck_procedural_learned_from",
         ),
         Index(
@@ -487,6 +503,13 @@ class ProceduralMemory(TenantScopedModel):
             "name",
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
+        ),
+        # Fast lookup for playbooks
+        Index(
+            "idx_procedural_playbooks",
+            "employee_id",
+            "success_rate",
+            postgresql_where=text("is_playbook = true AND deleted_at IS NULL"),
         ),
     )
 
