@@ -25,6 +25,7 @@ continuous loop, lifecycle hooks, and shared state.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -332,10 +333,6 @@ class ProactiveExecutionLoop(
                 # ============ METRICS ============
                 cycle_duration = time.time() - cycle_start
 
-                # TODO: Add actual metrics collection (Prometheus, etc.)
-                # metrics.histogram("proactive_loop.cycle_duration", cycle_duration)
-                # metrics.gauge("proactive_loop.cycle_count", self.cycle_count)
-
                 logger.debug(
                     f"Loop cycle {self.cycle_count} complete",
                     extra={
@@ -351,6 +348,10 @@ class ProactiveExecutionLoop(
                     duration_seconds=cycle_duration,
                     success=True,
                 )
+
+                # Record success metric AFTER hooks complete — avoids writing
+                # success=True then overwriting with success=False if hook raises.
+                await self._record_cycle_metrics(cycle_duration, success=True)
 
                 # ============ SLEEP ============
                 # Wait before next cycle (check is_running flag during sleep for prompt shutdown)
@@ -387,8 +388,8 @@ class ProactiveExecutionLoop(
                         extra={"employee_id": str(self.employee.id)},
                     )
 
-                # TODO: Add metrics for errors
-                # metrics.increment("proactive_loop.errors")
+                with contextlib.suppress(Exception):
+                    await self._record_cycle_metrics(cycle_duration, success=False)
 
                 # Back off on errors (check is_running flag during sleep for prompt shutdown)
                 if not self.is_running:
@@ -694,6 +695,54 @@ class ProactiveExecutionLoop(
             chunk = min(0.1, remaining)
             await asyncio.sleep(chunk)
             remaining -= chunk
+
+    async def _record_cycle_metrics(self, duration_seconds: float, *, success: bool) -> None:
+        """Persist cycle metrics to DB using a short-lived independent session.
+
+        Uses a separate session so metrics writes don't pollute the BDI
+        loop's long-lived session. Cache update deferred until after commit.
+        """
+        sessionmaker = getattr(self.employee, "_sessionmaker", None)
+        if sessionmaker is None:
+            return
+        try:
+            # Deferred import: empla.services.metrics imports empla.models which
+            # may not be available at module load time in all contexts (e.g. tests).
+            from empla.services.metrics import (
+                _previous_tool_stats,
+                record_cycle_metrics,
+            )
+
+            # Collect tool stats — isolated so failure doesn't lose base metrics
+            tool_stats = None
+            try:
+                if self.tool_router and hasattr(self.tool_router, "health_monitor"):
+                    monitor = self.tool_router.health_monitor
+                    if hasattr(monitor, "get_all_status"):
+                        tool_stats = monitor.get_all_status()
+            except Exception:
+                logger.debug("Health monitor query failed, recording without tool stats")
+
+            async with sessionmaker() as metrics_session:
+                snapshot = await record_cycle_metrics(
+                    metrics_session,
+                    tenant_id=self.employee.tenant_id,
+                    employee_id=self.employee.id,
+                    cycle_count=self.cycle_count,
+                    duration_seconds=duration_seconds,
+                    success=success,
+                    tool_stats=tool_stats,
+                )
+                await metrics_session.commit()
+                # Only advance cache AFTER commit succeeds
+                if snapshot is not None:
+                    _previous_tool_stats[self.employee.id] = snapshot
+        except Exception:
+            logger.debug(
+                "Failed to record cycle metrics",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     async def _safe_commit(self, phase: str) -> None:
         """Commit the shared session after a phase, rolling back on failure."""

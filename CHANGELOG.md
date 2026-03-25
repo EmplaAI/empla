@@ -6,6 +6,26 @@
 
 ---
 
+## 2026-03-24 - Dashboard-Native Cycle Metrics
+
+**Phase:** Production Foundation
+
+### Added
+
+- **Per-cycle BDI loop metrics** persisted to the existing `Metric` table.
+  Recorded: cycle duration, success/failure, tool call totals (per-cycle
+  deltas, not cumulative), tool failures, tool latency.
+- **Metrics API endpoints:** `GET /api/v1/metrics/employees/{id}/summary`
+  (aggregated stats for time window) and `GET /api/v1/metrics/employees/{id}/history`
+  (time-series with pagination).
+- **Delta computation** for tool stats — computes per-cycle differences from
+  the cumulative `IntegrationHealthMonitor` counters, avoiding inflated
+  aggregations.
+- Session rollback on metrics flush failure to prevent BDI session poisoning.
+- 10 new tests covering metric recording, delta computation, edge cases.
+
+---
+
 ## 2026-03-24 - JWT Authentication
 
 **Phase:** Production Foundation

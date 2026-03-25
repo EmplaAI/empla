@@ -26,11 +26,11 @@ Execution loop split into 7 focused modules.
 
 Remaining items from the Production Foundation plan (CEO + Eng reviewed).
 
-### 1. Dashboard metrics
+### ~~1. Dashboard metrics~~ (PR #71)
 
-Persist cycle duration, LLM call counts, LLM token/cost estimates, and tool
-success/failure per cycle in the database. Expose via API endpoints. Add
-Metrics tab to dashboard. Uses existing IntegrationHealthMonitor data.
+~~Persist cycle metrics to DB, expose via API.~~ Done — cycle duration,
+success/failure, tool call deltas, tool latency. API endpoints for summary
+and time-series history. React dashboard panel deferred.
 
 ### 2. Test coverage push (52% → 80%)
 
