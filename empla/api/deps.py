@@ -108,17 +108,24 @@ async def get_current_user(
             algorithms=[settings.jwt_algorithm],
         )
     except jwt.ExpiredSignatureError as e:
+        logger.debug("Expired JWT token presented")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
         ) from e
     except jwt.InvalidTokenError as e:
-        logger.warning("Invalid JWT token: %s", e)
+        logger.warning("Invalid JWT token: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
+        ) from e
+    except jwt.PyJWTError as e:
+        logger.error("JWT configuration error: %s: %s", type(e).__name__, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service error",
         ) from e
 
     # Extract claims
@@ -146,7 +153,7 @@ async def get_current_user(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or invalid tenant",
+            detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -162,7 +169,7 @@ async def get_current_user(
     if tenant is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tenant not found",
+            detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

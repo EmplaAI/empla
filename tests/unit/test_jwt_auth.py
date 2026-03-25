@@ -8,7 +8,7 @@ and the /login + /me endpoints.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import jwt
 import pytest
@@ -251,3 +251,210 @@ class TestJWTSettings:
                 _env_file=None,
                 jwt_algorithm="RS256",
             )
+
+
+# ============================================================================
+# Behavioral Tests — get_current_user() dependency
+# ============================================================================
+
+
+class TestGetCurrentUser:
+    """Tests for the get_current_user dependency in deps.py.
+
+    These test the actual application auth logic, not the JWT library.
+    """
+
+    @pytest.fixture
+    def mock_db(self):
+        """Create a mock async DB session."""
+        from unittest.mock import AsyncMock
+
+        return AsyncMock()
+
+    def _make_credentials(self, token: str):
+        """Create mock HTTPAuthorizationCredentials."""
+        from unittest.mock import Mock
+
+        creds = Mock()
+        creds.credentials = token
+        return creds
+
+    def _make_valid_token(
+        self,
+        user_id: str | None = None,
+        tenant_id: str | None = None,
+        role: str = "member",
+    ) -> tuple[str, str, str]:
+        """Create a valid token and return (token, user_id, tenant_id)."""
+        uid = user_id or str(uuid4())
+        tid = tenant_id or str(uuid4())
+        token = create_access_token(UUID(uid), UUID(tid), role)
+        return token, uid, tid
+
+    def _mock_user(self, user_id: str, tenant_id: str, role: str = "member"):
+        """Create a mock User object."""
+        from unittest.mock import Mock
+
+        user = Mock()
+        user.id = UUID(user_id)
+        user.tenant_id = UUID(tenant_id)
+        user.role = role
+        user.name = "Test User"
+        user.deleted_at = None
+        return user
+
+    def _mock_tenant(self, tenant_id: str, status: str = "active"):
+        """Create a mock Tenant object."""
+        from unittest.mock import Mock
+
+        tenant = Mock()
+        tenant.id = UUID(tenant_id)
+        tenant.name = "Test Tenant"
+        tenant.status = status
+        tenant.deleted_at = None
+        return tenant
+
+    def _setup_db_returns(self, mock_db, user, tenant):
+        """Configure mock DB to return user on first query, tenant on second."""
+        from unittest.mock import AsyncMock, Mock
+
+        user_result = Mock()
+        user_result.scalar_one_or_none.return_value = user
+        tenant_result = Mock()
+        tenant_result.scalar_one_or_none.return_value = tenant
+        mock_db.execute = AsyncMock(side_effect=[user_result, tenant_result])
+
+    @pytest.mark.asyncio
+    async def test_valid_token_returns_auth_context(self, mock_db):
+        """Valid JWT with existing user/tenant returns AuthContext."""
+        from empla.api.deps import get_current_user
+
+        token, uid, tid = self._make_valid_token()
+        user = self._mock_user(uid, tid)
+        tenant = self._mock_tenant(tid)
+        self._setup_db_returns(mock_db, user, tenant)
+
+        ctx = await get_current_user(self._make_credentials(token), mock_db)
+        assert ctx.user_id == UUID(uid)
+        assert ctx.tenant_id == UUID(tid)
+
+    @pytest.mark.asyncio
+    async def test_no_credentials_returns_401(self, mock_db):
+        """Missing Authorization header returns 401."""
+        from fastapi import HTTPException
+
+        from empla.api.deps import get_current_user
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(None, mock_db)
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_expired_token_returns_401(self, mock_db):
+        """Expired JWT returns 401 with 'Token has expired'."""
+        from fastapi import HTTPException
+
+        from empla.api.deps import get_current_user
+
+        expired_token = jwt.encode(
+            {
+                "sub": str(uuid4()),
+                "tid": str(uuid4()),
+                "role": "member",
+                "exp": datetime.now(UTC) - timedelta(seconds=10),
+            },
+            _DEV_SECRET,
+            algorithm="HS256",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(self._make_credentials(expired_token), mock_db)
+        assert exc_info.value.status_code == 401
+        assert "expired" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_tampered_token_returns_401(self, mock_db):
+        """Token signed with wrong key returns 401."""
+        from fastapi import HTTPException
+
+        from empla.api.deps import get_current_user
+
+        bad_token = jwt.encode(
+            {
+                "sub": str(uuid4()),
+                "tid": str(uuid4()),
+                "role": "member",
+                "exp": datetime.now(UTC) + timedelta(hours=1),
+            },
+            "wrong-secret-that-is-long-enough-for-hmac-hs256",
+            algorithm="HS256",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(self._make_credentials(bad_token), mock_db)
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_missing_claims_returns_401(self, mock_db):
+        """Token without required claims returns 401."""
+        from fastapi import HTTPException
+
+        from empla.api.deps import get_current_user
+
+        # Token without 'sub' claim
+        no_sub = jwt.encode(
+            {"tid": str(uuid4()), "role": "member", "exp": datetime.now(UTC) + timedelta(hours=1)},
+            _DEV_SECRET,
+            algorithm="HS256",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(self._make_credentials(no_sub), mock_db)
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_user_not_found_returns_401(self, mock_db):
+        """Valid token but deleted user returns 401."""
+        from unittest.mock import AsyncMock, Mock
+
+        from fastapi import HTTPException
+
+        from empla.api.deps import get_current_user
+
+        token, _uid, _tid = self._make_valid_token()
+
+        # DB returns None for user
+        user_result = Mock()
+        user_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=user_result)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(self._make_credentials(token), mock_db)
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_inactive_tenant_returns_403(self, mock_db):
+        """Valid token + valid user but inactive tenant returns 403."""
+        from fastapi import HTTPException
+
+        from empla.api.deps import get_current_user
+
+        token, uid, tid = self._make_valid_token()
+        user = self._mock_user(uid, tid)
+        tenant = self._mock_tenant(tid, status="suspended")
+        self._setup_db_returns(mock_db, user, tenant)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(self._make_credentials(token), mock_db)
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_malformed_token_returns_401(self, mock_db):
+        """Garbage string (not a JWT) returns 401."""
+        from fastapi import HTTPException
+
+        from empla.api.deps import get_current_user
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(self._make_credentials("not-a-jwt"), mock_db)
+        assert exc_info.value.status_code == 401
