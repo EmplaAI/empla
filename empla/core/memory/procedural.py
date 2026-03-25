@@ -694,7 +694,7 @@ class ProceduralMemorySystem:
 
     async def promote_to_playbook(
         self,
-        procedure_id: Any,
+        procedure_id: UUID,
     ) -> ProceduralMemory | None:
         """Promote a procedure to playbook status.
 
@@ -706,7 +706,6 @@ class ProceduralMemorySystem:
         Returns:
             Updated ProceduralMemory if promoted, None if ineligible.
         """
-        from datetime import UTC, datetime
 
         proc = await self.get_procedure(procedure_id)
         if proc is None:

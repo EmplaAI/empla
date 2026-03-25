@@ -162,7 +162,7 @@ class TestPlaybookSelectionInPlanning:
         mixin.intentions.add_intention.assert_called_once()
         call_kwargs = mixin.intentions.add_intention.call_args.kwargs
         assert "playbook" in call_kwargs["description"].lower()
-        assert call_kwargs["plan"] == playbook.steps
+        assert call_kwargs["plan"] == {"steps": playbook.steps}
         assert call_kwargs["context"]["playbook_name"] == "prospecting_playbook"
 
         # LLM should NOT be called

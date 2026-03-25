@@ -557,8 +557,7 @@ Analyze the patterns and provide brief recommendations."""
             if proc is None or not proc.is_playbook:
                 return
 
-            # Update success tracking
-            proc.execution_count += 1
+            # Update success tracking (execution_count already incremented in planning.py)
             if result.success:
                 proc.success_count += 1
             proc.success_rate = proc.success_count / max(proc.execution_count, 1)

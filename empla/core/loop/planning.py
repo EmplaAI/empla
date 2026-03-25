@@ -703,7 +703,7 @@ What changes do you recommend to the goal portfolio?"""
                             intention_type="action",
                             priority=getattr(goal, "priority", 5),
                             goal_id=goal_id,
-                            plan=playbook.steps,
+                            plan={"steps": playbook.steps},
                             context={
                                 "playbook_id": str(playbook.id),
                                 "playbook_name": playbook.name,
