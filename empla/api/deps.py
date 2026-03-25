@@ -11,12 +11,14 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 from uuid import UUID
 
+import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from empla.models.tenant import Tenant, User
+from empla.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +75,10 @@ async def get_current_user(
     db: DBSession,
 ) -> AuthContext:
     """
-    Get the current authenticated user from JWT token.
+    Validate JWT token and return the authenticated user context.
 
-    For now, this is a stub that accepts any token in format:
-    "Bearer <user_id>:<tenant_id>"
-
-    In production, this should validate a proper JWT token.
+    Decodes the Bearer token as a JWT (HS256), extracts user_id and tenant_id
+    from claims, verifies the user and tenant exist and are active.
 
     Args:
         credentials: Bearer token from Authorization header
@@ -98,35 +98,49 @@ async def get_current_user(
         )
 
     token = credentials.credentials
+    settings = get_settings()
 
-    # ==========================================================================
-    # SECURITY WARNING: Development-only stub implementation
-    # ==========================================================================
-    # Token format "user_id:tenant_id" provides NO cryptographic security.
-    # This is for development/testing ONLY.
-    #
-    # TODO(security): Before production deployment:
-    # - Implement proper JWT validation with signature verification
-    # - Add token expiration checking
-    # - Add rate limiting for auth endpoints
-    # - See docs/decisions/XXX-authentication.md for planned implementation
-    # ==========================================================================
+    # Decode and validate JWT
     try:
-        parts = token.split(":")
-        if len(parts) != 2:
-            raise ValueError("Invalid token format")
-
-        user_id = UUID(parts[0])
-        tenant_id = UUID(parts[1])
-    except (ValueError, IndexError) as e:
-        logger.warning(f"Invalid token format: {e}")
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+    except jwt.ExpiredSignatureError as e:
+        logger.debug("Expired JWT token presented")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
+    except jwt.InvalidTokenError as e:
+        logger.warning("Invalid JWT token: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from e
+    except jwt.PyJWTError as e:
+        logger.error("JWT configuration error: %s: %s", type(e).__name__, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service error",
+        ) from e
 
-    # Fetch user and tenant from database
+    # Extract claims
+    try:
+        user_id = UUID(payload["sub"])
+        tenant_id = UUID(payload["tid"])
+    except (KeyError, ValueError) as e:
+        logger.warning("JWT missing required claims: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token claims",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
+
+    # Fetch user from database
     result = await db.execute(
         select(User).where(
             User.id == user_id,
@@ -139,11 +153,11 @@ async def get_current_user(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or invalid tenant",
+            detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Fetch tenant separately (User model doesn't define tenant relationship)
+    # Fetch tenant
     tenant_result = await db.execute(
         select(Tenant).where(
             Tenant.id == tenant_id,
@@ -155,7 +169,7 @@ async def get_current_user(
     if tenant is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tenant not found",
+            detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

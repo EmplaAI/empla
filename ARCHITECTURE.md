@@ -204,7 +204,7 @@ FastAPI at `/api/v1/`:
 - `/activity/` — activity feed with filters
 - `/integrations/` — OAuth + MCP server management
 - `/roles/` — role catalog
-- `/auth/` — placeholder (TODO: real JWT)
+- `/auth/` — JWT authentication (HS256, login + /me)
 
 ## Technology Stack
 
@@ -264,7 +264,7 @@ empla/
 See `TODO.md` for the full roadmap. Key items:
 
 - **Prometheus metrics** — TODO markers in loop code, health monitor exists
-- **Production auth** — placeholder JWT, no real authentication
+- **Production auth** — JWT (HS256) implemented, password verification deferred
 - **LLM failover** — primary + fallback models
 - **Adaptive cycle frequency** — currently fixed interval
 - **Playbook system** — codified tool sequences
