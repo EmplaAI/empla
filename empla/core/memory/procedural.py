@@ -681,9 +681,12 @@ class ProceduralMemorySystem:
         )
 
         if situation:
-            for key, value in list(situation.items())[:5]:
+            for i, (key, value) in enumerate(list(situation.items())[:5]):
+                param_name = f"cond_{i}"
                 query = query.where(
-                    text("trigger_conditions @> :cond").params(cond=json.dumps({key: value}))
+                    text(f"trigger_conditions @> :{param_name}").params(
+                        **{param_name: json.dumps({key: value})}
+                    )
                 )
 
         result = await self.session.execute(query)
@@ -717,7 +720,9 @@ class ProceduralMemorySystem:
 
         proc.is_playbook = True
         proc.promoted_at = datetime.now(UTC)
-        proc.learned_from = "autonomous_discovery"
+        # Preserve original learned_from if set (e.g., "human_demonstration")
+        if proc.learned_from is None:
+            proc.learned_from = "autonomous_discovery"
 
         await self.session.flush()
         return proc

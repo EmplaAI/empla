@@ -63,6 +63,9 @@ class ReflectionMixin:
             # ============ STEP 2: Update Procedural Memory ============
             await self._update_procedural_memory(result)
 
+            # ============ STEP 2.5: Playbook Feedback ============
+            await self._update_playbook_success(result)
+
             # ============ STEP 3: Update Effectiveness Beliefs ============
             await self._update_effectiveness_beliefs(result)
 
@@ -533,6 +536,51 @@ Analyze the patterns and provide brief recommendations."""
                     exc_info=True,
                     extra={"employee_id": str(self.employee.id)},
                 )
+
+    async def _update_playbook_success(self, result: IntentionResult) -> None:
+        """Update playbook success_rate based on execution outcome.
+
+        If the intention was created from a playbook (has playbook_id in context),
+        update the playbook's success tracking. Auto-demotes playbooks that fall
+        below the quality threshold.
+        """
+        if not hasattr(self.memory, "procedural"):
+            return
+
+        context = getattr(result, "context", {}) or {}
+        playbook_id = context.get("playbook_id")
+        if not playbook_id:
+            return
+
+        try:
+            proc = await self.memory.procedural.get_procedure(playbook_id)
+            if proc is None or not proc.is_playbook:
+                return
+
+            # Update success tracking
+            proc.execution_count += 1
+            if result.success:
+                proc.success_count += 1
+            proc.success_rate = proc.success_count / max(proc.execution_count, 1)
+
+            # Auto-demote if success rate drops below threshold
+            if proc.execution_count >= 5 and proc.success_rate < 0.5:
+                proc.is_playbook = False
+                logger.warning(
+                    "Auto-demoted playbook due to low success rate: %s (%.0f%%)",
+                    proc.name,
+                    proc.success_rate * 100,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+            await self.memory.procedural.session.flush()
+
+        except Exception:
+            logger.debug(
+                "Failed to update playbook success",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     async def _discover_playbooks(self) -> None:
         """Autonomous playbook discovery — promote successful procedures.

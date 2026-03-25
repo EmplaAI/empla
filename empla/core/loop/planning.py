@@ -710,6 +710,7 @@ What changes do you recommend to the goal portfolio?"""
                             },
                         )
                         playbook.execution_count += 1
+                        playbook.last_executed_at = datetime.now(UTC)
                         playbook_used = True
                         logger.info(
                             "Using playbook for goal (skipping LLM): %s",
@@ -722,7 +723,7 @@ What changes do you recommend to the goal portfolio?"""
                             },
                         )
                 except Exception:
-                    logger.debug(
+                    logger.warning(
                         "Playbook lookup failed, falling back to LLM",
                         exc_info=True,
                         extra={"employee_id": str(self.employee.id)},

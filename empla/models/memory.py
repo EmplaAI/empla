@@ -507,6 +507,7 @@ class ProceduralMemory(TenantScopedModel):
         # Fast lookup for playbooks
         Index(
             "idx_procedural_playbooks",
+            "tenant_id",
             "employee_id",
             "success_rate",
             postgresql_where=text("is_playbook = true AND deleted_at IS NULL"),

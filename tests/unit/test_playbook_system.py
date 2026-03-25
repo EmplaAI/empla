@@ -67,7 +67,8 @@ class TestPromoteToPlaybook:
         assert result is not None
         assert result.is_playbook is True
         assert result.promoted_at is not None
-        assert result.learned_from == "autonomous_discovery"
+        # Preserves original learned_from (was "trial_and_error")
+        assert result.learned_from == "trial_and_error"
 
     @pytest.mark.asyncio
     async def test_rejects_low_execution_count(self):
