@@ -14,6 +14,7 @@ import jwt
 import pytest
 
 from empla.api.v1.endpoints.auth import create_access_token
+from empla.settings import JWT_DEV_SECRET as _DEV_SECRET
 from empla.settings import EmplaSettings
 
 # ============================================================================
@@ -30,7 +31,7 @@ class TestCreateAccessToken:
         tenant_id = uuid4()
         token = create_access_token(user_id, tenant_id, "admin")
 
-        payload = jwt.decode(token, "empla-dev-secret-CHANGE-IN-PRODUCTION", algorithms=["HS256"])
+        payload = jwt.decode(token, _DEV_SECRET, algorithms=["HS256"])
         assert payload["sub"] == str(user_id)
         assert payload["tid"] == str(tenant_id)
         assert payload["role"] == "admin"
@@ -40,7 +41,7 @@ class TestCreateAccessToken:
         token = create_access_token(uuid4(), uuid4(), "member")
         payload = jwt.decode(
             token,
-            "empla-dev-secret-CHANGE-IN-PRODUCTION",
+            _DEV_SECRET,
             algorithms=["HS256"],
         )
         assert "exp" in payload
@@ -51,7 +52,7 @@ class TestCreateAccessToken:
         token = create_access_token(uuid4(), uuid4(), "member")
         payload = jwt.decode(
             token,
-            "empla-dev-secret-CHANGE-IN-PRODUCTION",
+            _DEV_SECRET,
             algorithms=["HS256"],
         )
         iat = datetime.fromtimestamp(payload["iat"], tz=UTC)
@@ -74,7 +75,7 @@ class TestTokenValidation:
         user_id: str | None = None,
         tenant_id: str | None = None,
         role: str = "member",
-        secret: str = "empla-dev-secret-CHANGE-IN-PRODUCTION",
+        secret: str = _DEV_SECRET,
         algorithm: str = "HS256",
         exp_delta: timedelta | None = None,
     ) -> str:
@@ -92,7 +93,7 @@ class TestTokenValidation:
     def test_valid_token_decodes(self):
         """A properly signed token should decode successfully."""
         token = self._make_token()
-        payload = jwt.decode(token, "empla-dev-secret-CHANGE-IN-PRODUCTION", algorithms=["HS256"])
+        payload = jwt.decode(token, _DEV_SECRET, algorithms=["HS256"])
         assert "sub" in payload
         assert "tid" in payload
 
@@ -100,18 +101,18 @@ class TestTokenValidation:
         """An expired token should raise ExpiredSignatureError."""
         token = self._make_token(exp_delta=timedelta(seconds=-1))
         with pytest.raises(jwt.ExpiredSignatureError):
-            jwt.decode(token, "empla-dev-secret-CHANGE-IN-PRODUCTION", algorithms=["HS256"])
+            jwt.decode(token, _DEV_SECRET, algorithms=["HS256"])
 
     def test_tampered_token_raises(self):
         """A token signed with wrong secret should raise InvalidSignatureError."""
         token = self._make_token(secret="wrong-secret-that-is-long-enough-for-hs256")
         with pytest.raises(jwt.InvalidSignatureError):
-            jwt.decode(token, "empla-dev-secret-CHANGE-IN-PRODUCTION", algorithms=["HS256"])
+            jwt.decode(token, _DEV_SECRET, algorithms=["HS256"])
 
     def test_malformed_token_raises(self):
         """A non-JWT string should raise DecodeError."""
         with pytest.raises(jwt.DecodeError):
-            jwt.decode("not-a-jwt", "empla-dev-secret-CHANGE-IN-PRODUCTION", algorithms=["HS256"])
+            jwt.decode("not-a-jwt", _DEV_SECRET, algorithms=["HS256"])
 
     def test_none_algorithm_rejected(self):
         """alg=none attack should be rejected when algorithms is restricted."""
@@ -129,7 +130,7 @@ class TestTokenValidation:
         with pytest.raises(jwt.InvalidAlgorithmError):
             jwt.decode(
                 unsigned_token,
-                "empla-dev-secret-CHANGE-IN-PRODUCTION",
+                _DEV_SECRET,
                 algorithms=["HS256"],
             )
 
@@ -138,10 +139,10 @@ class TestTokenValidation:
         now = datetime.now(UTC)
         token = jwt.encode(
             {"tid": str(uuid4()), "role": "member", "exp": now + timedelta(hours=1)},
-            "empla-dev-secret-CHANGE-IN-PRODUCTION",
+            _DEV_SECRET,
             algorithm="HS256",
         )
-        payload = jwt.decode(token, "empla-dev-secret-CHANGE-IN-PRODUCTION", algorithms=["HS256"])
+        payload = jwt.decode(token, _DEV_SECRET, algorithms=["HS256"])
         assert "sub" not in payload  # Confirms the claim is missing
 
     def test_missing_tid_claim(self):
@@ -149,10 +150,10 @@ class TestTokenValidation:
         now = datetime.now(UTC)
         token = jwt.encode(
             {"sub": str(uuid4()), "role": "member", "exp": now + timedelta(hours=1)},
-            "empla-dev-secret-CHANGE-IN-PRODUCTION",
+            _DEV_SECRET,
             algorithm="HS256",
         )
-        payload = jwt.decode(token, "empla-dev-secret-CHANGE-IN-PRODUCTION", algorithms=["HS256"])
+        payload = jwt.decode(token, _DEV_SECRET, algorithms=["HS256"])
         assert "tid" not in payload
 
     def test_invalid_uuid_in_sub(self):
@@ -165,10 +166,10 @@ class TestTokenValidation:
                 "role": "member",
                 "exp": now + timedelta(hours=1),
             },
-            "empla-dev-secret-CHANGE-IN-PRODUCTION",
+            _DEV_SECRET,
             algorithm="HS256",
         )
-        payload = jwt.decode(token, "empla-dev-secret-CHANGE-IN-PRODUCTION", algorithms=["HS256"])
+        payload = jwt.decode(token, _DEV_SECRET, algorithms=["HS256"])
         from uuid import UUID
 
         with pytest.raises(ValueError):
@@ -188,7 +189,7 @@ class TestJWTSettings:
         settings = EmplaSettings(
             _env_file=None,  # Don't read .env for tests
         )
-        assert settings.jwt_secret == "empla-dev-secret-CHANGE-IN-PRODUCTION"
+        assert settings.jwt_secret == _DEV_SECRET
         assert settings.jwt_expiry_hours == 24
         assert settings.jwt_algorithm == "HS256"
 
@@ -207,3 +208,46 @@ class TestJWTSettings:
             jwt_expiry_hours=48,
         )
         assert settings.jwt_expiry_hours == 48
+
+    def test_production_rejects_default_secret(self):
+        """Non-development env with default secret should fail."""
+        with pytest.raises(Exception, match="EMPLA_JWT_SECRET must be set"):
+            EmplaSettings(
+                _env_file=None,
+                env="production",
+                # jwt_secret left as default
+            )
+
+    def test_production_rejects_short_secret(self):
+        """Non-development env with short secret should fail."""
+        with pytest.raises(Exception, match="at least 32 characters"):
+            EmplaSettings(
+                _env_file=None,
+                env="production",
+                jwt_secret="too-short",
+            )
+
+    def test_production_accepts_long_secret(self):
+        """Non-development env with proper secret should work."""
+        settings = EmplaSettings(
+            _env_file=None,
+            env="production",
+            jwt_secret="a-very-long-production-secret-that-is-definitely-32-chars",
+        )
+        assert settings.env == "production"
+
+    def test_rejects_none_algorithm(self):
+        """Algorithm 'none' should be rejected."""
+        with pytest.raises(Exception, match="jwt_algorithm must be one of"):
+            EmplaSettings(
+                _env_file=None,
+                jwt_algorithm="none",
+            )
+
+    def test_rejects_rsa_algorithm(self):
+        """RSA algorithms should be rejected (prevents algorithm confusion)."""
+        with pytest.raises(Exception, match="jwt_algorithm must be one of"):
+            EmplaSettings(
+                _env_file=None,
+                jwt_algorithm="RS256",
+            )

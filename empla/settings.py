@@ -33,6 +33,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from empla.employees.config import LLMSettings
 from empla.llm.config import LLMConfig
 
+JWT_DEV_SECRET = "empla-dev-secret-CHANGE-IN-PRODUCTION"
+
 
 class EmplaSettings(BaseSettings):
     """Centralized empla configuration loaded from .env / environment variables.
@@ -93,12 +95,37 @@ class EmplaSettings(BaseSettings):
         return v.rstrip("/")
 
     # -- JWT Authentication ----------------------------------------------------
-    # EMPLA_JWT_SECRET must be set in production. In development, a default
-    # is used for convenience. Generate a real secret with:
+    # EMPLA_JWT_SECRET must be set in production (min 32 chars).
+    # In development, a default is used for convenience. Generate a real secret:
     #   python -c "import secrets; print(secrets.token_urlsafe(32))"
-    jwt_secret: str = "empla-dev-secret-CHANGE-IN-PRODUCTION"
+    jwt_secret: str = JWT_DEV_SECRET
     jwt_expiry_hours: int = 24
     jwt_algorithm: str = "HS256"
+
+    @field_validator("jwt_algorithm")
+    @classmethod
+    def _validate_jwt_algorithm(cls, v: str) -> str:
+        """Lock JWT algorithm to HMAC family to prevent algorithm confusion attacks."""
+        allowed = {"HS256", "HS384", "HS512"}
+        if v not in allowed:
+            msg = f"jwt_algorithm must be one of {allowed}, got {v!r}"
+            raise ValueError(msg)
+        return v
+
+    @model_validator(mode="after")
+    def _validate_jwt_secret_in_production(self) -> EmplaSettings:
+        """Reject the default dev secret in non-development environments."""
+        if self.env != "development" and self.jwt_secret == JWT_DEV_SECRET:
+            msg = (
+                "EMPLA_JWT_SECRET must be set to a secure value in non-development "
+                'environments. Generate one with: python -c "import secrets; '
+                'print(secrets.token_urlsafe(32))"'
+            )
+            raise ValueError(msg)
+        if self.env != "development" and len(self.jwt_secret) < 32:
+            msg = "EMPLA_JWT_SECRET must be at least 32 characters for HS256 security"
+            raise ValueError(msg)
+        return self
 
     # -- Logging ---------------------------------------------------------------
     log_level: str = "INFO"

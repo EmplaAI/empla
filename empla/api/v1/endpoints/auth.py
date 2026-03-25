@@ -3,6 +3,11 @@ empla.api.v1.endpoints.auth - Authentication Endpoints
 
 JWT-based authentication using HS256. Tokens contain user_id, tenant_id,
 and role claims with configurable expiry (default 24h).
+
+NOTE: Login currently verifies email + tenant only (no password/OAuth).
+Password verification is deferred — the User model has no password field yet.
+This is acceptable for the current single-tenant development environment but
+MUST be addressed before multi-tenant production deployment. Track in TODO.md.
 """
 
 import logging
