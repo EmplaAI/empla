@@ -98,19 +98,14 @@ async def login(
     )
     tenant: Tenant | None = tenant_result.scalar_one_or_none()
 
-    if tenant is None:
+    # Look up user — collapse tenant-not-found, user-not-found, and
+    # inactive-tenant into a single error to prevent tenant enumeration.
+    if tenant is None or tenant.status != "active":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid tenant",
+            detail="Invalid credentials",
         )
 
-    if tenant.status != "active":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tenant is not active",
-        )
-
-    # Find user by email within tenant
     user_result = await db.execute(
         select(User).where(
             User.tenant_id == tenant.id,

@@ -99,7 +99,7 @@ class EmplaSettings(BaseSettings):
     # In development, a default is used for convenience. Generate a real secret:
     #   python -c "import secrets; print(secrets.token_urlsafe(32))"
     jwt_secret: str = JWT_DEV_SECRET
-    jwt_expiry_hours: int = 24
+    jwt_expiry_hours: int = Field(default=24, ge=1, le=168)  # 1h to 7d
     jwt_algorithm: str = "HS256"
 
     @field_validator("jwt_algorithm")
