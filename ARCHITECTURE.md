@@ -99,12 +99,14 @@ The core of empla. Each cycle:
 │  (When triggered by significant belief changes)     │
 │  Situation analysis → gap identification →          │
 │  goal creation/abandonment → plan generation        │
+│  GoalRecommendation: LLM-driven abandon/reprioritize│
 │  Procedural memory influences planning              │
 └─────────────────────────┬───────────────────────────┘
                           ▼
 ┌─ GOAL MANAGEMENT ───────────────────────────────────┐
 │  LLM-driven progress evaluation (batched)           │
 │  Goal TTL for opportunity/problem goals             │
+│  LLM completion check for non-numeric goals         │
 │  Achievement detection → hook emission              │
 └─────────────────────────┬───────────────────────────┘
                           ▼
@@ -118,7 +120,7 @@ The core of empla. Each cycle:
 │  Record execution episode → update procedural       │
 │  memory → update effectiveness beliefs              │
 │  Deep reflection (periodic): pattern analysis →     │
-│  insights stored + read back into planning          │
+│  insights → typed beliefs + procedural memory       │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -219,7 +221,7 @@ FastAPI at `/api/v1/`:
 | HTTP client | httpx (for HubSpot, Google Calendar) |
 | MCP | Model Context Protocol (stdio + HTTP) |
 | Frontend | React + TypeScript |
-| Testing | pytest (787 tests) |
+| Testing | pytest (781 tests) |
 | Linting | ruff |
 | Type checking | mypy |
 | Package manager | uv |
