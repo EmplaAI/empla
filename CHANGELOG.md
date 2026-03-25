@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-03-24 - JWT Authentication
+
+**Phase:** Production Foundation
+
+### Changed
+
+- **Replaced stub tokens with JWT (HS256) authentication.** Login endpoint now
+  returns signed JWTs with `sub`, `tid`, `role`, `iat`, `exp` claims. Token
+  validation is stateless (no DB call for decode, only for user/tenant lookup).
+- **Production guards on JWT secret.** Fail-fast validator rejects default dev
+  secret and short secrets (<32 chars) in non-development environments. Algorithm
+  locked to HMAC family (HS256/384/512) to prevent algorithm confusion attacks.
+- **Unified error messages.** All auth failures return generic messages to prevent
+  tenant enumeration and user existence leakage. Login collapses tenant-not-found,
+  inactive-tenant, and user-not-found into a single "Invalid credentials" response.
+- **`/me` endpoint uses shared `CurrentUser` dependency** — eliminated duplicate
+  token parsing logic.
+
+### Added
+
+- `JWT_DEV_SECRET` module constant and `jwt_secret`, `jwt_expiry_hours`,
+  `jwt_algorithm` settings in `EmplaSettings` with validators.
+- `create_access_token()` helper for JWT creation.
+- `PyJWTError` catch in auth middleware for configuration errors (→ 500).
+- 27 new tests: token creation, validation, security attacks (alg=none, tampering,
+  expiry), settings validators, behavioral tests for `get_current_user()`.
+
+---
+
 ## 2026-03-20 - ARCHITECTURE.md Rewrite
 
 **Phase:** Phase 3B - Real-World Integrations (Step 8: Documentation)
