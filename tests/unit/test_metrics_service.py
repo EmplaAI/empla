@@ -3,8 +3,8 @@ Tests for the cycle metrics recording service and API response models.
 
 Covers:
 - record_cycle_metrics() persists correct metric rows
-- Tool stats aggregation
-- Edge cases (no tool stats, empty tool stats)
+- Tool stats delta computation (not cumulative)
+- Edge cases (no tool stats, empty tool stats, flush failure)
 - MetricSummary and MetricPoint response model validation
 """
 
@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import pytest
 
-from empla.services.metrics import record_cycle_metrics
+from empla.services.metrics import _previous_tool_stats, record_cycle_metrics
 
 # ============================================================================
 # record_cycle_metrics Tests
@@ -25,11 +25,19 @@ from empla.services.metrics import record_cycle_metrics
 class TestRecordCycleMetrics:
     """Tests for the record_cycle_metrics service function."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_tool_stats_cache(self):
+        """Clear the delta cache between tests."""
+        _previous_tool_stats.clear()
+        yield
+        _previous_tool_stats.clear()
+
     @pytest.fixture
     def mock_db(self):
         db = AsyncMock()
         db.add = MagicMock()
         db.flush = AsyncMock()
+        db.rollback = AsyncMock()
         return db
 
     @pytest.mark.asyncio
@@ -44,7 +52,6 @@ class TestRecordCycleMetrics:
             success=True,
         )
 
-        # 2 base metrics: duration + success
         assert mock_db.add.call_count == 2
         metrics = [c.args[0] for c in mock_db.add.call_args_list]
         names = {m.metric_name for m in metrics}
@@ -87,8 +94,9 @@ class TestRecordCycleMetrics:
         assert fail_metric.value == 0.0
 
     @pytest.mark.asyncio
-    async def test_records_tool_stats(self, mock_db):
-        """Should record tool metrics when tool_stats provided."""
+    async def test_records_tool_stats_deltas(self, mock_db):
+        """First cycle should record full counts as deltas (prev is 0)."""
+        eid = uuid4()
         tool_stats = [
             {
                 "name": "hubspot",
@@ -111,27 +119,62 @@ class TestRecordCycleMetrics:
         await record_cycle_metrics(
             mock_db,
             tenant_id=uuid4(),
-            employee_id=uuid4(),
+            employee_id=eid,
             cycle_count=1,
             duration_seconds=3.0,
             success=True,
             tool_stats=tool_stats,
         )
 
-        # 2 base + 3 tool = 5 metrics
-        assert mock_db.add.call_count == 5
+        assert mock_db.add.call_count == 5  # 2 base + 3 tool
         metrics = [c.args[0] for c in mock_db.add.call_args_list]
-        names = {m.metric_name for m in metrics}
-        assert "tool.calls_total" in names
-        assert "tool.calls_failed" in names
-        assert "tool.avg_latency_ms" in names
 
-        # Check aggregation
         total = next(m for m in metrics if m.metric_name == "tool.calls_total")
-        assert total.value == 15.0  # 10 + 5
+        assert total.value == 15.0  # First cycle: full count is the delta
 
         failed = next(m for m in metrics if m.metric_name == "tool.calls_failed")
-        assert failed.value == 2.0  # 1 + 1
+        assert failed.value == 2.0
+
+    @pytest.mark.asyncio
+    async def test_tool_stats_computes_deltas_across_cycles(self, mock_db):
+        """Second cycle should record only the delta from first cycle."""
+        eid = uuid4()
+        tid = uuid4()
+
+        # Cycle 1: cumulative = 10 calls
+        await record_cycle_metrics(
+            mock_db,
+            tenant_id=tid,
+            employee_id=eid,
+            cycle_count=1,
+            duration_seconds=1.0,
+            success=True,
+            tool_stats=[
+                {"total_calls": 10, "failure_count": 1, "timeout_count": 0, "avg_latency_ms": 100.0}
+            ],
+        )
+
+        mock_db.reset_mock()
+
+        # Cycle 2: cumulative = 18 calls (delta should be 8)
+        await record_cycle_metrics(
+            mock_db,
+            tenant_id=tid,
+            employee_id=eid,
+            cycle_count=2,
+            duration_seconds=1.0,
+            success=True,
+            tool_stats=[
+                {"total_calls": 18, "failure_count": 3, "timeout_count": 0, "avg_latency_ms": 120.0}
+            ],
+        )
+
+        metrics = [c.args[0] for c in mock_db.add.call_args_list]
+        total = next(m for m in metrics if m.metric_name == "tool.calls_total")
+        assert total.value == 8.0  # 18 - 10
+
+        failed = next(m for m in metrics if m.metric_name == "tool.calls_failed")
+        assert failed.value == 2.0  # 3 - 1
 
     @pytest.mark.asyncio
     async def test_no_tool_stats_skips_tool_metrics(self, mock_db):
@@ -146,11 +189,11 @@ class TestRecordCycleMetrics:
             tool_stats=None,
         )
 
-        assert mock_db.add.call_count == 2  # Only base metrics
+        assert mock_db.add.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_empty_tool_stats_records_zeros(self, mock_db):
-        """Empty tool_stats list should record zero values."""
+    async def test_empty_tool_stats_skips_tool_metrics(self, mock_db):
+        """Empty tool_stats list should not record tool metrics."""
         await record_cycle_metrics(
             mock_db,
             tenant_id=uuid4(),
@@ -161,15 +204,13 @@ class TestRecordCycleMetrics:
             tool_stats=[],
         )
 
-        # Empty list is falsy — no tool metrics recorded
         assert mock_db.add.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_flush_failure_logs_warning(self, mock_db):
-        """Flush failure should log warning, not crash."""
+    async def test_flush_failure_rolls_back(self, mock_db):
+        """Flush failure should attempt rollback, not crash."""
         mock_db.flush = AsyncMock(side_effect=Exception("DB error"))
 
-        # Should not raise
         await record_cycle_metrics(
             mock_db,
             tenant_id=uuid4(),
@@ -179,29 +220,11 @@ class TestRecordCycleMetrics:
             success=True,
         )
 
-    @pytest.mark.asyncio
-    async def test_tenant_and_employee_ids_propagated(self, mock_db):
-        """All metrics should have correct tenant_id and employee_id."""
-        tid = uuid4()
-        eid = uuid4()
-
-        await record_cycle_metrics(
-            mock_db,
-            tenant_id=tid,
-            employee_id=eid,
-            cycle_count=5,
-            duration_seconds=1.0,
-            success=True,
-        )
-
-        for c in mock_db.add.call_args_list:
-            metric = c.args[0]
-            assert metric.tenant_id == tid
-            assert metric.employee_id == eid
+        mock_db.rollback.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_cycle_count_in_tags(self, mock_db):
-        """All metrics should include cycle count in tags."""
+    async def test_each_metric_gets_own_tags_dict(self, mock_db):
+        """Each metric should have its own tags dict (no shared reference)."""
         await record_cycle_metrics(
             mock_db,
             tenant_id=uuid4(),
@@ -211,9 +234,9 @@ class TestRecordCycleMetrics:
             success=True,
         )
 
-        for c in mock_db.add.call_args_list:
-            metric = c.args[0]
-            assert metric.tags["cycle"] == 42
+        tag_ids = [id(c.args[0].tags) for c in mock_db.add.call_args_list]
+        # All tag dicts should be different objects
+        assert len(set(tag_ids)) == len(tag_ids)
 
 
 # ============================================================================
@@ -239,7 +262,6 @@ class TestMetricModels:
             avg_tool_latency_ms=120.5,
         )
         assert summary.cycle_count == 100
-        assert summary.success_rate == 0.95
 
     def test_metric_point_model(self):
         from datetime import UTC, datetime

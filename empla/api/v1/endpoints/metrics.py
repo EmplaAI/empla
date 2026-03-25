@@ -117,7 +117,7 @@ async def get_metric_summary(
         Metric.deleted_at.is_(None),
     )
     success_result = await db.execute(success_query)
-    success_rate = float(success_result.scalar() or 1.0)
+    success_rate = float(success_result.scalar() or 0.0)
 
     # Tool call totals
     tool_total_query = select(func.sum(Metric.value)).where(
