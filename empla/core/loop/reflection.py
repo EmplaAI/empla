@@ -562,14 +562,14 @@ Analyze the patterns and provide brief recommendations."""
             if proc is None or not proc.is_playbook:
                 return
 
-            # Update success tracking (execution_count already incremented in planning.py)
-            if result.success:
-                proc.success_count += 1
-            proc.success_rate = proc.success_count / max(proc.execution_count, 1)
+            # Don't increment success_count here — record_procedure in
+            # _update_procedural_memory already updates execution stats.
+            # This method only handles the demotion check.
 
             # Auto-demote if success rate drops below threshold
             if proc.execution_count >= 5 and proc.success_rate < 0.5:
                 proc.is_playbook = False
+                await self.memory.procedural.session.flush()
                 logger.warning(
                     "Auto-demoted playbook due to low success rate: %s (%.0f%%)",
                     proc.name,
@@ -577,11 +577,10 @@ Analyze the patterns and provide brief recommendations."""
                     extra={"employee_id": str(self.employee.id)},
                 )
 
-            await self.memory.procedural.session.flush()
-
         except Exception:
-            logger.debug(
-                "Failed to update playbook success",
+            logger.warning(
+                "Failed to update playbook success for %s",
+                playbook_id,
                 exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )
@@ -591,8 +590,8 @@ Analyze the patterns and provide brief recommendations."""
 
         Evaluates procedures that have been executed enough times with
         sufficient success rate and promotes them to executable playbooks.
-        This is the core learning mechanism: employees get cheaper over time
-        because playbooks skip LLM calls for known patterns.
+        Playbooks provide proven patterns that the LLM can reuse during
+        planning, reducing generation effort.
         """
         if not hasattr(self.memory, "procedural"):
             return
@@ -620,8 +619,8 @@ Analyze the patterns and provide brief recommendations."""
                             extra={"employee_id": str(self.employee.id)},
                         )
                 except Exception:
-                    logger.debug(
-                        "Failed to promote procedure %s",
+                    logger.warning(
+                        "Failed to promote procedure %s to playbook",
                         proc.name,
                         exc_info=True,
                         extra={"employee_id": str(self.employee.id)},
@@ -635,8 +634,8 @@ Analyze the patterns and provide brief recommendations."""
                 )
 
         except Exception:
-            logger.debug(
-                "Playbook discovery failed",
+            logger.warning(
+                "Playbook discovery failed — learning pipeline interrupted",
                 exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )

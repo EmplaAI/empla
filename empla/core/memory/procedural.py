@@ -717,13 +717,21 @@ class ProceduralMemorySystem:
         if proc.execution_count < 3 or proc.success_rate < 0.7:
             return None  # Doesn't meet quality threshold
 
+        old_learned_from = proc.learned_from
         proc.is_playbook = True
         proc.promoted_at = datetime.now(UTC)
-        # Preserve original learned_from if set (e.g., "human_demonstration")
         if proc.learned_from is None:
             proc.learned_from = "autonomous_discovery"
 
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except Exception:
+            # Revert in-memory state so callers don't see a false positive
+            proc.is_playbook = False
+            proc.promoted_at = None
+            proc.learned_from = old_learned_from
+            raise
+
         return proc
 
     async def evaluate_for_promotion(

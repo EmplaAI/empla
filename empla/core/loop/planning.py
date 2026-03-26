@@ -708,15 +708,15 @@ What changes do you recommend to the goal portfolio?"""
                         available_playbooks = await self.memory.procedural.find_playbooks(
                             situation={
                                 "goal_type": getattr(goal, "goal_type", ""),
-                                "goal_description": getattr(goal, "description", ""),
                             },
                             min_success_rate=0.6,
                             limit=3,
                         )
-                    except Exception:
+                    except Exception as e:
                         logger.warning(
-                            "Playbook lookup failed for goal %s",
+                            "Playbook lookup failed for goal %s: %s",
                             goal_id,
+                            e,
                             exc_info=True,
                             extra={"employee_id": str(self.employee.id)},
                         )
@@ -726,7 +726,6 @@ What changes do you recommend to the goal portfolio?"""
                     past_procedures = await self.memory.procedural.find_procedures_for_situation(
                         situation={
                             "goal_type": getattr(goal, "goal_type", ""),
-                            "goal_description": getattr(goal, "description", ""),
                         },
                         procedure_type="intention_execution",
                         min_success_rate=0.5,

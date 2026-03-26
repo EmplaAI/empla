@@ -14,9 +14,10 @@
 
 - **Playbook system** extending ProceduralMemory. Procedures that demonstrate
   consistent success (3+ executions, 70%+ success rate) are automatically
-  promoted to executable playbooks. Planning checks for matching playbooks
-  before calling the LLM — when found, creates intentions directly from
-  playbook steps, skipping the LLM call entirely.
+  promoted to playbooks. During planning, available playbooks are presented
+  as context options to the LLM, which decides whether to reuse, adapt, or
+  ignore them. The LLM always retains decision-making authority — playbooks
+  are suggestions, not bypasses.
 - **Autonomous playbook discovery** in deep reflection cycle. Evaluates
   procedures for promotion after each reflection, promoting eligible ones
   with logging.
