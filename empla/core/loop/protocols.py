@@ -26,7 +26,7 @@ class SituatedItem(BaseModel):
     Accepts plain strings for backward compatibility (wraps with defaults).
     """
 
-    description: str = Field(..., description="What the opportunity or problem is")
+    description: str = Field(..., min_length=1, description="What the opportunity or problem is")
     priority: int = Field(
         default=5,
         ge=1,
@@ -36,7 +36,8 @@ class SituatedItem(BaseModel):
     max_age_hours: int = Field(
         default=72,
         ge=1,
-        description="How long this remains relevant (hours). Short for urgent, long for strategic.",
+        le=8760,
+        description="How long this remains relevant (hours). 24=urgent, 168=weekly, 720=monthly max.",
     )
 
 

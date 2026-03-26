@@ -401,33 +401,30 @@ Analyze this situation and provide recommendations."""
         """
         existing_descs = [getattr(g, "description", "").lower() for g in active_goals]
 
-        # Create goals for opportunities (LLM sets priority and TTL)
+        # Create goals for opportunities (LLM sets priority and TTL via SituatedItem)
         for item in situation_analysis.opportunities:
-            desc = item.description if hasattr(item, "description") else str(item)
-            desc_lower = desc.lower()
+            desc_lower = item.description.lower()
             exists = any(
                 desc_lower in d or d in desc_lower or self._words_overlap(desc_lower, d) > 0.6
                 for d in existing_descs
             )
             if not exists:
-                priority = getattr(item, "priority", 6)
-                max_age = getattr(item, "max_age_hours", 72)
                 try:
                     await self.goals.add_goal(
                         goal_type="opportunity",
-                        description=f"Pursue opportunity: {desc}",
-                        priority=priority,
+                        description=f"Pursue opportunity: {item.description}",
+                        priority=item.priority,
                         target={
                             "type": "opportunity",
-                            "description": desc,
-                            "max_age_hours": max_age,
+                            "description": item.description,
+                            "max_age_hours": item.max_age_hours,
                         },
                     )
                     logger.info(
                         "Created goal for opportunity (priority=%d, ttl=%dh): %s",
-                        priority,
-                        max_age,
-                        desc[:50],
+                        item.priority,
+                        item.max_age_hours,
+                        item.description[:50],
                         extra={"employee_id": str(self.employee.id)},
                     )
                 except Exception as e:
@@ -439,33 +436,30 @@ Analyze this situation and provide recommendations."""
                     await self._safe_rollback_goals()
                     return
 
-        # Create goals for problems (LLM sets priority and TTL)
+        # Create goals for problems (LLM sets priority and TTL via SituatedItem)
         for item in situation_analysis.problems:
-            desc = item.description if hasattr(item, "description") else str(item)
-            desc_lower = desc.lower()
+            desc_lower = item.description.lower()
             exists = any(
                 desc_lower in d or d in desc_lower or self._words_overlap(desc_lower, d) > 0.6
                 for d in existing_descs
             )
             if not exists:
-                priority = getattr(item, "priority", 8)
-                max_age = getattr(item, "max_age_hours", 48)
                 try:
                     await self.goals.add_goal(
                         goal_type="problem",
-                        description=f"Address problem: {desc}",
-                        priority=priority,
+                        description=f"Address problem: {item.description}",
+                        priority=item.priority,
                         target={
                             "type": "problem",
-                            "description": desc,
-                            "max_age_hours": max_age,
+                            "description": item.description,
+                            "max_age_hours": item.max_age_hours,
                         },
                     )
                     logger.info(
                         "Created goal for problem (priority=%d, ttl=%dh): %s",
-                        priority,
-                        max_age,
-                        desc[:50],
+                        item.priority,
+                        item.max_age_hours,
+                        item.description[:50],
                         extra={"employee_id": str(self.employee.id)},
                     )
                 except Exception as e:
