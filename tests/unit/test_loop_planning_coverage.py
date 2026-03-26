@@ -288,7 +288,8 @@ class TestManageGoalsFromAnalysis:
         mixin.goals.add_goal.assert_called_once()
         call_kwargs = mixin.goals.add_goal.call_args.kwargs
         assert call_kwargs["goal_type"] == "opportunity"
-        assert call_kwargs["priority"] == 6
+        # Priority comes from SituatedItem default (5) when using plain strings
+        assert call_kwargs["priority"] == 5
 
     @pytest.mark.asyncio
     async def test_creates_problem_goals(self):
@@ -303,7 +304,8 @@ class TestManageGoalsFromAnalysis:
         mixin.goals.add_goal.assert_called_once()
         call_kwargs = mixin.goals.add_goal.call_args.kwargs
         assert call_kwargs["goal_type"] == "problem"
-        assert call_kwargs["priority"] == 8
+        # Priority comes from SituatedItem default (5) when using plain strings
+        assert call_kwargs["priority"] == 5
 
     @pytest.mark.asyncio
     async def test_dedup_skips_existing_opportunity(self):
@@ -332,7 +334,8 @@ class TestManageGoalsFromAnalysis:
         mixin.goals.add_goal.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_limits_opportunities_to_3(self):
+    async def test_creates_all_opportunities_no_cap(self):
+        """No artificial cap — all LLM-identified opportunities become goals."""
         mixin = _make_planning_mixin()
         analysis = SituationAnalysis(
             current_state_summary="ok",
@@ -341,10 +344,11 @@ class TestManageGoalsFromAnalysis:
             recommended_focus="growth",
         )
         await mixin._manage_goals_from_analysis(analysis, [])
-        assert mixin.goals.add_goal.call_count == 3
+        assert mixin.goals.add_goal.call_count == 5
 
     @pytest.mark.asyncio
-    async def test_limits_problems_to_2(self):
+    async def test_creates_all_problems_no_cap(self):
+        """No artificial cap — all LLM-identified problems become goals."""
         mixin = _make_planning_mixin()
         analysis = SituationAnalysis(
             current_state_summary="ok",
@@ -353,7 +357,7 @@ class TestManageGoalsFromAnalysis:
             recommended_focus="fix",
         )
         await mixin._manage_goals_from_analysis(analysis, [])
-        assert mixin.goals.add_goal.call_count == 2
+        assert mixin.goals.add_goal.call_count == 4
 
     @pytest.mark.asyncio
     async def test_add_goal_failure_triggers_rollback(self):

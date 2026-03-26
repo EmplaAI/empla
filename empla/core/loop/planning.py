@@ -244,6 +244,10 @@ class PlanningMixin:
 3. Problems requiring immediate attention
 4. What you should focus on next
 
+For each opportunity and problem, YOU decide:
+- priority (1-10): How important is this? 1=trivial, 10=critical/urgent.
+- max_age_hours: How long is this relevant? 24 for urgent, 168 for strategic, 720 for long-term.
+
 IMPORTANT: Do NOT suggest opportunities or problems that are already covered by existing
 active goals. Review the goals list carefully — if a goal already addresses a topic,
 do not duplicate it as an opportunity or problem. Only suggest genuinely new items.
@@ -389,30 +393,41 @@ Analyze this situation and provide recommendations."""
         situation_analysis: SituationAnalysis,
         active_goals: list[Any],
     ) -> None:
-        """Create/abandon goals based on situation analysis."""
-        # Create new goals for identified opportunities
+        """Create/abandon goals based on situation analysis.
+
+        The LLM sets priority and TTL per item in SituationAnalysis — no
+        hardcoded defaults. No caps on how many goals are created — the
+        dedup check (word overlap) is the only filter.
+        """
         existing_descs = [getattr(g, "description", "").lower() for g in active_goals]
-        for opportunity in situation_analysis.opportunities[:3]:  # Limit to top 3
-            # Check if semantically similar goal already exists (bidirectional substring)
-            opp_lower = opportunity.lower()
+
+        # Create goals for opportunities (LLM sets priority and TTL)
+        for item in situation_analysis.opportunities:
+            desc = item.description if hasattr(item, "description") else str(item)
+            desc_lower = desc.lower()
             exists = any(
-                opp_lower in desc or desc in opp_lower or self._words_overlap(opp_lower, desc) > 0.6
-                for desc in existing_descs
+                desc_lower in d or d in desc_lower or self._words_overlap(desc_lower, d) > 0.6
+                for d in existing_descs
             )
             if not exists:
+                priority = getattr(item, "priority", 6)
+                max_age = getattr(item, "max_age_hours", 72)
                 try:
                     await self.goals.add_goal(
                         goal_type="opportunity",
-                        description=f"Pursue opportunity: {opportunity}",
-                        priority=6,  # Medium priority for opportunities
+                        description=f"Pursue opportunity: {desc}",
+                        priority=priority,
                         target={
                             "type": "opportunity",
-                            "description": opportunity,
-                            "max_age_hours": 72,
+                            "description": desc,
+                            "max_age_hours": max_age,
                         },
                     )
                     logger.info(
-                        f"Created goal for opportunity: {opportunity[:50]}...",
+                        "Created goal for opportunity (priority=%d, ttl=%dh): %s",
+                        priority,
+                        max_age,
+                        desc[:50],
                         extra={"employee_id": str(self.employee.id)},
                     )
                 except Exception as e:
@@ -421,30 +436,36 @@ Analyze this situation and provide recommendations."""
                         exc_info=True,
                         extra={"employee_id": str(self.employee.id)},
                     )
-                    # A failed flush invalidates the session — rollback
-                    # and stop trying to create more goals this cycle.
                     await self._safe_rollback_goals()
                     return
 
-        # Create goals for critical problems
-        for problem in situation_analysis.problems[:2]:  # Limit to top 2
-            prob_lower = problem.lower()
+        # Create goals for problems (LLM sets priority and TTL)
+        for item in situation_analysis.problems:
+            desc = item.description if hasattr(item, "description") else str(item)
+            desc_lower = desc.lower()
             exists = any(
-                prob_lower in desc
-                or desc in prob_lower
-                or self._words_overlap(prob_lower, desc) > 0.6
-                for desc in existing_descs
+                desc_lower in d or d in desc_lower or self._words_overlap(desc_lower, d) > 0.6
+                for d in existing_descs
             )
             if not exists:
+                priority = getattr(item, "priority", 8)
+                max_age = getattr(item, "max_age_hours", 48)
                 try:
                     await self.goals.add_goal(
                         goal_type="problem",
-                        description=f"Address problem: {problem}",
-                        priority=8,  # High priority for problems
-                        target={"type": "problem", "description": problem, "max_age_hours": 48},
+                        description=f"Address problem: {desc}",
+                        priority=priority,
+                        target={
+                            "type": "problem",
+                            "description": desc,
+                            "max_age_hours": max_age,
+                        },
                     )
                     logger.info(
-                        f"Created goal for problem: {problem[:50]}...",
+                        "Created goal for problem (priority=%d, ttl=%dh): %s",
+                        priority,
+                        max_age,
+                        desc[:50],
                         extra={"employee_id": str(self.employee.id)},
                     )
                 except Exception as e:
@@ -497,8 +518,8 @@ Current Beliefs:
 Situation Analysis:
 - Focus: {situation_analysis.recommended_focus}
 - Gaps: {", ".join(situation_analysis.gaps[:5]) if situation_analysis.gaps else "None"}
-- Opportunities: {", ".join(situation_analysis.opportunities[:3]) if situation_analysis.opportunities else "None"}
-- Problems: {", ".join(situation_analysis.problems[:3]) if situation_analysis.problems else "None"}
+- Opportunities: {", ".join(getattr(o, "description", str(o)) for o in situation_analysis.opportunities) if situation_analysis.opportunities else "None"}
+- Problems: {", ".join(getattr(p, "description", str(p)) for p in situation_analysis.problems) if situation_analysis.problems else "None"}
 
 What changes do you recommend to the goal portfolio?"""
 
@@ -527,7 +548,7 @@ What changes do you recommend to the goal portfolio?"""
         # Process abandonment recommendations via fuzzy matching
         existing_descs = {getattr(g, "description", ""): g for g in active_goals}
         abandoned_count = 0
-        for abandon_desc in recommendation.goals_to_abandon[:3]:
+        for abandon_desc in recommendation.goals_to_abandon:
             matched_goal = self._fuzzy_match_goal(abandon_desc, existing_descs)
             if matched_goal is None:
                 logger.debug(
@@ -569,7 +590,7 @@ What changes do you recommend to the goal portfolio?"""
 
         # Process priority adjustments
         adjusted_count = 0
-        for adj in recommendation.priority_adjustments[:3]:
+        for adj in recommendation.priority_adjustments:
             desc = adj.get("description", "")
             new_priority = adj.get("new_priority")
             if not desc or new_priority is None:
