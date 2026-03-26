@@ -569,6 +569,7 @@ Analyze the patterns and provide brief recommendations."""
             # Auto-demote if success rate drops below threshold
             if proc.execution_count >= 5 and proc.success_rate < 0.5:
                 proc.is_playbook = False
+                proc.promoted_at = None
                 await self.memory.procedural.session.flush()
                 logger.warning(
                     "Auto-demoted playbook due to low success rate: %s (%.0f%%)",
