@@ -344,6 +344,63 @@ class TestCheckScheduledActions:
         loop.memory.working.add_item.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_handles_none_content(self):
+        """Scheduled action with content=None should be skipped, not crash."""
+        loop = self._make_loop()
+        item = Mock()
+        item.id = uuid4()
+        item.item_type = "scheduled_action"
+        item.content = None
+        loop.memory.working.get_active_items = AsyncMock(return_value=[item])
+
+        await loop._check_scheduled_actions()
+        loop.memory.working.add_item.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handles_missing_scheduled_for(self):
+        """Scheduled action without scheduled_for key should be skipped."""
+        loop = self._make_loop()
+        item = Mock()
+        item.id = uuid4()
+        item.item_type = "scheduled_action"
+        item.content = {"description": "No time set"}
+        loop.memory.working.get_active_items = AsyncMock(return_value=[item])
+
+        await loop._check_scheduled_actions()
+        loop.memory.working.add_item.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handles_unparseable_scheduled_for(self):
+        """Scheduled action with garbage datetime should be skipped."""
+        loop = self._make_loop()
+        item = Mock()
+        item.id = uuid4()
+        item.item_type = "scheduled_action"
+        item.content = {"description": "Bad time", "scheduled_for": "not-a-date"}
+        loop.memory.working.get_active_items = AsyncMock(return_value=[item])
+
+        await loop._check_scheduled_actions()
+        loop.memory.working.add_item.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_multiple_due_actions_all_processed(self):
+        """Multiple due actions should all be injected."""
+        loop = self._make_loop()
+        items = [
+            self._make_scheduled_item("Action 1", hours_ago=1),
+            self._make_scheduled_item("Action 2", hours_ago=2),
+            self._make_scheduled_item("Action 3", hours_ago=0.5, recurring=True),
+        ]
+        loop.memory.working.get_active_items = AsyncMock(return_value=items)
+
+        await loop._check_scheduled_actions()
+
+        # 3 due notifications + 1 rescheduled recurring = 4 add_item calls
+        assert loop.memory.working.add_item.call_count == 4
+        # 3 removes (2 one-shot + 1 recurring before re-add)
+        assert loop.memory.working.remove_item.call_count == 3
+
+    @pytest.mark.asyncio
     async def test_no_working_memory_skips(self):
         """Without working memory, should skip gracefully."""
         loop = self._make_loop()
