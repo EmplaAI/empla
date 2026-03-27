@@ -681,13 +681,8 @@ class ProceduralMemorySystem:
         )
 
         if situation:
-            for i, (key, value) in enumerate(list(situation.items())[:5]):
-                param_name = f"cond_{i}"
-                query = query.where(
-                    text(f"trigger_conditions @> :{param_name}").params(
-                        **{param_name: json.dumps({key: value})}
-                    )
-                )
+            cond = dict(list(situation.items())[:5])
+            query = query.where(text("trigger_conditions @> :cond").params(cond=json.dumps(cond)))
 
         result = await self.session.execute(query)
         return list(result.scalars().all())
