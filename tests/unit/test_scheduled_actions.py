@@ -299,15 +299,19 @@ class TestCheckScheduledActions:
 
     @pytest.mark.asyncio
     async def test_reschedules_recurring(self):
-        """Recurring actions should be refreshed, not removed."""
+        """Recurring actions should be removed and re-added with next run time."""
         loop = self._make_loop()
         item = self._make_scheduled_item(recurring=True)
         loop.memory.working.get_active_items = AsyncMock(return_value=[item])
 
         await loop._check_scheduled_actions()
 
-        loop.memory.working.remove_item.assert_not_called()
-        loop.memory.working.refresh_item.assert_called_once_with(item.id)
+        # Should remove the old item and add a new one with updated scheduled_for
+        loop.memory.working.remove_item.assert_called_once_with(item.id)
+        assert loop.memory.working.add_item.call_count == 2  # 1 due notification + 1 rescheduled
+        # The second add_item should be the rescheduled action
+        reschedule_call = loop.memory.working.add_item.call_args_list[1]
+        assert reschedule_call.kwargs["item_type"] == "scheduled_action"
 
     @pytest.mark.asyncio
     async def test_ignores_future_actions(self):

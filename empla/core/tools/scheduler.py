@@ -57,6 +57,16 @@ async def schedule_action(
     """
     now = datetime.now(UTC)
 
+    # Input validation — these values come from the LLM
+    if hours_from_now < 0:
+        return {"error": "hours_from_now must be non-negative"}
+    if hours_from_now > 8760:
+        return {"error": "hours_from_now cannot exceed 8760 (1 year)"}
+    if recurring and interval_hours < 0.5:
+        return {"error": "interval_hours must be at least 0.5 (30 minutes)"}
+    if recurring and interval_hours > 8760:
+        return {"error": "interval_hours cannot exceed 8760 (1 year)"}
+
     if scheduled_at:
         try:
             schedule_time = datetime.fromisoformat(scheduled_at)

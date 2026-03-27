@@ -734,16 +734,21 @@ class ProactiveExecutionLoop(
                     },
                     importance=0.9,
                 )
-                # Remove the scheduled action (it has fired)
+                # Clean up the fired action
                 recurring = content.get("recurring", False)
+                await self.memory.working.remove_item(action.id)
+
                 if recurring:
+                    # Re-create with next run time (remove + add since
+                    # working memory has no update_content method)
                     interval_hours = content.get("interval_hours", 24)
                     next_run = now + timedelta(hours=interval_hours)
                     content["scheduled_for"] = next_run.isoformat()
-                    # Update the item with next run time
-                    await self.memory.working.refresh_item(action.id)
-                else:
-                    await self.memory.working.remove_item(action.id)
+                    await self.memory.working.add_item(
+                        item_type="scheduled_action",
+                        content=content,
+                        importance=0.7,
+                    )
 
             if due_actions:
                 logger.info(
@@ -753,7 +758,7 @@ class ProactiveExecutionLoop(
                 )
 
         except Exception:
-            logger.debug(
+            logger.warning(
                 "Failed to check scheduled actions",
                 exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
