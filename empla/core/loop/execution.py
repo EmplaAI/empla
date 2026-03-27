@@ -709,9 +709,12 @@ class ProactiveExecutionLoop(
 
             due_actions = []
             for item in active_items:
-                if getattr(item, "item_type", "") != "scheduled_action":
-                    continue
                 content = getattr(item, "content", {}) or {}
+                # Scheduled actions are stored as item_type="task" with
+                # subtype="scheduled_action" (to comply with DB check constraint)
+                is_scheduled = content.get("subtype") == "scheduled_action"
+                if not is_scheduled:
+                    continue
                 scheduled_for_str = content.get("scheduled_for")
                 if not scheduled_for_str:
                     continue
@@ -727,9 +730,10 @@ class ProactiveExecutionLoop(
                 desc = content.get("description", "Scheduled action")
                 # Add as high-importance working memory item so perception sees it
                 await self.memory.working.add_item(
-                    item_type="scheduled_action_due",
+                    item_type="observation",
                     content={
                         "description": f"SCHEDULED ACTION DUE: {desc}",
+                        "subtype": "scheduled_action_due",
                         "original_action": content,
                     },
                     importance=0.9,
@@ -744,8 +748,9 @@ class ProactiveExecutionLoop(
                     interval_hours = content.get("interval_hours", 24)
                     next_run = now + timedelta(hours=interval_hours)
                     content["scheduled_for"] = next_run.isoformat()
+                    content["subtype"] = "scheduled_action"
                     await self.memory.working.add_item(
-                        item_type="scheduled_action",
+                        item_type="task",
                         content=content,
                         importance=0.7,
                     )
@@ -769,7 +774,8 @@ class ProactiveExecutionLoop(
 
         Called by external triggers (webhooks, scheduled actions, events)
         to interrupt the inter-cycle sleep and start a new BDI cycle.
-        Thread-safe — can be called from any coroutine or thread.
+        Safe to call from any coroutine in the same event loop.
+        For cross-thread calls, use loop.call_soon_threadsafe(employee_loop.wake).
         """
         self._wake_event.set()
 

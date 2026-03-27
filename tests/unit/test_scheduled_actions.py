@@ -263,8 +263,9 @@ class TestCheckScheduledActions:
         scheduled_for = datetime.now(UTC) - timedelta(hours=hours_ago)
         item = Mock()
         item.id = uuid4()
-        item.item_type = "scheduled_action"
+        item.item_type = "task"
         item.content = {
+            "subtype": "scheduled_action",
             "description": description,
             "scheduled_for": scheduled_for.isoformat(),
             "recurring": recurring,
@@ -311,7 +312,7 @@ class TestCheckScheduledActions:
         assert loop.memory.working.add_item.call_count == 2  # 1 due notification + 1 rescheduled
         # The second add_item should be the rescheduled action
         reschedule_call = loop.memory.working.add_item.call_args_list[1]
-        assert reschedule_call.kwargs["item_type"] == "scheduled_action"
+        assert reschedule_call.kwargs["item_type"] == "task"
 
     @pytest.mark.asyncio
     async def test_ignores_future_actions(self):
@@ -319,8 +320,9 @@ class TestCheckScheduledActions:
         loop = self._make_loop()
         future_item = Mock()
         future_item.id = uuid4()
-        future_item.item_type = "scheduled_action"
+        future_item.item_type = "task"
         future_item.content = {
+            "subtype": "scheduled_action",
             "description": "Future action",
             "scheduled_for": (datetime.now(UTC) + timedelta(hours=5)).isoformat(),
         }
@@ -345,11 +347,11 @@ class TestCheckScheduledActions:
 
     @pytest.mark.asyncio
     async def test_handles_none_content(self):
-        """Scheduled action with content=None should be skipped, not crash."""
+        """Item with content=None should be skipped, not crash."""
         loop = self._make_loop()
         item = Mock()
         item.id = uuid4()
-        item.item_type = "scheduled_action"
+        item.item_type = "task"
         item.content = None
         loop.memory.working.get_active_items = AsyncMock(return_value=[item])
 
@@ -362,8 +364,8 @@ class TestCheckScheduledActions:
         loop = self._make_loop()
         item = Mock()
         item.id = uuid4()
-        item.item_type = "scheduled_action"
-        item.content = {"description": "No time set"}
+        item.item_type = "task"
+        item.content = {"subtype": "scheduled_action", "description": "No time set"}
         loop.memory.working.get_active_items = AsyncMock(return_value=[item])
 
         await loop._check_scheduled_actions()
@@ -375,8 +377,12 @@ class TestCheckScheduledActions:
         loop = self._make_loop()
         item = Mock()
         item.id = uuid4()
-        item.item_type = "scheduled_action"
-        item.content = {"description": "Bad time", "scheduled_for": "not-a-date"}
+        item.item_type = "task"
+        item.content = {
+            "subtype": "scheduled_action",
+            "description": "Bad time",
+            "scheduled_for": "not-a-date",
+        }
         loop.memory.working.get_active_items = AsyncMock(return_value=[item])
 
         await loop._check_scheduled_actions()

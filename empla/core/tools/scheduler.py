@@ -70,6 +70,9 @@ async def schedule_action(
     if scheduled_at:
         try:
             schedule_time = datetime.fromisoformat(scheduled_at)
+            # Ensure timezone-aware (comparable to UTC now)
+            if schedule_time.tzinfo is None:
+                schedule_time = schedule_time.replace(tzinfo=UTC)
         except ValueError:
             return {
                 "error": f"Invalid datetime format: {scheduled_at}. Use ISO format like 2026-03-27T15:00:00Z"
