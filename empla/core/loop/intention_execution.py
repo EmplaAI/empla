@@ -339,6 +339,9 @@ class IntentionExecutionMixin:
 
                 tool_calls_made.append({"tool": tool_call.name, "success": result.success})
 
+                # Handle scheduled action tool results — persist to working memory
+                await self._handle_scheduling_result(result)
+
                 result_content = json.dumps(
                     {
                         "success": result.success,
@@ -418,3 +421,88 @@ class IntentionExecutionMixin:
                     )
 
         return "\n".join(parts)
+
+    async def _handle_scheduling_result(self, result: Any) -> None:
+        """Persist scheduled action tool results to working memory.
+
+        When the LLM calls schedule_action/list/cancel, the tool returns
+        a signal dict. This method intercepts the result and performs
+        the actual working memory operations.
+        """
+        if not result.success or not isinstance(result.output, dict):
+            return
+
+        output = result.output
+
+        # schedule_action → store in working memory
+        if output.get("_store_as_scheduled_action"):
+            if not hasattr(self.memory, "working"):
+                return
+            try:
+                content = {
+                    "subtype": "scheduled_action",
+                    "action_id": output.get("action_id"),
+                    "description": output.get("description", ""),
+                    "scheduled_for": output.get("scheduled_for", ""),
+                    "recurring": output.get("recurring", False),
+                    "interval_hours": output.get("interval_hours"),
+                    "context": output.get("context", {}),
+                    "created_at": output.get("created_at", ""),
+                }
+                await self.memory.working.add_item(
+                    item_type="task",
+                    content=content,
+                    importance=0.7,
+                )
+                logger.info(
+                    "Stored scheduled action: %s at %s",
+                    content["description"][:50],
+                    content["scheduled_for"],
+                    extra={"employee_id": str(self.employee.id)},
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to store scheduled action in working memory",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        # list_scheduled_actions → populate with actual data
+        elif output.get("_list_scheduled_actions"):
+            if not hasattr(self.memory, "working"):
+                result.output = {"actions": [], "count": 0}
+                return
+            try:
+                items = await self.memory.working.get_active_items()
+                actions = []
+                for item in items:
+                    c = getattr(item, "content", {}) or {}
+                    if c.get("subtype") == "scheduled_action":
+                        actions.append(
+                            {
+                                "action_id": c.get("action_id", str(item.id)),
+                                "description": c.get("description", ""),
+                                "scheduled_for": c.get("scheduled_for", ""),
+                                "recurring": c.get("recurring", False),
+                            }
+                        )
+                result.output = {"actions": actions, "count": len(actions)}
+            except Exception:
+                result.output = {"actions": [], "count": 0, "error": "Failed to list"}
+
+        # cancel_scheduled_action → remove from working memory
+        elif output.get("_cancel_scheduled_action"):
+            action_id = output.get("action_id")
+            if not action_id or not hasattr(self.memory, "working"):
+                return
+            try:
+                items = await self.memory.working.get_active_items()
+                for item in items:
+                    c = getattr(item, "content", {}) or {}
+                    if c.get("subtype") == "scheduled_action" and c.get("action_id") == action_id:
+                        await self.memory.working.remove_item(item.id)
+                        result.output = {"cancelled": True, "action_id": action_id}
+                        return
+                result.output = {"cancelled": False, "error": f"Action {action_id} not found"}
+            except Exception:
+                result.output = {"cancelled": False, "error": "Failed to cancel"}
