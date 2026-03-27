@@ -210,12 +210,21 @@ class TestCancelScheduledActionTool:
 
     @pytest.mark.asyncio
     async def test_returns_cancel_signal(self):
-        """Should return action_id and cancel signal."""
+        """Should return action_id and cancel signal for valid UUID."""
         from empla.core.tools.scheduler import cancel_scheduled_action
 
-        result = await cancel_scheduled_action(action_id="test-123")
-        assert result["action_id"] == "test-123"
+        valid_id = str(uuid4())
+        result = await cancel_scheduled_action(action_id=valid_id)
+        assert result["action_id"] == valid_id
         assert result["_cancel_scheduled_action"] is True
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_uuid(self):
+        """Should return error for non-UUID action_id."""
+        from empla.core.tools.scheduler import cancel_scheduled_action
+
+        result = await cancel_scheduled_action(action_id="not-a-uuid")
+        assert "error" in result
 
 
 # ============================================================================

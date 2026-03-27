@@ -83,6 +83,9 @@ async def schedule_action(
     else:
         return {"error": "Provide either hours_from_now > 0 or a scheduled_at datetime"}
 
+    # Normalize to UTC for consistent comparison in _check_scheduled_actions
+    schedule_time = schedule_time.astimezone(UTC)
+
     action_id = str(uuid4())
 
     # Return the action data — the caller (ToolRouter) stores it in working memory
@@ -132,4 +135,10 @@ async def cancel_scheduled_action(
     Returns:
         Confirmation of cancellation.
     """
+    from uuid import UUID as _UUID
+
+    try:
+        _UUID(action_id)
+    except (ValueError, AttributeError):
+        return {"error": f"Invalid action_id format: {action_id}. Must be a UUID."}
     return {"action_id": action_id, "_cancel_scheduled_action": True}

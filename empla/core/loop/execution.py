@@ -781,9 +781,10 @@ class ProactiveExecutionLoop(
 
     async def _sleep_interruptible(self, seconds: float) -> None:
         """Sleep with support for stop() and external wake signals."""
-        self._wake_event.clear()
         try:
             await asyncio.wait_for(self._wake_event.wait(), timeout=seconds)
+            # Event fired — consume it so it doesn't re-trigger next sleep
+            self._wake_event.clear()
             logger.debug(
                 "Sleep interrupted by wake event",
                 extra={"employee_id": str(self.employee.id)},

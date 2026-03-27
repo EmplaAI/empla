@@ -501,8 +501,25 @@ class IntentionExecutionMixin:
                     c = getattr(item, "content", {}) or {}
                     if c.get("subtype") == "scheduled_action" and c.get("action_id") == action_id:
                         await self.memory.working.remove_item(item.id)
+                        logger.info(
+                            "Cancelled scheduled action %s (item %s)",
+                            action_id,
+                            item.id,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
                         result.output = {"cancelled": True, "action_id": action_id}
                         return
+                logger.warning(
+                    "Scheduled action %s not found for cancellation",
+                    action_id,
+                    extra={"employee_id": str(self.employee.id)},
+                )
                 result.output = {"cancelled": False, "error": f"Action {action_id} not found"}
             except Exception:
+                logger.warning(
+                    "Failed to cancel scheduled action %s",
+                    action_id,
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee.id)},
+                )
                 result.output = {"cancelled": False, "error": "Failed to cancel"}
