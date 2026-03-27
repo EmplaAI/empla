@@ -63,6 +63,9 @@ class ReflectionMixin:
             # ============ STEP 2: Update Procedural Memory ============
             await self._update_procedural_memory(result)
 
+            # ============ STEP 2.5: Playbook Feedback ============
+            await self._update_playbook_success(result)
+
             # ============ STEP 3: Update Effectiveness Beliefs ============
             await self._update_effectiveness_beliefs(result)
 
@@ -306,6 +309,9 @@ class ReflectionMixin:
             # ============ STEP 5: Reinforce/Decay Memory ============
             await self._maintain_memory_health()
 
+            # ============ STEP 6: Autonomous Playbook Discovery ============
+            await self._discover_playbooks()
+
             duration_ms = (time.time() - start_time) * 1000
 
             logger.info(
@@ -530,6 +536,110 @@ Analyze the patterns and provide brief recommendations."""
                     exc_info=True,
                     extra={"employee_id": str(self.employee.id)},
                 )
+
+    async def _update_playbook_success(self, result: IntentionResult) -> None:
+        """Update playbook success_rate based on execution outcome.
+
+        If the intention's context contains a playbook_id (set when the LLM
+        explicitly selected a playbook), update the playbook's success tracking.
+        Auto-demotes playbooks that fall below the quality threshold.
+
+        Note: The primary feedback loop for playbooks is through record_procedure
+        in _update_procedural_memory, which updates execution stats for all
+        procedures including playbooks. This method provides additional explicit
+        tracking when the LLM references a specific playbook by ID.
+        """
+        if not hasattr(self.memory, "procedural"):
+            return
+
+        context = getattr(result, "context", {}) or {}
+        playbook_id = context.get("playbook_id")
+        if not playbook_id:
+            return
+
+        try:
+            proc = await self.memory.procedural.get_procedure(playbook_id)
+            if proc is None or not proc.is_playbook:
+                return
+
+            # Don't increment success_count here — record_procedure in
+            # _update_procedural_memory already updates execution stats.
+            # This method only handles the demotion check.
+
+            # Auto-demote if success rate drops below threshold
+            if proc.execution_count >= 5 and proc.success_rate < 0.5:
+                proc.is_playbook = False
+                proc.promoted_at = None
+                await self.memory.procedural.session.flush()
+                logger.warning(
+                    "Auto-demoted playbook due to low success rate: %s (%.0f%%)",
+                    proc.name,
+                    proc.success_rate * 100,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        except Exception:
+            logger.warning(
+                "Failed to update playbook success for %s",
+                playbook_id,
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+
+    async def _discover_playbooks(self) -> None:
+        """Autonomous playbook discovery — promote successful procedures.
+
+        Evaluates procedures that have been executed enough times with
+        sufficient success rate and promotes them to executable playbooks.
+        Playbooks provide proven patterns that the LLM can reuse during
+        planning, reducing generation effort.
+        """
+        if not hasattr(self.memory, "procedural"):
+            return
+        if not hasattr(self.memory.procedural, "evaluate_for_promotion"):
+            return
+
+        try:
+            candidates = await self.memory.procedural.evaluate_for_promotion(
+                min_executions=3,
+                min_success_rate=0.7,
+                limit=5,
+            )
+
+            promoted_count = 0
+            for proc in candidates:
+                try:
+                    result = await self.memory.procedural.promote_to_playbook(proc.id)
+                    if result and result.is_playbook:
+                        promoted_count += 1
+                        logger.info(
+                            "Promoted procedure to playbook: %s (success_rate=%.0f%%, executions=%d)",
+                            proc.name,
+                            proc.success_rate * 100,
+                            proc.execution_count,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
+                except Exception:
+                    logger.warning(
+                        "Failed to promote procedure %s to playbook",
+                        proc.name,
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+
+            if promoted_count:
+                logger.info(
+                    "Playbook discovery: promoted %d procedures to playbooks",
+                    promoted_count,
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        except Exception:
+            logger.warning(
+                "Playbook discovery failed — learning pipeline interrupted",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
 
     async def _maintain_memory_health(self) -> None:
         """Perform memory maintenance: reinforce and decay."""

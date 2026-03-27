@@ -642,3 +642,116 @@ class ProceduralMemorySystem:
         )
 
         return list(result.scalars().all())
+
+    # ================================================================
+    # Playbook Operations
+    # ================================================================
+
+    async def find_playbooks(
+        self,
+        situation: dict[str, Any] | None = None,
+        min_success_rate: float = 0.6,
+        limit: int = 5,
+    ) -> list[ProceduralMemory]:
+        """Find executable playbooks, optionally matching a situation.
+
+        Playbooks are procedures promoted to executable status after
+        demonstrating consistent success. They are used during planning
+        to skip LLM generation for known patterns.
+
+        Args:
+            situation: Optional context to match against trigger_conditions.
+            min_success_rate: Minimum success rate (default 0.6).
+            limit: Max results.
+
+        Returns:
+            List of playbooks sorted by success_rate descending.
+        """
+        query = (
+            select(ProceduralMemory)
+            .where(
+                ProceduralMemory.employee_id == self.employee_id,
+                ProceduralMemory.tenant_id == self.tenant_id,
+                ProceduralMemory.is_playbook.is_(True),
+                ProceduralMemory.success_rate >= min_success_rate,
+                ProceduralMemory.deleted_at.is_(None),
+            )
+            .order_by(ProceduralMemory.success_rate.desc())
+            .limit(limit)
+        )
+
+        if situation:
+            cond = dict(list(situation.items())[:5])
+            query = query.where(text("trigger_conditions @> :cond").params(cond=json.dumps(cond)))
+
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def promote_to_playbook(
+        self,
+        procedure_id: UUID,
+    ) -> ProceduralMemory | None:
+        """Promote a procedure to playbook status.
+
+        Only promotes if the procedure meets quality thresholds:
+        - At least 3 executions
+        - Success rate >= 70%
+        - Not already a playbook
+
+        Returns:
+            Updated ProceduralMemory if promoted, None if ineligible.
+        """
+
+        proc = await self.get_procedure(procedure_id)
+        if proc is None:
+            return None
+
+        if proc.is_playbook:
+            return proc  # Already promoted
+
+        if proc.execution_count < 3 or proc.success_rate < 0.7:
+            return None  # Doesn't meet quality threshold
+
+        old_learned_from = proc.learned_from
+        proc.is_playbook = True
+        proc.promoted_at = datetime.now(UTC)
+        if proc.learned_from is None:
+            proc.learned_from = "autonomous_discovery"
+
+        try:
+            await self.session.flush()
+        except Exception:
+            # Revert in-memory state so callers don't see a false positive
+            proc.is_playbook = False
+            proc.promoted_at = None
+            proc.learned_from = old_learned_from
+            raise
+
+        return proc
+
+    async def evaluate_for_promotion(
+        self,
+        min_executions: int = 3,
+        min_success_rate: float = 0.7,
+        limit: int = 10,
+    ) -> list[ProceduralMemory]:
+        """Find procedures eligible for playbook promotion.
+
+        Returns procedures that meet the promotion criteria but haven't
+        been promoted yet. Used by the reflection cycle for autonomous
+        playbook discovery.
+        """
+        result = await self.session.execute(
+            select(ProceduralMemory)
+            .where(
+                ProceduralMemory.employee_id == self.employee_id,
+                ProceduralMemory.tenant_id == self.tenant_id,
+                ProceduralMemory.is_playbook.is_(False),
+                ProceduralMemory.execution_count >= min_executions,
+                ProceduralMemory.success_rate >= min_success_rate,
+                ProceduralMemory.deleted_at.is_(None),
+            )
+            .order_by(ProceduralMemory.success_rate.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())

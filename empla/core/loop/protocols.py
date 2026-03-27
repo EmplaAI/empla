@@ -10,13 +10,35 @@ circular imports.
 from typing import Any, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from empla.core.loop.models import Observation
 
 # ============================================================================
 # Pydantic Models for LLM Structured Outputs
 # ============================================================================
+
+
+class SituatedItem(BaseModel):
+    """An opportunity or problem identified during situation analysis.
+
+    The LLM sets priority and TTL based on context — no hardcoded defaults.
+    Accepts plain strings for backward compatibility (wraps with defaults).
+    """
+
+    description: str = Field(..., min_length=1, description="What the opportunity or problem is")
+    priority: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="How important this is (1=low, 10=critical). Set based on impact.",
+    )
+    max_age_hours: int = Field(
+        default=72,
+        ge=1,
+        le=8760,
+        description="How long this remains relevant (hours). 24=urgent, 168=weekly, 720=monthly max.",
+    )
 
 
 class SituationAnalysis(BaseModel):
@@ -26,9 +48,23 @@ class SituationAnalysis(BaseModel):
     gaps: list[str] = Field(
         default_factory=list, description="Gaps between current and desired state"
     )
-    opportunities: list[str] = Field(default_factory=list, description="Opportunities identified")
-    problems: list[str] = Field(default_factory=list, description="Problems requiring attention")
+    opportunities: list[SituatedItem] = Field(
+        default_factory=list,
+        description="Opportunities identified, each with priority (1-10) and time horizon",
+    )
+    problems: list[SituatedItem] = Field(
+        default_factory=list,
+        description="Problems requiring attention, each with priority (1-10) and urgency",
+    )
     recommended_focus: str = Field(..., description="What to focus on next")
+
+    @field_validator("opportunities", "problems", mode="before")
+    @classmethod
+    def _coerce_strings_to_items(cls, v: Any) -> Any:
+        """Accept plain strings and wrap them as SituatedItem dicts."""
+        if isinstance(v, list):
+            return [{"description": item} if isinstance(item, str) else item for item in v]
+        return v
 
 
 class GoalRecommendation(BaseModel):

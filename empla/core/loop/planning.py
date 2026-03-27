@@ -244,6 +244,10 @@ class PlanningMixin:
 3. Problems requiring immediate attention
 4. What you should focus on next
 
+For each opportunity and problem, YOU decide:
+- priority (1-10): How important is this? 1=trivial, 10=critical/urgent.
+- max_age_hours: How long is this relevant? 24 for urgent, 168 for strategic, 720 for long-term.
+
 IMPORTANT: Do NOT suggest opportunities or problems that are already covered by existing
 active goals. Review the goals list carefully — if a goal already addresses a topic,
 do not duplicate it as an opportunity or problem. Only suggest genuinely new items.
@@ -389,30 +393,38 @@ Analyze this situation and provide recommendations."""
         situation_analysis: SituationAnalysis,
         active_goals: list[Any],
     ) -> None:
-        """Create/abandon goals based on situation analysis."""
-        # Create new goals for identified opportunities
+        """Create/abandon goals based on situation analysis.
+
+        The LLM sets priority and TTL per item in SituationAnalysis — no
+        hardcoded defaults. No caps on how many goals are created — the
+        dedup check (word overlap) is the only filter.
+        """
         existing_descs = [getattr(g, "description", "").lower() for g in active_goals]
-        for opportunity in situation_analysis.opportunities[:3]:  # Limit to top 3
-            # Check if semantically similar goal already exists (bidirectional substring)
-            opp_lower = opportunity.lower()
+
+        # Create goals for opportunities (LLM sets priority and TTL via SituatedItem)
+        for item in situation_analysis.opportunities:
+            desc_lower = item.description.lower()
             exists = any(
-                opp_lower in desc or desc in opp_lower or self._words_overlap(opp_lower, desc) > 0.6
-                for desc in existing_descs
+                desc_lower in d or d in desc_lower or self._words_overlap(desc_lower, d) > 0.6
+                for d in existing_descs
             )
             if not exists:
                 try:
                     await self.goals.add_goal(
                         goal_type="opportunity",
-                        description=f"Pursue opportunity: {opportunity}",
-                        priority=6,  # Medium priority for opportunities
+                        description=f"Pursue opportunity: {item.description}",
+                        priority=item.priority,
                         target={
                             "type": "opportunity",
-                            "description": opportunity,
-                            "max_age_hours": 72,
+                            "description": item.description,
+                            "max_age_hours": item.max_age_hours,
                         },
                     )
                     logger.info(
-                        f"Created goal for opportunity: {opportunity[:50]}...",
+                        "Created goal for opportunity (priority=%d, ttl=%dh): %s",
+                        item.priority,
+                        item.max_age_hours,
+                        item.description[:50],
                         extra={"employee_id": str(self.employee.id)},
                     )
                 except Exception as e:
@@ -421,30 +433,33 @@ Analyze this situation and provide recommendations."""
                         exc_info=True,
                         extra={"employee_id": str(self.employee.id)},
                     )
-                    # A failed flush invalidates the session — rollback
-                    # and stop trying to create more goals this cycle.
                     await self._safe_rollback_goals()
                     return
 
-        # Create goals for critical problems
-        for problem in situation_analysis.problems[:2]:  # Limit to top 2
-            prob_lower = problem.lower()
+        # Create goals for problems (LLM sets priority and TTL via SituatedItem)
+        for item in situation_analysis.problems:
+            desc_lower = item.description.lower()
             exists = any(
-                prob_lower in desc
-                or desc in prob_lower
-                or self._words_overlap(prob_lower, desc) > 0.6
-                for desc in existing_descs
+                desc_lower in d or d in desc_lower or self._words_overlap(desc_lower, d) > 0.6
+                for d in existing_descs
             )
             if not exists:
                 try:
                     await self.goals.add_goal(
                         goal_type="problem",
-                        description=f"Address problem: {problem}",
-                        priority=8,  # High priority for problems
-                        target={"type": "problem", "description": problem, "max_age_hours": 48},
+                        description=f"Address problem: {item.description}",
+                        priority=item.priority,
+                        target={
+                            "type": "problem",
+                            "description": item.description,
+                            "max_age_hours": item.max_age_hours,
+                        },
                     )
                     logger.info(
-                        f"Created goal for problem: {problem[:50]}...",
+                        "Created goal for problem (priority=%d, ttl=%dh): %s",
+                        item.priority,
+                        item.max_age_hours,
+                        item.description[:50],
                         extra={"employee_id": str(self.employee.id)},
                     )
                 except Exception as e:
@@ -497,8 +512,8 @@ Current Beliefs:
 Situation Analysis:
 - Focus: {situation_analysis.recommended_focus}
 - Gaps: {", ".join(situation_analysis.gaps[:5]) if situation_analysis.gaps else "None"}
-- Opportunities: {", ".join(situation_analysis.opportunities[:3]) if situation_analysis.opportunities else "None"}
-- Problems: {", ".join(situation_analysis.problems[:3]) if situation_analysis.problems else "None"}
+- Opportunities: {", ".join(getattr(o, "description", str(o)) for o in situation_analysis.opportunities) if situation_analysis.opportunities else "None"}
+- Problems: {", ".join(getattr(p, "description", str(p)) for p in situation_analysis.problems) if situation_analysis.problems else "None"}
 
 What changes do you recommend to the goal portfolio?"""
 
@@ -527,7 +542,7 @@ What changes do you recommend to the goal portfolio?"""
         # Process abandonment recommendations via fuzzy matching
         existing_descs = {getattr(g, "description", ""): g for g in active_goals}
         abandoned_count = 0
-        for abandon_desc in recommendation.goals_to_abandon[:3]:
+        for abandon_desc in recommendation.goals_to_abandon:
             matched_goal = self._fuzzy_match_goal(abandon_desc, existing_descs)
             if matched_goal is None:
                 logger.debug(
@@ -569,7 +584,7 @@ What changes do you recommend to the goal portfolio?"""
 
         # Process priority adjustments
         adjusted_count = 0
-        for adj in recommendation.priority_adjustments[:3]:
+        for adj in recommendation.priority_adjustments:
             desc = adj.get("description", "")
             new_priority = adj.get("new_priority")
             if not desc or new_priority is None:
@@ -681,14 +696,36 @@ What changes do you recommend to the goal portfolio?"""
                 )
                 continue
 
-            # Query procedural memory for relevant past experience
+            # Gather playbooks and past procedures — presented to the LLM as
+            # options. The LLM decides whether to reuse, adapt, or generate fresh.
+            # This keeps the system agentic rather than rule-based.
+            available_playbooks: list[Any] = []
             past_procedures: list[Any] = []
             if hasattr(self.memory, "procedural"):
+                # Find proven playbooks (high success, promoted)
+                if hasattr(self.memory.procedural, "find_playbooks"):
+                    try:
+                        available_playbooks = await self.memory.procedural.find_playbooks(
+                            situation={
+                                "goal_type": getattr(goal, "goal_type", ""),
+                            },
+                            min_success_rate=0.6,
+                            limit=3,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Playbook lookup failed for goal %s: %s",
+                            goal_id,
+                            e,
+                            exc_info=True,
+                            extra={"employee_id": str(self.employee.id)},
+                        )
+
+                # Find past procedures (not yet playbooks, but informative)
                 try:
                     past_procedures = await self.memory.procedural.find_procedures_for_situation(
                         situation={
                             "goal_type": getattr(goal, "goal_type", ""),
-                            "goal_description": getattr(goal, "description", ""),
                         },
                         procedure_type="intention_execution",
                         min_success_rate=0.5,
@@ -702,17 +739,45 @@ What changes do you recommend to the goal portfolio?"""
                         extra={"employee_id": str(self.employee.id)},
                     )
 
-            # Build procedural context for plan generation
+            # Build context for LLM — playbooks are presented as reusable
+            # recipes the LLM can choose to follow, adapt, or ignore.
             procedural_context = ""
+            context_lines: list[str] = []
+
+            if available_playbooks:
+                context_lines.append(
+                    "AVAILABLE PLAYBOOKS (proven recipes you can reuse as-is or adapt):"
+                )
+                for pb in available_playbooks:
+                    steps_desc = ", ".join(
+                        s.get("action", s.get("step", "?"))
+                        for s in (getattr(pb, "steps", []) or [])
+                    )
+                    rate = getattr(pb, "success_rate", 0) or 0
+                    count = getattr(pb, "execution_count", 0) or 0
+                    context_lines.append(
+                        f"  PLAYBOOK '{pb.name}': [{steps_desc}] "
+                        f"(success_rate={rate:.0%}, used {count} times)"
+                    )
+                context_lines.append(
+                    "If a playbook fits this goal, you can reuse its steps directly "
+                    "or modify them. You are NOT required to use a playbook — "
+                    "generate a fresh plan if none are appropriate."
+                )
+
             if past_procedures:
-                lines = ["Past experience (successful procedures):"]
+                context_lines.append("Past experience (successful procedures):")
                 for proc in past_procedures:
                     steps_desc = ", ".join(
                         s.get("action", "?") for s in (getattr(proc, "steps", []) or [])
                     )
                     rate = getattr(proc, "success_rate", 0) or 0
-                    lines.append(f"  - {proc.name}: [{steps_desc}] (success_rate={rate:.0%})")
-                procedural_context = "\n".join(lines)
+                    context_lines.append(
+                        f"  - {proc.name}: [{steps_desc}] (success_rate={rate:.0%})"
+                    )
+
+            if context_lines:
+                procedural_context = "\n".join(context_lines)
 
             # Generate plan for this goal
             try:
