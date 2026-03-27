@@ -29,7 +29,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from empla.core.hooks import (
@@ -191,6 +191,7 @@ class ProactiveExecutionLoop(
         self.cycle_count = 0
         self.last_strategic_planning: datetime | None = None
         self.last_deep_reflection: datetime | None = None
+        self._wake_event = asyncio.Event()
 
         logger.info(
             f"Proactive loop initialized for {employee.name}",
@@ -263,6 +264,7 @@ class ProactiveExecutionLoop(
         Gracefully stops the loop after the current cycle completes.
         """
         self.is_running = False
+        self._wake_event.set()  # Interrupt sleep immediately
 
         logger.info(
             f"Stopping proactive loop for {self.employee.name}",
@@ -321,6 +323,9 @@ class ProactiveExecutionLoop(
                     employee_id=self.employee.id,
                     cycle_count=self.cycle_count,
                 )
+
+                # Check for due scheduled actions → inject into working memory
+                await self._check_scheduled_actions()
 
                 await self._execute_bdi_phases()
 
@@ -688,13 +693,106 @@ class ProactiveExecutionLoop(
     # Utilities
     # ========================================================================
 
+    async def _check_scheduled_actions(self) -> None:
+        """Check for due scheduled actions and inject them as observations.
+
+        Queries working memory for scheduled_action items that are due,
+        adds them as high-priority working memory items so the perception
+        phase sees them, and cleans up one-shot actions after processing.
+        """
+        if not hasattr(self.memory, "working"):
+            return
+
+        try:
+            now = datetime.now(UTC)
+            active_items = await self.memory.working.get_active_items()
+
+            due_actions = []
+            for item in active_items:
+                content = getattr(item, "content", {}) or {}
+                # Scheduled actions are stored as item_type="task" with
+                # subtype="scheduled_action" (to comply with DB check constraint)
+                is_scheduled = content.get("subtype") == "scheduled_action"
+                if not is_scheduled:
+                    continue
+                scheduled_for_str = content.get("scheduled_for")
+                if not scheduled_for_str:
+                    continue
+                try:
+                    scheduled_for = datetime.fromisoformat(scheduled_for_str)
+                    if scheduled_for <= now:
+                        due_actions.append(item)
+                except (ValueError, TypeError):
+                    continue
+
+            for action in due_actions:
+                content = getattr(action, "content", {}) or {}
+                desc = content.get("description", "Scheduled action")
+                # Add as high-importance working memory item so perception sees it
+                await self.memory.working.add_item(
+                    item_type="observation",
+                    content={
+                        "description": f"SCHEDULED ACTION DUE: {desc}",
+                        "subtype": "scheduled_action_due",
+                        "original_action": content,
+                    },
+                    importance=0.9,
+                )
+                # Clean up the fired action
+                recurring = content.get("recurring", False)
+                await self.memory.working.remove_item(action.id)
+
+                if recurring:
+                    # Re-create with next run time (remove + add since
+                    # working memory has no update_content method)
+                    interval_hours = content.get("interval_hours", 24)
+                    next_run = now + timedelta(hours=interval_hours)
+                    content["scheduled_for"] = next_run.isoformat()
+                    content["subtype"] = "scheduled_action"
+                    await self.memory.working.add_item(
+                        item_type="task",
+                        content=content,
+                        importance=0.7,
+                    )
+
+            if due_actions:
+                logger.info(
+                    "Injected %d due scheduled actions into perception",
+                    len(due_actions),
+                    extra={"employee_id": str(self.employee.id)},
+                )
+
+        except Exception:
+            logger.warning(
+                "Failed to check scheduled actions",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+
+    def wake(self) -> None:
+        """Wake the loop from sleep immediately.
+
+        Called by external triggers (webhooks, scheduled actions, events)
+        to interrupt the inter-cycle sleep and start a new BDI cycle.
+        Safe to call from any coroutine in the same event loop.
+        For cross-thread calls, use loop.call_soon_threadsafe(employee_loop.wake).
+        """
+        self._wake_event.set()
+
     async def _sleep_interruptible(self, seconds: float) -> None:
-        """Sleep in small increments so stop() takes effect promptly."""
-        remaining = seconds
-        while remaining > 0 and self.is_running:
-            chunk = min(0.1, remaining)
-            await asyncio.sleep(chunk)
-            remaining -= chunk
+        """Sleep with support for stop() and external wake signals."""
+        try:
+            await asyncio.wait_for(self._wake_event.wait(), timeout=seconds)
+            # Event fired — consume it so it doesn't re-trigger next sleep
+            self._wake_event.clear()
+            logger.debug(
+                "Sleep interrupted by wake event",
+                extra={"employee_id": str(self.employee.id)},
+            )
+        except TimeoutError:
+            pass  # Normal timeout — no wake signal, just proceed to next cycle
+        if not self.is_running:
+            return  # Stop was called during sleep
 
     async def _record_cycle_metrics(self, duration_seconds: float, *, success: bool) -> None:
         """Persist cycle metrics to DB using a short-lived independent session.
