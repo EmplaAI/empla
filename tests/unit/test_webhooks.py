@@ -496,6 +496,21 @@ class TestWebhookEndpoint:
         return app
 
     @pytest.mark.asyncio
+    async def test_missing_token_header_returns_422(self):
+        """Request without X-Webhook-Token header should get 422."""
+        from httpx import ASGITransport, AsyncClient
+
+        app = self._make_app()
+        transport = ASGITransport(app=app)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/webhooks/hubspot",
+                json={"subscriptionType": "deal.updated"},
+            )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
     async def test_invalid_token_returns_401(self):
         """Request with invalid webhook token should get 401."""
         from httpx import ASGITransport, AsyncClient

@@ -79,12 +79,12 @@ async def _find_tenant_by_webhook_token(db: DBSession, provider: str, token: str
     The token is stored in Integration.oauth_config["webhook_token"].
     Returns the tenant_id or None if not found.
     """
-    # Use JSONB containment to find the integration with this webhook_token
+    # Look up integration by extracting webhook_token from JSONB config
     result = await db.execute(
         select(Integration.tenant_id).where(
             Integration.provider == provider,
             Integration.oauth_config["webhook_token"].astext == token,
-            Integration.is_active.is_(True),
+            Integration.status == "active",
         )
     )
     return result.scalar_one_or_none()
