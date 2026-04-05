@@ -162,8 +162,8 @@ class HealthServer:
         self, reader: asyncio.StreamReader, content_length: int
     ) -> tuple[str, int]:
         """Handle POST /wake — store event and trigger loop wake."""
-        if content_length > _MAX_WAKE_BODY_BYTES:
-            return '{"error": "payload too large"}', 400
+        if content_length < 0 or content_length > _MAX_WAKE_BODY_BYTES:
+            return '{"error": "invalid or oversized payload"}', 400
 
         raw = b""
         if content_length > 0:
@@ -174,17 +174,32 @@ class HealthServer:
         except (json.JSONDecodeError, ValueError):
             return '{"error": "invalid JSON"}', 400
 
+        if not isinstance(event, dict):
+            return '{"error": "payload must be a JSON object"}', 400
+
         if len(self._pending_events) >= _MAX_PENDING_EVENTS:
+            dropped = self._pending_events.pop(0)
             logger.warning(
                 "Pending events queue full, dropping oldest event",
-                extra={"employee_id": str(self.employee_id)},
+                extra={
+                    "employee_id": str(self.employee_id),
+                    "dropped_provider": dropped.get("provider", "unknown"),
+                    "dropped_event_type": dropped.get("event_type", "unknown"),
+                    "queue_size": _MAX_PENDING_EVENTS,
+                },
             )
-            self._pending_events.pop(0)
 
         self._pending_events.append(event)
 
         if self._wake_callback:
-            self._wake_callback()
+            try:
+                self._wake_callback()
+            except Exception:
+                logger.warning(
+                    "Wake callback failed, event stored but loop may not wake immediately",
+                    exc_info=True,
+                    extra={"employee_id": str(self.employee_id)},
+                )
 
         logger.info(
             "Wake event received",

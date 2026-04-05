@@ -792,10 +792,20 @@ class ProactiveExecutionLoop(
 
         try:
             events = self._health_server.drain_events()
-            if not events:
-                return
+        except Exception:
+            logger.warning(
+                "Failed to drain events from health server",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+            return
 
-            for event in events:
+        if not events:
+            return
+
+        injected = 0
+        for event in events:
+            try:
                 provider = event.get("provider", "unknown")
                 event_type = event.get("event_type", "unknown")
                 summary = event.get("summary", "")
@@ -815,17 +825,23 @@ class ProactiveExecutionLoop(
                     },
                     importance=0.9,
                 )
+                injected += 1
+            except Exception:
+                logger.error(
+                    "Failed to inject external event, event lost",
+                    exc_info=True,
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "provider": event.get("provider", "unknown"),
+                        "event_type": event.get("event_type", "unknown"),
+                    },
+                )
 
+        if injected:
             logger.info(
-                "Injected %d external events into perception",
+                "Injected %d/%d external events into perception",
+                injected,
                 len(events),
-                extra={"employee_id": str(self.employee.id)},
-            )
-
-        except Exception:
-            logger.warning(
-                "Failed to check pending events",
-                exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )
 

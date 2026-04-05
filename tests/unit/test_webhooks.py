@@ -166,6 +166,31 @@ class TestHealthServerWake:
         finally:
             await server.stop()
 
+    @pytest.mark.asyncio
+    async def test_wake_endpoint_non_dict_json(self):
+        """POST /wake with non-dict JSON (e.g. array) should return 400."""
+        server = self._make_server()
+        await server.start()
+
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+            body = b"[1, 2, 3]"
+            request = (
+                f"POST /wake HTTP/1.1\r\nContent-Length: {len(body)}\r\n\r\n"
+            ).encode() + body
+
+            writer.write(request)
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+
+            assert b"400" in response
+            assert b"JSON object" in response
+            assert server.drain_events() == []
+        finally:
+            await server.stop()
+
     def test_pending_events_cap(self):
         """Should drop oldest event when queue is full."""
         from empla.runner.health import _MAX_PENDING_EVENTS
@@ -488,7 +513,8 @@ class TestWebhookEndpoint:
         ):
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
-                    "/api/v1/webhooks/hubspot?token=invalid-token",
+                    "/api/v1/webhooks/hubspot",
+                    headers={"X-Webhook-Token": "invalid-token"},
                     json={"subscriptionType": "deal.updated"},
                 )
             assert resp.status_code == 401
@@ -527,7 +553,8 @@ class TestWebhookEndpoint:
 
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
-                    "/api/v1/webhooks/hubspot?token=valid-token",
+                    "/api/v1/webhooks/hubspot",
+                    headers={"X-Webhook-Token": "valid-token"},
                     json=[{"subscriptionType": "deal.updated", "objectId": 123}],
                 )
 
@@ -568,9 +595,48 @@ class TestWebhookEndpoint:
         ):
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
-                    "/api/v1/webhooks/hubspot?token=valid-token",
+                    "/api/v1/webhooks/hubspot",
+                    headers={"X-Webhook-Token": "valid-token"},
                     json={"subscriptionType": "deal.updated"},
                 )
 
             assert resp.status_code == 200
             assert resp.json()["employees_notified"] == 0
+
+    @pytest.mark.asyncio
+    async def test_all_employees_unreachable_returns_503(self):
+        """When employees exist but all wake attempts fail, return 503."""
+        from httpx import ASGITransport, AsyncClient
+
+        from empla.api.v1.endpoints import webhooks
+
+        app = self._make_app()
+        transport = ASGITransport(app=app)
+
+        with (
+            patch.object(
+                webhooks,
+                "_find_tenant_by_webhook_token",
+                new_callable=AsyncMock,
+                return_value=uuid4(),
+            ),
+            patch.object(
+                webhooks,
+                "_find_active_employees",
+                new_callable=AsyncMock,
+                return_value=[uuid4()],
+            ),
+            patch("empla.api.v1.endpoints.webhooks.get_employee_manager") as mock_get_mgr,
+        ):
+            mock_manager = Mock()
+            mock_manager.wake_employee = AsyncMock(return_value=False)
+            mock_get_mgr.return_value = mock_manager
+
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/webhooks/hubspot",
+                    headers={"X-Webhook-Token": "valid-token"},
+                    json={"subscriptionType": "deal.updated"},
+                )
+
+            assert resp.status_code == 503

@@ -5,12 +5,12 @@ Public endpoints that receive webhooks from integration providers
 (HubSpot, Google Calendar, etc.) and wake the relevant employee
 subprocesses so they process the event in their next BDI cycle.
 
-Authentication: webhook_token query parameter (per-tenant, stored in
+Authentication: X-Webhook-Token header (per-tenant, stored in
 Integration.oauth_config["webhook_token"]). Provider-specific HMAC
 signature verification can be added per provider.
 
 Flow:
-  External provider → POST /api/v1/webhooks/{provider}?token=xxx
+  External provider → POST /api/v1/webhooks/{provider} (X-Webhook-Token header)
   → validate token against Integration table
   → find active employees for that tenant
   → EmployeeManager.wake_employee() for each
@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from sqlalchemy import select
 
 from empla.api.deps import DBSession
@@ -42,7 +42,7 @@ router = APIRouter()
 _PROVIDER_PARSERS: dict[str, Any] = {}
 
 
-def _parse_hubspot(payload: dict[str, Any]) -> tuple[str, str]:
+def _parse_hubspot(payload: dict[str, Any] | list[Any]) -> tuple[str, str]:
     """Extract event type and summary from HubSpot webhook payload."""
     # HubSpot sends an array of events; take the first
     events = payload if isinstance(payload, list) else [payload]
@@ -111,12 +111,12 @@ async def receive_webhook(
     db: DBSession,
     request: Request,
     provider: str,
-    token: str = Query(description="Webhook authentication token"),
+    x_webhook_token: str = Header(description="Webhook authentication token"),
 ) -> WebhookResponse:
     """Receive a webhook from an external integration provider.
 
     This is a public endpoint (no JWT) — external providers authenticate
-    via a per-tenant webhook_token query parameter.
+    via the X-Webhook-Token header (avoids leaking secrets in URL/logs).
 
     The endpoint:
     1. Validates the token against the Integration table
@@ -124,7 +124,7 @@ async def receive_webhook(
     3. Wakes all active employees for the tenant
     """
     # Validate webhook token
-    tenant_id = await _find_tenant_by_webhook_token(db, provider, token)
+    tenant_id = await _find_tenant_by_webhook_token(db, provider, x_webhook_token)
     if tenant_id is None:
         logger.warning(
             "Webhook received with invalid token",
@@ -135,11 +135,19 @@ async def receive_webhook(
             detail="Invalid webhook token",
         )
 
-    # Parse raw payload
+    # Parse raw payload — fail loudly so providers retry on malformed bodies
     try:
         raw_payload = await request.json()
-    except Exception:
-        raw_payload = {}
+    except Exception as exc:
+        logger.warning(
+            "Failed to parse webhook payload as JSON",
+            exc_info=True,
+            extra={"provider": provider},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON payload",
+        ) from exc
 
     # Extract event type and summary using provider-specific parser
     parser = _PROVIDER_PARSERS.get(provider, _parse_generic)
@@ -169,6 +177,21 @@ async def receive_webhook(
     for emp_id in employee_ids:
         if await manager.wake_employee(emp_id, event_dict):
             notified += 1
+
+    if notified == 0 and employee_ids:
+        logger.error(
+            "Webhook accepted but ALL employee wake attempts failed — event may be lost",
+            extra={
+                "provider": provider,
+                "event_type": event_type,
+                "tenant_id": str(tenant_id),
+                "employees_found": len(employee_ids),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No employees reachable",
+        )
 
     logger.info(
         "Webhook processed",
