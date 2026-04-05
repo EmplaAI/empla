@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from empla.core.loop.protocols import GoalRecommendation, SituationAnalysis
+from empla.llm.models import TaskContext, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +317,12 @@ Analyze this situation and provide recommendations."""
                 system=system_prompt,
                 response_format=SituationAnalysis,
                 temperature=0.3,
+                task_context=TaskContext(
+                    task_type=TaskType.SITUATION_ANALYSIS,
+                    priority=7,
+                    requires_structured_output=True,
+                    quality_threshold=0.8,
+                ),
             )
             return cast(SituationAnalysis, analysis)
         except Exception as e:
@@ -523,6 +530,12 @@ What changes do you recommend to the goal portfolio?"""
                 system=system_prompt,
                 response_format=GoalRecommendation,
                 temperature=0.2,
+                task_context=TaskContext(
+                    task_type=TaskType.GOAL_MANAGEMENT,
+                    priority=7,
+                    requires_structured_output=True,
+                    quality_threshold=0.8,
+                ),
             )
             recommendation = cast(GoalRecommendation, recommendation)
         except Exception as e:

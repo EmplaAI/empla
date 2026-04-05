@@ -4,7 +4,9 @@ LLM provider configuration.
 This module provides configuration for LLM providers and pre-configured model definitions.
 """
 
-from pydantic import BaseModel, Field
+import math
+
+from pydantic import BaseModel, Field, model_validator
 
 from empla.llm.models import LLMModel, LLMProvider
 
@@ -72,6 +74,63 @@ MODELS = {
 }
 
 
+class RoutingPolicy(BaseModel):
+    """Configuration for the LLM routing layer.
+
+    To disable routing, set ``LLMConfig.routing_policy = None`` (the default).
+    The ``enabled`` flag is useful when you have a policy object but want to
+    temporarily disable routing without losing the configuration.
+    """
+
+    # Set to False to disable routing while keeping the policy config in place.
+    # To disable at the config level, set LLMConfig.routing_policy = None instead.
+    enabled: bool = True
+
+    # Budget limits (USD) per BDI cycle — soft triggers a 1-tier downgrade,
+    # hard is an absolute ceiling that overrides all other signals including retry.
+    soft_budget_usd: float = 0.10
+    hard_budget_usd: float = 0.50
+
+    # Token threshold above which long-context models are preferred
+    long_context_token_threshold: int = 50_000
+
+    # Circuit breaker settings
+    circuit_breaker_failure_threshold: int = 3
+    circuit_breaker_cooldown_seconds: int = 120
+
+    @model_validator(mode="after")
+    def validate_budget_ordering(self) -> "RoutingPolicy":
+        """Ensure budget and circuit breaker values are valid positive finite numbers."""
+        if not math.isfinite(self.soft_budget_usd) or self.soft_budget_usd <= 0:
+            raise ValueError(
+                f"soft_budget_usd must be a finite positive number, got {self.soft_budget_usd}"
+            )
+        if not math.isfinite(self.hard_budget_usd) or self.hard_budget_usd <= 0:
+            raise ValueError(
+                f"hard_budget_usd must be a finite positive number, got {self.hard_budget_usd}"
+            )
+        if self.soft_budget_usd >= self.hard_budget_usd:
+            raise ValueError(
+                f"soft_budget_usd ({self.soft_budget_usd}) must be less than "
+                f"hard_budget_usd ({self.hard_budget_usd})"
+            )
+        if self.long_context_token_threshold < 1:
+            raise ValueError(
+                f"long_context_token_threshold must be >= 1, got {self.long_context_token_threshold}"
+            )
+        if self.circuit_breaker_failure_threshold < 1:
+            raise ValueError(
+                f"circuit_breaker_failure_threshold must be >= 1, "
+                f"got {self.circuit_breaker_failure_threshold}"
+            )
+        if self.circuit_breaker_cooldown_seconds < 1:
+            raise ValueError(
+                f"circuit_breaker_cooldown_seconds must be >= 1, "
+                f"got {self.circuit_breaker_cooldown_seconds}"
+            )
+        return self
+
+
 class LLMConfig(BaseModel):
     """LLM configuration."""
 
@@ -108,6 +167,9 @@ class LLMConfig(BaseModel):
 
     # Cost tracking
     enable_cost_tracking: bool = True
+
+    # Routing policy (None = routing disabled, use primary/fallback only)
+    routing_policy: RoutingPolicy | None = None
 
     class Config:
         # Don't serialize sensitive fields

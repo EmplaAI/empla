@@ -519,6 +519,10 @@ class ProactiveExecutionLoop(
         Raises:
             Exception: Propagated from any phase failure.
         """
+        # Reset per-cycle budget tracking for the router (scoped to this employee)
+        if self.llm_service:
+            self.llm_service.reset_cycle_budget()
+
         employee_id = self.employee.id
 
         # ============ TRUST BOUNDARY RESET ============

@@ -2,83 +2,101 @@
 empla.llm - Multi-provider LLM service.
 
 This package provides a unified interface for working with multiple LLM providers
-(Anthropic, OpenAI, Google Vertex AI) with automatic fallback and cost tracking.
+(Anthropic, OpenAI, Google Vertex AI) with automatic fallback, cost tracking,
+and optional rule-based routing.
 
 Example:
     >>> from empla.llm import LLMService
-    >>> from empla.llm.config import LLMConfig
+    >>> from empla.llm.config import LLMConfig, RoutingPolicy
     >>>
     >>> config = LLMConfig(
     ...     primary_model="claude-sonnet-4",
     ...     fallback_model="gpt-4o",
+    ...     routing_policy=RoutingPolicy(enabled=True),
     ...     anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
     ...     openai_api_key=os.getenv("OPENAI_API_KEY"),
     ... )
     >>> llm = LLMService(config)
     >>>
-    >>> # Generate text
+    >>> # Generate text (backwards compatible — routing not used)
     >>> response = await llm.generate("Analyze this situation...")
-    >>> print(response.content)
     >>>
-    >>> # Generate structured output
-    >>> from pydantic import BaseModel
-    >>> class Belief(BaseModel):
-    ...     subject: str
-    ...     confidence: float
-    >>>
-    >>> response, belief = await llm.generate_structured(
-    ...     "Extract belief from: Customer is interested",
-    ...     response_format=Belief,
+    >>> # Generate with routing context
+    >>> from empla.llm import TaskContext, TaskType
+    >>> response = await llm.generate(
+    ...     "Extract beliefs from this observation...",
+    ...     task_context=TaskContext(
+    ...         task_type=TaskType.BELIEF_EXTRACTION,
+    ...         priority=5,
+    ...         quality_threshold=0.5,
+    ...     ),
     ... )
 """
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel
 
 from empla.llm.config import MODELS, LLMConfig
-from empla.llm.models import LLMRequest, LLMResponse, Message, ToolCall
+from empla.llm.models import (
+    LLMRequest,
+    LLMResponse,
+    Message,
+    RouterDecision,
+    TaskContext,
+    TaskType,
+    ToolCall,
+)
 from empla.llm.provider import LLMProviderBase, LLMProviderFactory
+from empla.llm.router import LLMRouter
 
 logger = logging.getLogger(__name__)
 
 
 class LLMService:
     """
-    Multi-provider LLM service with fallback and cost tracking.
+    Multi-provider LLM service with fallback, cost tracking, and optional routing.
 
-    This service provides a unified interface for working with multiple LLM providers.
-    It automatically falls back to a secondary provider if the primary fails, and
-    tracks costs across all requests.
+    When ``config.routing_policy`` is set and enabled, the service maintains a
+    provider pool for all configured models and uses ``LLMRouter`` to select the
+    most cost-effective model for each call based on ``TaskContext``.
+
+    When ``task_context=None`` (default), behaviour is identical to the original
+    implementation — primary provider is used with fallback on failure.
 
     Attributes:
         config: LLM configuration
-        primary: Primary LLM provider
-        fallback: Fallback LLM provider (optional)
+        primary: Primary LLM provider (legacy path)
+        fallback: Fallback LLM provider (legacy path, optional)
         total_cost: Total cost of all requests in USD
         requests_count: Total number of requests made
     """
 
-    def __init__(self, config: LLMConfig) -> None:
+    def __init__(self, config: LLMConfig, owner_id: str = "default") -> None:
         """
         Initialize LLM service.
 
         Args:
             config: LLM configuration
+            owner_id: Budget scope identifier passed to the router for cycle-budget
+                isolation. Use the employee's UUID when each employee has its own
+                LLMService so that concurrent loops cannot reset each other's budget.
+                Defaults to "default" for backward compatibility.
 
         Raises:
             ValueError: If required API key is missing for configured provider
         """
         self.config = config
+        self._owner_id = owner_id
 
-        # Initialize primary provider
+        # Initialize primary provider (legacy path)
         primary_model = MODELS[config.primary_model]
         self._validate_api_key(primary_model.provider.value)
         self.primary = self._create_provider(primary_model.provider.value, primary_model.model_id)
 
-        # Initialize fallback provider (if configured)
+        # Initialize fallback provider (legacy path, if configured)
         self.fallback = None
         if config.fallback_model:
             fallback_model = MODELS[config.fallback_model]
@@ -87,9 +105,51 @@ class LLMService:
                 fallback_model.provider.value, fallback_model.model_id
             )
 
+        # Build provider pool (routing path) — lazily skips models without API keys.
+        # primary and fallback providers are reused in the pool to avoid duplicate connections.
+        self._provider_pool: dict[str, LLMProviderBase] = {}
+        self._router: LLMRouter | None = None
+        if config.routing_policy and config.routing_policy.enabled:
+            self._build_provider_pool()
+            self._router = LLMRouter(
+                policy=config.routing_policy,
+                provider_pool=self._provider_pool,
+            )
+
         # Cost tracking
         self.total_cost = 0.0
         self.requests_count = 0
+
+    # =========================================================================
+    # Provider management
+    # =========================================================================
+
+    def _build_provider_pool(self) -> None:
+        """Build the provider pool for all models that have API keys configured.
+
+        Reuses the already-created primary and fallback provider instances
+        to avoid opening duplicate HTTP connections to the same API.
+        """
+        for model_key, model_config in MODELS.items():
+            # Reuse existing providers to avoid duplicate connections
+            if model_key == self.config.primary_model:
+                self._provider_pool[model_key] = self.primary
+                continue
+            if model_key == self.config.fallback_model and self.fallback is not None:
+                self._provider_pool[model_key] = self.fallback
+                continue
+
+            provider_name = model_config.provider.value
+            try:
+                self._validate_api_key(provider_name)
+            except ValueError:
+                # No API key for this provider — skip silently
+                continue
+            try:
+                provider = self._create_provider(provider_name, model_config.model_id)
+                self._provider_pool[model_key] = provider
+            except Exception as e:
+                logger.debug(f"Skipping model {model_key} in pool: {e}")
 
     def _validate_api_key(self, provider: str) -> None:
         """
@@ -129,21 +189,18 @@ class LLMService:
             Configured provider instance
         """
         if provider == "anthropic":
-            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="anthropic",
                 api_key=self.config.anthropic_api_key,  # type: ignore[arg-type]
                 model_id=model_id,
             )
         if provider == "openai":
-            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="openai",
                 api_key=self.config.openai_api_key,  # type: ignore[arg-type]
                 model_id=model_id,
             )
         if provider == "azure_openai":
-            # API key validated by _validate_api_key before calling this method
             return LLMProviderFactory.create(
                 provider="azure_openai",
                 api_key=self.config.azure_openai_api_key,  # type: ignore[arg-type]
@@ -155,7 +212,7 @@ class LLMService:
         if provider == "vertex":
             return LLMProviderFactory.create(
                 provider="vertex",
-                api_key="",  # Vertex uses application default credentials
+                api_key="",
                 model_id=model_id,
                 project_id=self.config.vertex_project_id,
                 location=self.config.vertex_location,
@@ -165,12 +222,75 @@ class LLMService:
             "Supported providers: anthropic, openai, azure_openai, vertex"
         )
 
+    def _get_provider_for_context(
+        self, task_context: TaskContext | None
+    ) -> tuple[LLMProviderBase, str]:
+        """
+        Select provider and model key for a call.
+
+        Uses the router when task_context is provided and routing is enabled.
+        Falls back to the legacy primary provider otherwise.
+
+        Returns:
+            (provider, model_key)
+        """
+        if task_context is not None and self._router is not None:
+            decision = self._router.route(task_context, self._owner_id)
+            provider = self._provider_pool.get(decision.model_key)
+            if provider is not None:
+                return provider, decision.model_key
+            # Router returned a model not in pool (shouldn't happen) — fall through
+            logger.warning(
+                f"Router selected {decision.model_key} but it's not in provider pool"
+            )
+        return self.primary, self.config.primary_model
+
+    def _get_fallback_provider(
+        self, failed_model_key: str, task_context: TaskContext | None
+    ) -> tuple[LLMProviderBase, str] | None:
+        """
+        Get fallback provider after a failure.
+
+        With routing enabled: records the failure, then re-routes with
+        retry_count+1 to trigger tier escalation.
+        Without routing: uses the legacy fallback provider.
+
+        Returns:
+            (provider, model_key) or None if no fallback available
+        """
+        if task_context is not None and self._router is not None:
+            self._router.record_failure(failed_model_key)
+            escalated = TaskContext(
+                task_type=task_context.task_type,
+                priority=task_context.priority,
+                estimated_input_tokens=task_context.estimated_input_tokens,
+                requires_tool_use=task_context.requires_tool_use,
+                requires_structured_output=task_context.requires_structured_output,
+                latency_sensitive=task_context.latency_sensitive,
+                quality_threshold=task_context.quality_threshold,
+                retry_count=task_context.retry_count + 1,
+            )
+            decision = self._router.route(escalated)
+            if decision.model_key != failed_model_key:
+                provider = self._provider_pool.get(decision.model_key)
+                if provider is not None:
+                    return provider, decision.model_key
+
+        if self.fallback:
+            return self.fallback, self.config.fallback_model or ""
+        return None
+
+    # =========================================================================
+    # Public generate_* methods
+    # =========================================================================
+
     async def generate(
         self,
         prompt: str,
         system: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        task_context: TaskContext | None = None,
     ) -> LLMResponse:
         """
         Generate completion.
@@ -182,16 +302,10 @@ class LLMService:
             system: System message (optional)
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature (0.0-2.0)
+            task_context: Routing context (optional; uses primary when omitted)
 
         Returns:
             LLM response
-
-        Example:
-            >>> response = await llm.generate(
-            ...     "Analyze the customer's sentiment",
-            ...     system="You are a sales AI assistant",
-            ... )
-            >>> print(response.content)
         """
         messages = []
         if system:
@@ -200,21 +314,32 @@ class LLMService:
 
         request = LLMRequest(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
-        # Try primary provider
+        provider, model_key = self._get_provider_for_context(task_context)
         try:
-            response = await self.primary.generate(request)
-            self._track_cost(response, is_primary=True)
+            response = await provider.generate(request)
+            self._track_cost_for_model(response, model_key)
+            if task_context is not None and self._router:
+                self._router.record_success(model_key)
+                self._router.record_cost(model_key, response.usage, self._owner_id)
             return response
 
         except Exception as e:
-            logger.error(f"Primary provider failed: {e}")
-
-            # Fallback to secondary provider
-            if self.fallback:
-                logger.info("Falling back to secondary provider")
-                response = await self.fallback.generate(request)
-                self._track_cost(response, is_primary=False)
-                return response
+            logger.error(f"Provider {model_key} failed: {e}")
+            fallback = self._get_fallback_provider(model_key, task_context)
+            if fallback:
+                fb_provider, fb_key = fallback
+                logger.info(f"Falling back to {fb_key}")
+                try:
+                    response = await fb_provider.generate(request)
+                    self._track_cost_for_model(response, fb_key)
+                    if task_context is not None and self._router:
+                        self._router.record_success(fb_key)
+                        self._router.record_cost(fb_key, response.usage, self._owner_id)
+                    return response
+                except Exception:
+                    if task_context is not None and self._router:
+                        self._router.record_failure(fb_key)
+                    raise
             raise
 
     async def generate_structured(
@@ -224,6 +349,7 @@ class LLMService:
         system: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        task_context: TaskContext | None = None,
     ) -> tuple[LLMResponse, BaseModel]:
         """
         Generate structured output (Pydantic model).
@@ -234,21 +360,10 @@ class LLMService:
             system: System message (optional)
             max_tokens: Maximum tokens
             temperature: Sampling temperature
+            task_context: Routing context (optional)
 
         Returns:
             Tuple of (LLM response, parsed output)
-
-        Example:
-            >>> from pydantic import BaseModel
-            >>> class Sentiment(BaseModel):
-            ...     label: str
-            ...     score: float
-            >>>
-            >>> response, sentiment = await llm.generate_structured(
-            ...     "The customer loves our product!",
-            ...     response_format=Sentiment,
-            ... )
-            >>> print(sentiment.label, sentiment.score)
         """
         messages = []
         if system:
@@ -257,20 +372,34 @@ class LLMService:
 
         request = LLMRequest(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
-        # Try primary provider
+        provider, model_key = self._get_provider_for_context(task_context)
         try:
-            response, parsed = await self.primary.generate_structured(request, response_format)
-            self._track_cost(response, is_primary=True)
+            response, parsed = await provider.generate_structured(request, response_format)
+            self._track_cost_for_model(response, model_key)
+            if task_context is not None and self._router:
+                self._router.record_success(model_key)
+                self._router.record_cost(model_key, response.usage, self._owner_id)
             return response, parsed
 
         except Exception as e:
-            logger.error(f"Primary provider failed: {e}")
-
-            if self.fallback:
-                logger.info("Falling back to secondary provider")
-                response, parsed = await self.fallback.generate_structured(request, response_format)
-                self._track_cost(response, is_primary=False)
-                return response, parsed
+            logger.error(f"Provider {model_key} failed: {e}")
+            fallback = self._get_fallback_provider(model_key, task_context)
+            if fallback:
+                fb_provider, fb_key = fallback
+                logger.info(f"Falling back to {fb_key}")
+                try:
+                    response, parsed = await fb_provider.generate_structured(
+                        request, response_format
+                    )
+                    self._track_cost_for_model(response, fb_key)
+                    if task_context is not None and self._router:
+                        self._router.record_success(fb_key)
+                        self._router.record_cost(fb_key, response.usage, self._owner_id)
+                    return response, parsed
+                except Exception:
+                    if task_context is not None and self._router:
+                        self._router.record_failure(fb_key)
+                    raise
             raise
 
     async def generate_with_tools(
@@ -280,6 +409,7 @@ class LLMService:
         tool_choice: str = "auto",
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        task_context: TaskContext | None = None,
     ) -> LLMResponse:
         """
         Generate with function calling. Returns response that may contain tool_calls.
@@ -290,6 +420,7 @@ class LLMService:
             tool_choice: "auto", "required", or "none"
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
+            task_context: Routing context (optional)
 
         Returns:
             LLM response, potentially with tool_calls
@@ -297,28 +428,40 @@ class LLMService:
         request = LLMRequest(
             messages=messages,
             tools=tools,
-            tool_choice=tool_choice,
+            tool_choice=cast(Literal["auto", "required", "none"] | None, tool_choice),
             max_tokens=max_tokens,
             temperature=temperature,
         )
 
+        provider, model_key = self._get_provider_for_context(task_context)
         try:
-            response = await self.primary.generate_with_tools(request)
-            self._track_cost(response, is_primary=True)
+            response = await provider.generate_with_tools(request)
+            self._track_cost_for_model(response, model_key)
+            if task_context is not None and self._router:
+                self._router.record_success(model_key)
+                self._router.record_cost(model_key, response.usage, self._owner_id)
             return response
 
         except NotImplementedError:
-            # Provider doesn't support tool calling — don't mask with fallback
             raise
 
         except Exception:
-            logger.error("Primary provider failed for generate_with_tools", exc_info=True)
-
-            if self.fallback:
-                logger.info("Falling back to secondary provider for generate_with_tools")
-                response = await self.fallback.generate_with_tools(request)
-                self._track_cost(response, is_primary=False)
-                return response
+            logger.error(f"Provider {model_key} failed for generate_with_tools", exc_info=True)
+            fallback = self._get_fallback_provider(model_key, task_context)
+            if fallback:
+                fb_provider, fb_key = fallback
+                logger.info(f"Falling back to {fb_key} for generate_with_tools")
+                try:
+                    response = await fb_provider.generate_with_tools(request)
+                    self._track_cost_for_model(response, fb_key)
+                    if task_context is not None and self._router:
+                        self._router.record_success(fb_key)
+                        self._router.record_cost(fb_key, response.usage, self._owner_id)
+                    return response
+                except Exception:
+                    if task_context is not None and self._router:
+                        self._router.record_failure(fb_key)
+                    raise
             raise
 
     async def stream(
@@ -327,6 +470,7 @@ class LLMService:
         system: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        task_context: TaskContext | None = None,
     ) -> AsyncIterator[str]:
         """
         Stream completion.
@@ -336,13 +480,16 @@ class LLMService:
             system: System message (optional)
             max_tokens: Maximum tokens
             temperature: Sampling temperature
+            task_context: Routing context (optional)
 
         Yields:
             Content chunks as they arrive
 
-        Example:
-            >>> async for chunk in llm.stream("Write a story"):
-            ...     print(chunk, end="", flush=True)
+        Note:
+            Streaming calls update the circuit breaker (success/failure) but do
+            not update cost tracking because token counts are only known after
+            the stream is fully consumed. If accurate budget accounting is
+            required, use ``generate()`` instead.
         """
         messages = []
         if system:
@@ -351,8 +498,16 @@ class LLMService:
 
         request = LLMRequest(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
-        async for chunk in self.primary.stream(request):  # type: ignore[attr-defined]
-            yield chunk
+        provider, model_key = self._get_provider_for_context(task_context)
+        try:
+            async for chunk in provider.stream(request):  # type: ignore[attr-defined]
+                yield chunk
+            if task_context is not None and self._router:
+                self._router.record_success(model_key)
+        except Exception:
+            if task_context is not None and self._router:
+                self._router.record_failure(model_key)
+            raise
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """
@@ -371,32 +526,19 @@ class LLMService:
         Raises:
             ValueError: If OpenAI API key or embedding model is not configured
                 when falling back to OpenAI for embeddings
-
-        Example:
-            >>> embeddings = await llm.embed([
-            ...     "First document",
-            ...     "Second document",
-            ... ])
-            >>> len(embeddings)
-            2
         """
-        # For embeddings, use OpenAI (Anthropic doesn't provide embeddings)
-        # If primary is OpenAI, use it; otherwise use fallback or create OpenAI provider
         if hasattr(self.primary, "embed"):
             try:
                 return await self.primary.embed(texts)
             except NotImplementedError:
                 pass
 
-        # Use fallback if available
         if self.fallback and hasattr(self.fallback, "embed"):
             try:
                 return await self.fallback.embed(texts)
             except NotImplementedError:
                 pass
 
-        # Create temporary OpenAI provider for embeddings
-        # Validate API key before creating provider (fail-fast)
         if not self.config.openai_api_key:
             raise ValueError(
                 "openai_api_key is required for embeddings when primary/fallback "
@@ -417,21 +559,22 @@ class LLMService:
         )
         return await openai_provider.embed(texts)
 
-    def _track_cost(self, response: LLMResponse, is_primary: bool = True) -> None:
+    # =========================================================================
+    # Cost tracking
+    # =========================================================================
+
+    def _track_cost_for_model(self, response: LLMResponse, model_key: str) -> None:
         """
-        Track cost of LLM call.
+        Track cost of LLM call for a specific model key.
 
         Args:
             response: LLM response
-            is_primary: Whether this was the primary provider
+            model_key: Key identifying the model used
         """
         if not self.config.enable_cost_tracking:
             return
 
-        # Find model config to calculate cost
-        model_key = self.config.primary_model if is_primary else self.config.fallback_model
-        model_config = MODELS.get(model_key) if model_key else None
-
+        model_config = MODELS.get(model_key)
         if model_config:
             cost = response.usage.calculate_cost(model_config)
             self.total_cost += cost
@@ -439,8 +582,19 @@ class LLMService:
 
             logger.debug(
                 f"LLM call cost: ${cost:.4f} "
-                f"(total: ${self.total_cost:.2f}, requests: {self.requests_count})"
+                f"(model: {model_key}, total: ${self.total_cost:.2f}, "
+                f"requests: {self.requests_count})"
             )
+
+    def reset_cycle_budget(self) -> None:
+        """Reset the per-cycle cost counter for this service's owner.
+
+        Call at the start of each BDI cycle. Uses the ``owner_id`` set at
+        construction time so that concurrent loops for different employees
+        do not interfere with each other's budget tracking.
+        """
+        if self._router:
+            self._router.reset_cycle_budget(self._owner_id)
 
     def get_cost_summary(self) -> dict[str, Any]:
         """
@@ -448,38 +602,39 @@ class LLMService:
 
         Returns:
             Dictionary with cost statistics
-
-        Example:
-            >>> summary = llm.get_cost_summary()
-            >>> print(f"Total spent: ${summary['total_cost']:.2f}")
         """
-        return {
+        summary: dict[str, Any] = {
             "total_cost": self.total_cost,
             "requests_count": self.requests_count,
             "average_cost_per_request": (
                 self.total_cost / self.requests_count if self.requests_count > 0 else 0.0
             ),
         }
+        if self._router:
+            summary["routing"] = self._router.get_budget_state(self._owner_id)
+        return summary
 
     async def close(self) -> None:
         """
         Close the LLM service and release resources.
 
-        This closes all underlying provider connections (HTTP clients, etc.).
-        Should be called when the service is no longer needed to prevent
-        resource leaks.
-
-        Example:
-            >>> llm = LLMService(config)
-            >>> try:
-            ...     response = await llm.generate("Hello")
-            ... finally:
-            ...     await llm.close()
+        Closes all underlying provider connections (HTTP clients, etc.),
+        deduplicating across the provider pool and legacy primary/fallback.
+        The pool may hold references to primary/fallback; id() dedup prevents
+        double-close.
         """
-        if self.primary:
-            await self.primary.close()
-        if self.fallback:
-            await self.fallback.close()
+        closed_ids: set[int] = set()
+
+        async def _close(provider: LLMProviderBase | None) -> None:
+            if provider is not None and id(provider) not in closed_ids:
+                closed_ids.add(id(provider))
+                await provider.close()
+
+        await _close(self.primary)
+        await _close(self.fallback)
+
+        for provider in self._provider_pool.values():
+            await _close(provider)
 
 
 # Export main classes
@@ -487,6 +642,10 @@ __all__ = [
     "MODELS",
     "LLMConfig",
     "LLMProviderFactory",
+    "LLMRouter",
     "LLMService",
+    "RouterDecision",
+    "TaskContext",
+    "TaskType",
     "ToolCall",
 ]

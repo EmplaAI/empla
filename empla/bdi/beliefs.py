@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from empla.llm.models import TaskContext, TaskType
 from empla.models.belief import Belief, BeliefHistory
 
 logger = logging.getLogger(__name__)
@@ -988,6 +989,12 @@ Extract all relevant beliefs from this observation. Focus on actionable informat
                 system=system_prompt,
                 response_format=BeliefExtractionResult,
                 temperature=0.3,  # Lower temperature for more consistent extraction
+                task_context=TaskContext(
+                    task_type=TaskType.BELIEF_EXTRACTION,
+                    priority=observation.priority,
+                    requires_structured_output=True,
+                    quality_threshold=0.5,
+                ),
             )
             # Type assertion since generate_structured returns BaseModel
             extraction_result: BeliefExtractionResult = extraction_result_base  # type: ignore[assignment]
