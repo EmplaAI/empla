@@ -73,8 +73,9 @@ class HealthServer:
     def drain_events(self) -> list[dict[str, Any]]:
         """Return and clear all pending events.
 
-        Called by the execution loop at the start of each cycle to
-        collect events that arrived since the last drain.
+        Called by the execution loop early in each cycle to collect
+        events that arrived since the last drain. Safe in single-threaded
+        asyncio (no preemption between the swap and reassignment).
         """
         events = self._pending_events
         self._pending_events = []

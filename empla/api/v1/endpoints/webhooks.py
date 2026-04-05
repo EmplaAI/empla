@@ -37,10 +37,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Provider-specific event type extractors.
-# Each returns (event_type, summary) from the raw payload.
-_PROVIDER_PARSERS: dict[str, Any] = {}
-
 
 def _parse_hubspot(payload: dict[str, Any] | list[Any]) -> tuple[str, str]:
     """Extract event type and summary from HubSpot webhook payload."""
@@ -66,7 +62,9 @@ def _parse_generic(payload: dict[str, Any]) -> tuple[str, str]:
     return payload.get("event_type", "unknown"), payload.get("summary", "")
 
 
-_PROVIDER_PARSERS = {
+# Provider-specific event type extractors.
+# Each returns (event_type, summary) from the raw payload.
+_PROVIDER_PARSERS: dict[str, Any] = {
     "hubspot": _parse_hubspot,
     "google_workspace": _parse_google,
     "google_calendar": _parse_google,

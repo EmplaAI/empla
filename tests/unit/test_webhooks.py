@@ -191,16 +191,64 @@ class TestHealthServerWake:
         finally:
             await server.stop()
 
-    def test_pending_events_cap(self):
-        """Should drop oldest event when queue is full."""
+    @pytest.mark.asyncio
+    async def test_queue_overflow_drops_oldest(self):
+        """When queue is full, POST /wake should drop oldest and accept new."""
         from empla.runner.health import _MAX_PENDING_EVENTS
 
         server = self._make_server()
-        # Fill to max
-        for i in range(_MAX_PENDING_EVENTS):
-            server._pending_events.append({"index": i})
+        await server.start()
 
-        assert len(server._pending_events) == _MAX_PENDING_EVENTS
+        try:
+            # Fill queue to max
+            for i in range(_MAX_PENDING_EVENTS):
+                server._pending_events.append({"provider": "fill", "index": i})
+
+            assert len(server._pending_events) == _MAX_PENDING_EVENTS
+
+            # Send one more event via actual endpoint
+            reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+            body = json.dumps({"provider": "new", "index": 999}).encode()
+            request = (
+                f"POST /wake HTTP/1.1\r\nContent-Length: {len(body)}\r\n\r\n"
+            ).encode() + body
+
+            writer.write(request)
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+
+            assert b"200 OK" in response
+            # Queue still at max
+            assert len(server._pending_events) == _MAX_PENDING_EVENTS
+            # Oldest (index=0) was dropped, newest is last
+            assert server._pending_events[0]["index"] == 1
+            assert server._pending_events[-1]["index"] == 999
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_oversized_payload_returns_400(self):
+        """POST /wake with body exceeding max size should return 400."""
+        server = self._make_server()
+        await server.start()
+
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+            # Claim a very large body
+            request = b"POST /wake HTTP/1.1\r\nContent-Length: 999999\r\n\r\n"
+
+            writer.write(request)
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+
+            assert b"400" in response
+            assert server.drain_events() == []
+        finally:
+            await server.stop()
 
     @pytest.mark.asyncio
     async def test_health_endpoint_shows_pending_count(self):
@@ -655,3 +703,45 @@ class TestWebhookEndpoint:
                 )
 
             assert resp.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_partial_wake_failures(self):
+        """Some employees unreachable should still report partial success."""
+        from httpx import ASGITransport, AsyncClient
+
+        from empla.api.v1.endpoints import webhooks
+
+        emp_ids = [uuid4(), uuid4(), uuid4()]
+
+        app = self._make_app()
+        transport = ASGITransport(app=app)
+
+        with (
+            patch.object(
+                webhooks,
+                "_find_tenant_by_webhook_token",
+                new_callable=AsyncMock,
+                return_value=uuid4(),
+            ),
+            patch.object(
+                webhooks,
+                "_find_active_employees",
+                new_callable=AsyncMock,
+                return_value=emp_ids,
+            ),
+            patch("empla.api.v1.endpoints.webhooks.get_employee_manager") as mock_get_mgr,
+        ):
+            mock_manager = Mock()
+            # First two succeed, third fails
+            mock_manager.wake_employee = AsyncMock(side_effect=[True, True, False])
+            mock_get_mgr.return_value = mock_manager
+
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/webhooks/hubspot",
+                    headers={"X-Webhook-Token": "valid-token"},
+                    json={"subscriptionType": "deal.updated"},
+                )
+
+            assert resp.status_code == 200
+            assert resp.json()["employees_notified"] == 2
