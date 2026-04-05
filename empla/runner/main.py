@@ -14,8 +14,10 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import signal
 import sys
+from typing import Any
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -23,9 +25,11 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
+from empla.core.tools.mcp_bridge import MCPServerConfig
 from empla.employees.config import EmployeeConfig, GoalConfig, LLMSettings, LoopSettings
 from empla.employees.personality import Personality
 from empla.employees.registry import get_employee_class
+from empla.integrations.email.tools import router as email_router_template
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
 from empla.runner.health import HealthServer
@@ -68,10 +72,38 @@ async def _set_db_status(
         await session.commit()
 
 
+async def _setup_dev_integrations(employee: Any) -> None:
+    """Set up test integrations for --dev mode.
+
+    Registers the email integration backed by the test email server.
+    Uses the module-level email_router_template directly (tool functions
+    are closures over it), so we initialize that router with the test adapter.
+
+    Note: Safe to use module-level singleton because each employee runs in
+    its own process via run_employee().
+    """
+    # Initialize the template router with test adapter — the tool functions
+    # are closures over email_router_template.adapter, so this makes them work.
+    base_url = os.getenv("EMPLA_TEST_EMAIL_URL", "http://localhost:9110")
+    await email_router_template.initialize(
+        {
+            "provider": "test",
+            "email_address": employee.email,
+            "base_url": base_url,
+        }
+    )
+
+    # Register on the employee's tool router
+    if employee._tool_router is not None:
+        employee._tool_router.register_integration(email_router_template)
+        logger.info("Dev integrations registered: email (test)")
+
+
 async def run_employee(
     employee_id: UUID,
     tenant_id: UUID,
     health_port: int,
+    dev: bool = False,
 ) -> None:
     """
     Main entry point for running a single employee process.
@@ -80,6 +112,7 @@ async def run_employee(
         employee_id: UUID of the employee to run
         tenant_id: UUID of the tenant
         health_port: Port for the health check HTTP server
+        dev: If True, register test integrations (email via test adapter)
     """
     logger.info(
         f"Starting employee runner: employee={employee_id}, tenant={tenant_id}, "
@@ -180,6 +213,78 @@ async def run_employee(
 
     employee = employee_class(config)
 
+    # Load MCP server configs from DB
+    mcp_configs: list[MCPServerConfig] = []
+    creds: dict[str, dict[str, Any]] = {}
+    try:
+        from empla.services.integrations.mcp_service import MCPIntegrationService
+        from empla.services.integrations.token_manager import get_token_manager
+
+        async with session_factory() as mcp_session:
+            tm = get_token_manager()
+            mcp_service = MCPIntegrationService(mcp_session, tm)
+            raw_configs = await mcp_service.get_active_mcp_servers(tenant_id)
+
+            for cfg in raw_configs:
+                try:
+                    mcp_configs.append(MCPServerConfig(**cfg))
+                except Exception:
+                    logger.warning(
+                        "Skipping invalid MCP server config: name=%s, keys=%s",
+                        cfg.get("name", "<unnamed>"),
+                        list(cfg.keys()),
+                        exc_info=True,
+                        extra={"employee_id": str(employee_id)},
+                    )
+            if mcp_configs:
+                logger.info(
+                    "Loaded %d MCP server(s) from DB: %s",
+                    len(mcp_configs),
+                    [c.name for c in mcp_configs],
+                    extra={"employee_id": str(employee_id)},
+                )
+    except Exception:
+        logger.error(
+            "Failed to load MCP server configs — employee will have no integrations",
+            exc_info=True,
+            extra={"employee_id": str(employee_id)},
+        )
+
+    # Resolve OAuth credentials and inject into MCP server configs.
+    # stdio servers get OAUTH_ACCESS_TOKEN in env; HTTP servers get Authorization header.
+    try:
+        from empla.services.integrations.credential_injector import CredentialInjector
+
+        async with session_factory() as cred_session:
+            tm = get_token_manager()
+            injector = CredentialInjector(cred_session, tm)
+            creds = await injector.get_credentials(employee_id, tenant_id)
+
+            for mcp_cfg in mcp_configs:
+                provider = mcp_cfg.env.get("OAUTH_PROVIDER")
+                if provider and provider in creds:
+                    token = creds[provider].get("access_token")
+                    if token:
+                        if mcp_cfg.transport == "http":
+                            mcp_cfg.headers["Authorization"] = f"Bearer {token}"
+                        else:
+                            mcp_cfg.env["OAUTH_ACCESS_TOKEN"] = token
+                        logger.debug(
+                            "Injected OAuth token for MCP server '%s' (provider: %s, transport: %s)",
+                            mcp_cfg.name,
+                            provider,
+                            mcp_cfg.transport,
+                            extra={"employee_id": str(employee_id)},
+                        )
+
+            await cred_session.commit()
+    except Exception:
+        logger.error(
+            "Failed to resolve OAuth credentials — MCP servers will start without tokens",
+            exc_info=True,
+            extra={"employee_id": str(employee_id)},
+        )
+
     # Start health server
     health = HealthServer(employee_id=employee_id, port=health_port)
     await health.start()
@@ -222,7 +327,14 @@ async def run_employee(
     try:
         # Start employee in a task so we can cancel on signal
         async def _run() -> None:
-            await employee.start(run_loop=True, status_checker=status_checker)
+            await employee.start(
+                run_loop=False,
+                status_checker=status_checker,
+                mcp_configs=mcp_configs or None,
+            )
+            if dev:
+                await _setup_dev_integrations(employee)
+            await employee._run_loop()
 
         employee_task = asyncio.create_task(_run())
         signal_task = asyncio.create_task(stop_event.wait())

@@ -63,8 +63,11 @@ class MockGoalSystem:
     """Mock GoalSystem for testing"""
 
     def __init__(self):
+        self.get_goal = AsyncMock(return_value=None)
         self.get_active_goals = AsyncMock(return_value=[])
+        self.get_pursuing_goals = AsyncMock(return_value=[])
         self.update_goal_progress = AsyncMock()
+        self.complete_goal = AsyncMock()
 
 
 class MockIntentionStack:
@@ -91,11 +94,13 @@ class MockIntention:
         description: str = "Test intention",
         intention_type: str = "action",
         priority: int = 5,
+        goal_id: str | None = None,
     ):
         self.id = uuid4() if id is None else id
         self.description = description
         self.intention_type = intention_type
         self.priority = priority
+        self.goal_id = goal_id
 
 
 # ============================================================================
@@ -325,20 +330,51 @@ async def test_execute_intentions_dependencies_not_satisfied(proactive_loop, moc
 
 
 @pytest.mark.asyncio
-async def test_execute_intentions_successful(proactive_loop, mock_intentions):
-    """Test execute_intentions succeeds and returns result"""
+async def test_execute_intentions_successful(
+    mock_employee,
+    mock_beliefs,
+    mock_goals,
+    mock_intentions,
+    mock_memory,
+    loop_config,
+):
+    """Test execute_intentions succeeds with agentic execution."""
+    # Set up mock LLM that returns a text response (no tool calls = done)
+    mock_llm = AsyncMock()
+    mock_response = Mock()
+    mock_response.tool_calls = []
+    mock_response.content = "Task completed successfully."
+    mock_llm.generate_with_tools = AsyncMock(return_value=mock_response)
+
+    # Set up mock tool router with at least one schema
+    mock_router = Mock()
+    mock_router.get_all_tool_schemas = Mock(
+        return_value=[{"name": "test_tool", "description": "A test tool", "parameters": {}}]
+    )
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=mock_intentions,
+        memory=mock_memory,
+        config=loop_config,
+        llm_service=mock_llm,
+        tool_router=mock_router,
+    )
+
     mock_intention = MockIntention()
     mock_intentions.get_next_intention.return_value = mock_intention
     mock_intentions.dependencies_satisfied.return_value = True
 
-    result = await proactive_loop.execute_intentions()
+    result = await loop.execute_intentions()
 
     assert result is not None
     assert isinstance(result, IntentionResult)
     assert result.success is True
     assert result.intention_id == mock_intention.id
 
-    mock_intentions.start_intention.assert_called_once_with(mock_intention)
+    mock_intentions.start_intention.assert_called_once_with(mock_intention.id)
     mock_intentions.complete_intention.assert_called_once()
 
 
@@ -492,7 +528,7 @@ async def test_loop_executes_cycle(proactive_loop, mock_beliefs, mock_goals):
 
     # Verify BDI components were called
     mock_beliefs.update_beliefs.assert_called()
-    mock_goals.get_active_goals.assert_called()
+    mock_goals.get_pursuing_goals.assert_called()
 
 
 @pytest.mark.asyncio
@@ -1083,3 +1119,98 @@ async def test_hooks_fire_in_correct_order(mock_employee, mock_beliefs, mock_goa
         "after_intention_execution",
         "cycle_end",
     ]
+
+
+# ============================================================================
+# Test: Goal Achievement
+# ============================================================================
+
+
+class MockGoal:
+    """Mock goal for testing achievement."""
+
+    def __init__(
+        self,
+        goal_type: str = "achievement",
+        target: dict | None = None,
+        description: str = "Test goal",
+    ):
+        self.id = uuid4()
+        self.goal_type = goal_type
+        self.description = description
+        self.target = target or {}
+
+
+@pytest.mark.asyncio
+async def test_check_goal_achievement_completes_achievement_goal(proactive_loop, mock_goals):
+    """Achievement goal is completed when metric >= target."""
+    goal = MockGoal(goal_type="achievement", target={"metric": "deals_closed", "value": 10})
+    progress = {"deals_closed": 12}
+
+    await proactive_loop._check_goal_achievement(goal, progress)
+
+    mock_goals.complete_goal.assert_called_once_with(goal.id, progress)
+
+
+@pytest.mark.asyncio
+async def test_check_goal_achievement_maintain_goal_stays_active(proactive_loop, mock_goals):
+    """Maintain goal logs success but does not call complete_goal."""
+    goal = MockGoal(goal_type="maintain", target={"metric": "pipeline_coverage", "value": 3.0})
+    progress = {"pipeline_coverage": 3.5}
+
+    await proactive_loop._check_goal_achievement(goal, progress)
+
+    mock_goals.complete_goal.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_goal_achievement_not_met(proactive_loop, mock_goals):
+    """Goal not completed when metric < target."""
+    goal = MockGoal(goal_type="achievement", target={"metric": "deals_closed", "value": 10})
+    progress = {"deals_closed": 5}
+
+    await proactive_loop._check_goal_achievement(goal, progress)
+
+    mock_goals.complete_goal.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_goal_achievement_no_metric(proactive_loop, mock_goals):
+    """Returns early when target has no metric."""
+    goal = MockGoal(target={"value": 10})
+    await proactive_loop._check_goal_achievement(goal, {"some_key": 15})
+    mock_goals.complete_goal.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_goal_achievement_no_target_value(proactive_loop, mock_goals):
+    """Returns early when target has no value."""
+    goal = MockGoal(target={"metric": "deals_closed"})
+    await proactive_loop._check_goal_achievement(goal, {"deals_closed": 15})
+    mock_goals.complete_goal.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_goal_achievement_metric_not_in_progress(proactive_loop, mock_goals):
+    """Returns early when progress doesn't contain the metric."""
+    goal = MockGoal(target={"metric": "deals_closed", "value": 10})
+    await proactive_loop._check_goal_achievement(goal, {"other_metric": 15})
+    mock_goals.complete_goal.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_goal_achievement_non_numeric_value(proactive_loop, mock_goals):
+    """Handles non-numeric values gracefully."""
+    goal = MockGoal(target={"metric": "status", "value": "complete"})
+    await proactive_loop._check_goal_achievement(goal, {"status": "complete"})
+    mock_goals.complete_goal.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_goal_achievement_db_error_handled(proactive_loop, mock_goals):
+    """DB error in complete_goal is caught, doesn't crash the loop."""
+    goal = MockGoal(goal_type="achievement", target={"metric": "deals_closed", "value": 10})
+    mock_goals.complete_goal.side_effect = RuntimeError("DB connection lost")
+
+    # Should not raise
+    await proactive_loop._check_goal_achievement(goal, {"deals_closed": 15})

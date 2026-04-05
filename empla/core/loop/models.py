@@ -165,6 +165,11 @@ class LoopConfig(BaseModel):
         description="Which sources to check during perception",
     )
 
+    # Perception limits
+    max_perception_iterations: int = Field(
+        default=5, ge=1, description="Max tool-call iterations during agentic perception"
+    )
+
     # Execution limits
     max_intentions_per_cycle: int = Field(
         default=1, ge=1, description="How many intentions to execute per cycle"
@@ -190,6 +195,50 @@ class LoopConfig(BaseModel):
                 "max_intentions_per_cycle": 1,
             }
         }
+
+
+class GoalMetricResult(BaseModel):
+    """LLM evaluation of a single goal's progress from belief changes."""
+
+    goal_id: str = Field(
+        ..., min_length=1, description="Goal ID being evaluated (str for LLM compatibility)"
+    )
+    metric: str = Field(..., min_length=1, description="Metric name from goal target")
+    current_value: float | None = Field(
+        default=None,
+        description="Extracted current value from beliefs, or None if not determinable",
+    )
+    confidence: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Confidence in the extracted value"
+    )
+    reasoning: str = Field(default="", description="Brief explanation of how value was determined")
+
+
+class GoalProgressEvaluation(BaseModel):
+    """Batched LLM evaluation of goal progress from belief changes."""
+
+    results: list[GoalMetricResult] = Field(
+        default_factory=list, description="Per-goal metric evaluations"
+    )
+
+
+class NonNumericGoalEvaluation(BaseModel):
+    """LLM evaluation of whether non-numeric goals (opportunity/problem) are complete."""
+
+    goal_id: str = Field(..., min_length=1, description="The goal ID being evaluated")
+    is_complete: bool = Field(
+        ..., description="Whether the goal has been effectively addressed or resolved"
+    )
+    confidence: float = Field(..., description="Confidence in the assessment (0-1)", ge=0.0, le=1.0)
+    reasoning: str = Field(..., description="Brief reasoning for the assessment")
+
+
+class NonNumericGoalBatchEvaluation(BaseModel):
+    """Batched evaluation of non-numeric goals."""
+
+    results: list[NonNumericGoalEvaluation] = Field(
+        default_factory=list, description="Per-goal completion evaluations"
+    )
 
 
 # Role-specific configurations

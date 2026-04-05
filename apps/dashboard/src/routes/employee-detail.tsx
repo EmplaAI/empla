@@ -21,6 +21,10 @@ import { EmployeeStatusBadge, LifecycleBadge } from '@/components/employees/empl
 import { EmployeeControls } from '@/components/employees/employee-controls';
 import { EmployeeInfoCard } from '@/components/employees/employee-info-card';
 import { ActivityFeed } from '@/components/activity/activity-feed';
+import { GoalsPanel } from '@/components/bdi/goals-panel';
+import { IntentionsPanel } from '@/components/bdi/intentions-panel';
+import { BeliefsPanel } from '@/components/bdi/beliefs-panel';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EmployeeEditDialog } from '@/components/employees/employee-edit-dialog';
 import { getInitials, cn } from '@/lib/utils';
 
@@ -244,8 +248,27 @@ export function EmployeeDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Activity */}
-          <ActivityFeed employeeId={employee.id} />
+          {/* BDI State Tabs */}
+          <Tabs defaultValue="activity">
+            <TabsList>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
+              <TabsTrigger value="goals">Goals</TabsTrigger>
+              <TabsTrigger value="intentions">Intentions</TabsTrigger>
+              <TabsTrigger value="beliefs">Beliefs</TabsTrigger>
+            </TabsList>
+            <TabsContent value="activity">
+              <ActivityFeed employeeId={employee.id} />
+            </TabsContent>
+            <TabsContent value="goals">
+              <GoalsPanel employeeId={employee.id} />
+            </TabsContent>
+            <TabsContent value="intentions">
+              <IntentionsPanel employeeId={employee.id} />
+            </TabsContent>
+            <TabsContent value="beliefs">
+              <BeliefsPanel employeeId={employee.id} />
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Sidebar */}

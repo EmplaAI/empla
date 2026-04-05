@@ -88,6 +88,7 @@ class TestEnvOverrides:
     def test_empla_prefix_overrides(self):
         env = {
             "EMPLA_ENV": "production",
+            "EMPLA_JWT_SECRET": "a-production-secret-that-is-at-least-32-chars-long",
             "EMPLA_LLM_PRIMARY_MODEL": "gpt-4o",
             "EMPLA_LLM_TEMPERATURE": "0.3",
             "EMPLA_LOG_LEVEL": "DEBUG",
@@ -136,7 +137,11 @@ class TestEnvOverrides:
 class TestDotenvLoading:
     def test_loads_from_env_file(self, tmp_path: Path):
         env_file = tmp_path / ".env"
-        env_file.write_text("EMPLA_ENV=staging\nEMPLA_LOG_LEVEL=WARNING\n")
+        env_file.write_text(
+            "EMPLA_ENV=staging\n"
+            "EMPLA_LOG_LEVEL=WARNING\n"
+            "EMPLA_JWT_SECRET=a-staging-secret-that-is-at-least-32-chars-long\n"
+        )
 
         settings = EmplaSettings(_env_file=str(env_file))
         assert settings.env == "staging"
@@ -144,9 +149,18 @@ class TestDotenvLoading:
 
     def test_env_vars_override_env_file(self, tmp_path: Path):
         env_file = tmp_path / ".env"
-        env_file.write_text("EMPLA_ENV=staging\n")
+        env_file.write_text(
+            "EMPLA_ENV=staging\nEMPLA_JWT_SECRET=a-staging-secret-that-is-at-least-32-chars-long\n"
+        )
 
-        with patch.dict(os.environ, {"EMPLA_ENV": "production"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {
+                "EMPLA_ENV": "production",
+                "EMPLA_JWT_SECRET": "a-production-secret-that-is-at-least-32-chars-long",
+            },
+            clear=False,
+        ):
             settings = EmplaSettings(_env_file=str(env_file))
             assert settings.env == "production"
 
@@ -400,7 +414,14 @@ class TestSettingsSingleton:
     def test_clear_cache_picks_up_new_env(self):
         get_settings()  # populate cache
 
-        with patch.dict(os.environ, {"EMPLA_ENV": "test-isolation"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {
+                "EMPLA_ENV": "test-isolation",
+                "EMPLA_JWT_SECRET": "a-test-secret-that-is-at-least-32-characters-long",
+            },
+            clear=False,
+        ):
             clear_settings_cache()
             s2 = get_settings()
             assert s2.env == "test-isolation"

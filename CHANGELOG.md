@@ -6,6 +6,196 @@
 
 ---
 
+## 2026-03-25 - Playbook System with Autonomous Discovery
+
+**Phase:** Phase 4 — Efficiency + Intelligence (PR 1 of 4)
+
+### Added
+
+- **Playbook system** extending ProceduralMemory. Procedures that demonstrate
+  consistent success (3+ executions, 70%+ success rate) are automatically
+  promoted to playbooks. During planning, available playbooks are presented
+  as context options to the LLM, which decides whether to reuse, adapt, or
+  ignore them. The LLM always retains decision-making authority — playbooks
+  are suggestions, not bypasses.
+- **Autonomous playbook discovery** in deep reflection cycle. Evaluates
+  procedures for promotion after each reflection, promoting eligible ones
+  with logging.
+- **Playbook success feedback loop.** Execution outcomes update playbook
+  success_rate. Auto-demotes playbooks with <50% success after 5+ runs.
+- New model fields: `is_playbook`, `promoted_at` on ProceduralMemory.
+- New methods: `find_playbooks()`, `promote_to_playbook()`,
+  `evaluate_for_promotion()`.
+- Playbook index for fast tenant-scoped lookup.
+
+### Fixed
+
+- JSONB query bind parameter collision (was using same `:cond` name for
+  multiple conditions, causing overly broad matching).
+- Preserved `learned_from` on promotion (was unconditionally overwriting).
+
+---
+
+## 2026-03-24 - Dashboard-Native Cycle Metrics
+
+**Phase:** Production Foundation
+
+### Added
+
+- **Per-cycle BDI loop metrics** persisted to the existing `Metric` table.
+  Recorded: cycle duration, success/failure, tool call totals (per-cycle
+  deltas, not cumulative), tool failures, tool latency.
+- **Metrics API endpoints:** `GET /api/v1/metrics/employees/{id}/summary`
+  (aggregated stats for time window) and `GET /api/v1/metrics/employees/{id}/history`
+  (time-series with pagination).
+- **Delta computation** for tool stats — computes per-cycle differences from
+  the cumulative `IntegrationHealthMonitor` counters, avoiding inflated
+  aggregations.
+- Session rollback on metrics flush failure to prevent BDI session poisoning.
+- 10 new tests covering metric recording, delta computation, edge cases.
+
+---
+
+## 2026-03-24 - JWT Authentication
+
+**Phase:** Production Foundation
+
+### Changed
+
+- **Replaced stub tokens with JWT (HS256) authentication.** Login endpoint now
+  returns signed JWTs with `sub`, `tid`, `role`, `iat`, `exp` claims. Token
+  validation is stateless (no DB call for decode, only for user/tenant lookup).
+- **Production guards on JWT secret.** Fail-fast validator rejects default dev
+  secret and short secrets (<32 chars) in non-development environments. Algorithm
+  locked to HMAC family (HS256/384/512) to prevent algorithm confusion attacks.
+- **Unified error messages.** All auth failures return generic messages to prevent
+  tenant enumeration and user existence leakage. Login collapses tenant-not-found,
+  inactive-tenant, and user-not-found into a single "Invalid credentials" response.
+- **`/me` endpoint uses shared `CurrentUser` dependency** — eliminated duplicate
+  token parsing logic.
+
+### Added
+
+- `JWT_DEV_SECRET` module constant and `jwt_secret`, `jwt_expiry_hours`,
+  `jwt_algorithm` settings in `EmplaSettings` with validators.
+- `create_access_token()` helper for JWT creation.
+- `PyJWTError` catch in auth middleware for configuration errors (→ 500).
+- 27 new tests: token creation, validation, security attacks (alg=none, tampering,
+  expiry), settings validators, behavioral tests for `get_current_user()`.
+
+---
+
+## 2026-03-20 - ARCHITECTURE.md Rewrite
+
+**Phase:** Phase 3B - Real-World Integrations (Step 8: Documentation)
+
+### Changed
+
+- **Rewrote ARCHITECTURE.md** from scratch — replaced stale Oct 2025 vision doc
+  (2,091 lines describing 7 layers that didn't exist) with current-state
+  architecture (265 lines reflecting what's actually built). Includes system
+  diagram, BDI loop flow, subsystem descriptions, tech stack, project structure.
+- **Updated TODO.md** current state section to reflect Phase 3B completion.
+
+---
+
+## 2026-03-20 - Integration Health Monitoring
+
+**Phase:** Phase 3B - Real-World Integrations (Step 5: Health Monitoring)
+
+### Added
+
+- **IntegrationHealthMonitor** — tracks per-integration tool call success,
+  failure, timeout, and latency. Derives health status: healthy/degraded/down.
+- **ToolRouter health recording** — every tool call result automatically
+  updates the health monitor (success, failure, or timeout).
+- **BDI belief generation** — `get_health_beliefs()` produces belief-compatible
+  dicts for degraded/down integrations ("CRM is down", "Calendar is degraded").
+  The BDI loop can query this to adapt employee strategy.
+- **Health API** — `get_integration_health()` on ToolRouter for dashboard.
+- **19 new tests** covering health state derivation, belief generation,
+  ToolRouter integration (success/failure/timeout recording).
+
+---
+
+## 2026-03-19 - HubSpot + Google Calendar Direct Connectors
+
+**Phase:** Phase 3B - Real-World Integrations (Step 4: Integration Tools)
+
+### Added
+
+- **HubSpot CRM connector** (`empla/integrations/hubspot/`) — direct API v3
+  integration via httpx. 7 tools: pipeline metrics, deals CRUD, contacts CRUD,
+  contact search. Calls HubSpot REST API directly — no adapter abstraction.
+- **Google Calendar connector** (`empla/integrations/google_calendar/`) — direct
+  Calendar API v3 via httpx. 5 tools: upcoming events, event CRUD, availability
+  check via FreeBusy API.
+- **IntegrationRouter `on_init`/`on_shutdown` callbacks** — clean lifecycle
+  hooks for connectors that don't use the adapter factory pattern.
+- **17 new tests** with mocked HTTP calls covering all tool operations.
+
+---
+
+## 2026-03-19 - OAuth Credential Injection
+
+**Phase:** Phase 3B - Real-World Integrations (Step 3: OAuth Injection)
+
+### Added
+
+- **CredentialInjector service** — resolves fresh OAuth tokens for an employee's
+  integrations. Decrypts via TokenManager, auto-refreshes near-expiry tokens
+  (within 5-minute buffer), graceful degradation if refresh fails (returns stale
+  token, lets API call fail naturally).
+- **Runner credential injection** — at startup, resolves OAuth credentials and
+  injects `OAUTH_ACCESS_TOKEN` into MCP server env vars. MCP servers with an
+  `oauth_provider` field get their tokens automatically.
+- **9 new tests** covering credential resolution, provider mapping, token refresh,
+  decryption failure, and graceful degradation scenarios.
+
+---
+
+## 2026-03-19 - LLM Trust Boundary + Tool Execution Timeout
+
+**Phase:** Phase 3B - Real-World Integrations (Step 2: Trust Boundary)
+
+### Added
+
+- **Trust boundary layer** in ToolRouter — validates all tool calls against
+  allowlists before execution. Blocks destructive operations (bulk delete,
+  admin actions) regardless of what the LLM requests. Per-role restrictions
+  prevent SalesAE from calling admin/system tools.
+- **Per-cycle rate limiting** — safety valve against LLM runaway loops
+  (default: 50 calls/cycle). Resets at each BDI cycle start.
+- **Audit logging** — every trust decision (allow/deny) is logged with
+  employee_id, tool_name, role, and reason for post-incident analysis.
+- **Tool execution timeout** — all tool calls wrapped in configurable
+  `asyncio.timeout` (default: 30s). Prevents hung external API calls
+  from blocking the BDI loop.
+- **32 new tests** covering trust boundary validation, prompt injection
+  scenarios, rate limiting, timeout behavior, and ToolRouter integration.
+
+---
+
+## 2026-03-19 - Refactor Execution Loop into Focused Modules
+
+**Phase:** Phase 3B - Real-World Integrations (Step 1: Refactor)
+
+### Changed
+
+- **Split `execution.py` (2,841 lines) into 7 focused modules** via mixin pattern:
+  - `protocols.py` — Protocol interfaces + LLM output Pydantic models
+  - `perception.py` — PerceptionMixin (environment scanning via LLM tools)
+  - `planning.py` — PlanningMixin (strategic reasoning, situation analysis)
+  - `goal_management.py` — GoalManagementMixin (progress evaluation, achievement)
+  - `intention_execution.py` — IntentionExecutionMixin (agentic tool calling)
+  - `reflection.py` — ReflectionMixin (learning, procedural memory, deep reflection)
+  - `execution.py` — Orchestrator (715 lines, inherits all mixins)
+- Removed unused `Any` import from orchestrator module
+- Added architecture ASCII diagram to execution.py module docstring
+- Full backward compatibility: all external imports unchanged
+
+---
+
 ## 2025-12-29 - Test Suite Fixes & LLM Resource Cleanup
 
 **Phase:** Phase 2.5 - Real-World Integration

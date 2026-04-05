@@ -20,7 +20,6 @@ from empla.api.v1.schemas.employee import (
     EmployeeUpdate,
 )
 from empla.models.employee import Employee
-from empla.services.employee_manager import get_employee_manager
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +78,11 @@ async def list_employees(
     pages = (total + page_size - 1) // page_size if total > 0 else 1
 
     # Check runtime status for each employee
-    manager = get_employee_manager()
+
     items = []
     for emp in employees:
         response = EmployeeResponse.model_validate(emp)
-        response.is_running = manager.is_running(emp.id)
+        response.is_running = emp.status == "active"
         items.append(response)
 
     return EmployeeListResponse(
@@ -153,9 +152,9 @@ async def create_employee(
     )
 
     # New employees are never running, but check for consistency with other endpoints
-    manager = get_employee_manager()
+
     response = EmployeeResponse.model_validate(employee)
-    response.is_running = manager.is_running(employee.id)
+    response.is_running = employee.status == "active"
 
     return response
 
@@ -196,9 +195,9 @@ async def get_employee(
         )
 
     # Check runtime status
-    manager = get_employee_manager()
+
     response = EmployeeResponse.model_validate(employee)
-    response.is_running = manager.is_running(employee.id)
+    response.is_running = employee.status == "active"
 
     return response
 
@@ -278,9 +277,9 @@ async def update_employee(
     )
 
     # Check runtime status
-    manager = get_employee_manager()
+
     response = EmployeeResponse.model_validate(employee)
-    response.is_running = manager.is_running(employee.id)
+    response.is_running = employee.status == "active"
 
     return response
 

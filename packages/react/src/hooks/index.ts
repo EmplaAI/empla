@@ -34,6 +34,13 @@ export {
 } from './useRoles';
 
 export {
+  bdiKeys,
+  useBeliefs,
+  useGoals,
+  useIntentions,
+} from './useBdi';
+
+export {
   mcpServerKeys,
   useCreateMCPServer,
   useDeleteMCPServer,

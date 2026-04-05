@@ -11,10 +11,9 @@ from uuid import uuid4
 
 import pytest
 
-from empla.capabilities.base import ActionResult
-from empla.capabilities.registry import CapabilityRegistry
 from empla.core.loop.execution import ProactiveExecutionLoop
-from empla.core.loop.models import LoopConfig
+from empla.core.tools.base import ActionResult
+from empla.core.tools.router import ToolRouter
 from empla.llm.models import LLMResponse, TokenUsage, ToolCall
 from empla.models.employee import Employee
 
@@ -27,6 +26,7 @@ def _make_employee() -> Mock:
     """Create a mock Employee for testing."""
     employee = Mock(spec=Employee)
     employee.id = uuid4()
+    employee.tenant_id = uuid4()
     employee.name = "Test Employee"
     employee.status = "active"
     employee.role = "sales_ae"
@@ -103,6 +103,27 @@ SAMPLE_TOOL_SCHEMAS = [
 ]
 
 
+def _make_tool_router(
+    schemas: list[dict] | None = None,
+    execute_result: ActionResult | None = None,
+    execute_side_effect: list | Exception | None = None,
+) -> MagicMock:
+    """Create a mock ToolRouter."""
+    if schemas is None:
+        schemas = SAMPLE_TOOL_SCHEMAS
+    tool_router = MagicMock(spec=ToolRouter)
+    tool_router.get_all_tool_schemas = MagicMock(return_value=schemas)
+    if execute_side_effect is not None:
+        tool_router.execute_tool_call = AsyncMock(side_effect=execute_side_effect)
+    elif execute_result is not None:
+        tool_router.execute_tool_call = AsyncMock(return_value=execute_result)
+    else:
+        tool_router.execute_tool_call = AsyncMock(
+            return_value=ActionResult(success=True, output={"sent": True})
+        )
+    return tool_router
+
+
 # ============================================================================
 # Tests for _execute_intention_with_tools
 # ============================================================================
@@ -128,11 +149,8 @@ async def test_agentic_execution_single_tool_call():
     ]
     llm_service.generate_with_tools = AsyncMock(side_effect=responses)
 
-    # Mock capability registry
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
-    cap_registry.execute_tool_call = AsyncMock(
-        return_value=ActionResult(success=True, output={"message_id": "msg_123"})
+    tool_router = _make_tool_router(
+        execute_result=ActionResult(success=True, output={"message_id": "msg_123"})
     )
 
     loop = ProactiveExecutionLoop(
@@ -141,9 +159,8 @@ async def test_agentic_execution_single_tool_call():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
-        config=LoopConfig(),
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -154,11 +171,13 @@ async def test_agentic_execution_single_tool_call():
     assert result["agentic"] is True
     assert result["message"] == "Email sent successfully."
 
-    # Verify tool was called with correct arguments
-    cap_registry.execute_tool_call.assert_called_once_with(
+    # Verify tool was called with correct arguments (including trust boundary params)
+    tool_router.execute_tool_call.assert_called_once_with(
         employee.id,
         "email.send_email",
         {"to": ["lead@example.com"], "subject": "Welcome!", "body": "Hello!"},
+        employee_role=employee.role,
+        tenant_id=employee.tenant_id,
     )
 
 
@@ -173,8 +192,7 @@ async def test_agentic_execution_no_tool_calls():
         return_value=_make_llm_response(content="No action needed.")
     )
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
+    tool_router = _make_tool_router()
 
     loop = ProactiveExecutionLoop(
         employee=employee,
@@ -182,8 +200,8 @@ async def test_agentic_execution_no_tool_calls():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -192,7 +210,7 @@ async def test_agentic_execution_no_tool_calls():
     assert result["success"] is True
     assert result["tool_calls_made"] == 0
     assert result["message"] == "No action needed."
-    cap_registry.execute_tool_call.assert_not_called()
+    tool_router.execute_tool_call.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -220,10 +238,8 @@ async def test_agentic_execution_multiple_tool_calls():
     ]
     llm_service.generate_with_tools = AsyncMock(side_effect=responses)
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
-    cap_registry.execute_tool_call = AsyncMock(
-        return_value=ActionResult(success=True, output={"sent": True})
+    tool_router = _make_tool_router(
+        execute_result=ActionResult(success=True, output={"sent": True})
     )
 
     loop = ProactiveExecutionLoop(
@@ -232,8 +248,8 @@ async def test_agentic_execution_multiple_tool_calls():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -241,7 +257,7 @@ async def test_agentic_execution_multiple_tool_calls():
 
     assert result["success"] is True
     assert result["tool_calls_made"] == 2
-    assert cap_registry.execute_tool_call.call_count == 2
+    assert tool_router.execute_tool_call.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -263,11 +279,8 @@ async def test_agentic_execution_tool_call_failure_adapts():
     ]
     llm_service.generate_with_tools = AsyncMock(side_effect=responses)
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
-    # Tool call fails
-    cap_registry.execute_tool_call = AsyncMock(
-        return_value=ActionResult(success=False, error="SMTP connection refused")
+    tool_router = _make_tool_router(
+        execute_result=ActionResult(success=False, error="SMTP connection refused")
     )
 
     loop = ProactiveExecutionLoop(
@@ -276,8 +289,8 @@ async def test_agentic_execution_tool_call_failure_adapts():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -304,10 +317,8 @@ async def test_agentic_execution_max_iterations():
     llm_service = MagicMock()
     llm_service.generate_with_tools = AsyncMock(return_value=_make_llm_response(tool_calls=[tc]))
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
-    cap_registry.execute_tool_call = AsyncMock(
-        return_value=ActionResult(success=True, output={"sent": True})
+    tool_router = _make_tool_router(
+        execute_result=ActionResult(success=True, output={"sent": True})
     )
 
     loop = ProactiveExecutionLoop(
@@ -316,8 +327,8 @@ async def test_agentic_execution_max_iterations():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -337,8 +348,7 @@ async def test_agentic_execution_llm_failure():
     llm_service = MagicMock()
     llm_service.generate_with_tools = AsyncMock(side_effect=Exception("LLM API timeout"))
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
+    tool_router = _make_tool_router()
 
     loop = ProactiveExecutionLoop(
         employee=employee,
@@ -346,8 +356,8 @@ async def test_agentic_execution_llm_failure():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -377,10 +387,7 @@ async def test_agentic_execution_tool_exception():
     ]
     llm_service.generate_with_tools = AsyncMock(side_effect=responses)
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
-    # Tool raises exception
-    cap_registry.execute_tool_call = AsyncMock(side_effect=RuntimeError("Connection lost"))
+    tool_router = _make_tool_router(execute_side_effect=RuntimeError("Connection lost"))
 
     loop = ProactiveExecutionLoop(
         employee=employee,
@@ -388,8 +395,8 @@ async def test_agentic_execution_tool_exception():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -416,8 +423,7 @@ async def test_intention_plan_uses_agentic_when_available():
         return_value=_make_llm_response(content="Done via agentic.")
     )
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
+    tool_router = _make_tool_router()
 
     loop = ProactiveExecutionLoop(
         employee=employee,
@@ -425,8 +431,8 @@ async def test_intention_plan_uses_agentic_when_available():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -437,12 +443,10 @@ async def test_intention_plan_uses_agentic_when_available():
 
 
 @pytest.mark.asyncio
-async def test_intention_plan_falls_back_without_llm():
-    """Test _execute_intention_plan falls back to rigid execution without LLM."""
+async def test_intention_plan_errors_without_llm():
+    """Test _execute_intention_plan returns error without LLM service."""
     employee = _make_employee()
     beliefs, goals, intentions, memory = _make_mock_bdi()
-
-    cap_registry = MagicMock(spec=CapabilityRegistry)
 
     loop = ProactiveExecutionLoop(
         employee=employee,
@@ -450,29 +454,26 @@ async def test_intention_plan_falls_back_without_llm():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=None,  # No LLM
     )
 
     intention = _make_intention()
-    intention.plan = {"steps": []}
     result = await loop._execute_intention_plan(intention)
 
-    # Falls back to rigid: no steps = success
-    assert result["success"] is True
-    assert "agentic" not in result
+    assert result["success"] is False
+    assert result["agentic"] is True
+    assert "LLM service" in result["error"]
 
 
 @pytest.mark.asyncio
-async def test_intention_plan_falls_back_without_tools():
-    """Test _execute_intention_plan falls back when no tool schemas available."""
+async def test_intention_plan_errors_without_tools():
+    """Test _execute_intention_plan returns error when no tools available."""
     employee = _make_employee()
     beliefs, goals, intentions, memory = _make_mock_bdi()
 
     llm_service = MagicMock()
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=[])  # No tools
+    tool_router = _make_tool_router(schemas=[])  # No tools
 
     loop = ProactiveExecutionLoop(
         employee=employee,
@@ -480,17 +481,16 @@ async def test_intention_plan_falls_back_without_tools():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
-    intention.plan = {"steps": []}
     result = await loop._execute_intention_plan(intention)
 
-    # Falls back to rigid: no steps = success
-    assert result["success"] is True
-    assert "agentic" not in result
+    assert result["success"] is False
+    assert result["agentic"] is True
+    assert "No tools" in result["error"]
 
 
 # ============================================================================
@@ -590,10 +590,8 @@ async def test_agentic_execution_parallel_tool_calls_in_single_response():
     llm_service.generate_with_tools = AsyncMock(side_effect=responses)
 
     # First call succeeds, second fails
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
-    cap_registry.execute_tool_call = AsyncMock(
-        side_effect=[
+    tool_router = _make_tool_router(
+        execute_side_effect=[
             ActionResult(success=True, output={"message_id": "msg_1"}),
             ActionResult(success=False, error="SMTP error for Bob"),
         ]
@@ -605,8 +603,8 @@ async def test_agentic_execution_parallel_tool_calls_in_single_response():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()
@@ -614,10 +612,9 @@ async def test_agentic_execution_parallel_tool_calls_in_single_response():
 
     assert result["success"] is True
     assert result["tool_calls_made"] == 2
-    assert cap_registry.execute_tool_call.call_count == 2
+    assert tool_router.execute_tool_call.call_count == 2
 
-    # Verify both tool result messages were appended (2 tool results + 1 assistant + 2 initial)
-    # The LLM should have received both results for its second call
+    # Verify both tool result messages were appended
     second_call_args = llm_service.generate_with_tools.call_args_list[1]
     messages = second_call_args.kwargs["messages"]
     tool_messages = [m for m in messages if m.role == "tool"]
@@ -646,10 +643,8 @@ async def test_agentic_execution_llm_fails_on_later_iteration():
     ]
     llm_service.generate_with_tools = AsyncMock(side_effect=responses)
 
-    cap_registry = MagicMock(spec=CapabilityRegistry)
-    cap_registry.get_all_tool_schemas = MagicMock(return_value=SAMPLE_TOOL_SCHEMAS)
-    cap_registry.execute_tool_call = AsyncMock(
-        return_value=ActionResult(success=True, output={"sent": True})
+    tool_router = _make_tool_router(
+        execute_result=ActionResult(success=True, output={"sent": True})
     )
 
     loop = ProactiveExecutionLoop(
@@ -658,8 +653,8 @@ async def test_agentic_execution_llm_fails_on_later_iteration():
         goals=goals,
         intentions=intentions,
         memory=memory,
-        capability_registry=cap_registry,
         llm_service=llm_service,
+        tool_router=tool_router,
     )
 
     intention = _make_intention()

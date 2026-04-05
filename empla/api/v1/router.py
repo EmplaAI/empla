@@ -9,10 +9,12 @@ from fastapi import APIRouter
 from empla.api.v1.endpoints import (
     activity,
     auth,
+    bdi,
     employee_control,
     employees,
     integrations,
     mcp_servers,
+    metrics,
     roles,
 )
 
@@ -26,3 +28,5 @@ api_router.include_router(activity.router, prefix="/activity", tags=["activity"]
 api_router.include_router(integrations.router, prefix="/integrations", tags=["integrations"])
 api_router.include_router(mcp_servers.router, prefix="/mcp-servers", tags=["mcp-servers"])
 api_router.include_router(roles.router, prefix="/roles", tags=["roles"])
+api_router.include_router(bdi.router, prefix="/employees", tags=["bdi"])
+api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])

@@ -2,7 +2,7 @@
 empla.runner.__main__ - CLI entry point for employee runner
 
 Usage:
-    python -m empla.runner --employee-id UUID --tenant-id UUID --health-port 9100
+    python -m empla.runner --employee-id UUID --tenant-id UUID [--health-port 9100] [--dev]
 """
 
 import argparse
@@ -39,6 +39,12 @@ def main() -> None:
         help="Port for the health check HTTP server (default: 9100)",
     )
     parser.add_argument(
+        "--dev",
+        action="store_true",
+        default=False,
+        help="Enable dev mode with test integrations (email via test adapter)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -58,6 +64,7 @@ def main() -> None:
                 employee_id=args.employee_id,
                 tenant_id=args.tenant_id,
                 health_port=args.health_port,
+                dev=args.dev,
             )
         )
     except KeyboardInterrupt:
