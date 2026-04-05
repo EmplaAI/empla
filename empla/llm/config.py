@@ -4,6 +4,8 @@ LLM provider configuration.
 This module provides configuration for LLM providers and pre-configured model definitions.
 """
 
+import math
+
 from pydantic import BaseModel, Field, model_validator
 
 from empla.llm.models import LLMModel, LLMProvider
@@ -98,11 +100,33 @@ class RoutingPolicy(BaseModel):
 
     @model_validator(mode="after")
     def validate_budget_ordering(self) -> "RoutingPolicy":
-        """Ensure soft budget is strictly less than hard budget."""
+        """Ensure budget and circuit breaker values are valid positive finite numbers."""
+        if not math.isfinite(self.soft_budget_usd) or self.soft_budget_usd <= 0:
+            raise ValueError(
+                f"soft_budget_usd must be a finite positive number, got {self.soft_budget_usd}"
+            )
+        if not math.isfinite(self.hard_budget_usd) or self.hard_budget_usd <= 0:
+            raise ValueError(
+                f"hard_budget_usd must be a finite positive number, got {self.hard_budget_usd}"
+            )
         if self.soft_budget_usd >= self.hard_budget_usd:
             raise ValueError(
                 f"soft_budget_usd ({self.soft_budget_usd}) must be less than "
                 f"hard_budget_usd ({self.hard_budget_usd})"
+            )
+        if self.long_context_token_threshold < 1:
+            raise ValueError(
+                f"long_context_token_threshold must be >= 1, got {self.long_context_token_threshold}"
+            )
+        if self.circuit_breaker_failure_threshold < 1:
+            raise ValueError(
+                f"circuit_breaker_failure_threshold must be >= 1, "
+                f"got {self.circuit_breaker_failure_threshold}"
+            )
+        if self.circuit_breaker_cooldown_seconds < 1:
+            raise ValueError(
+                f"circuit_breaker_cooldown_seconds must be >= 1, "
+                f"got {self.circuit_breaker_cooldown_seconds}"
             )
         return self
 

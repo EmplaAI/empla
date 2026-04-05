@@ -74,17 +74,22 @@ class LLMService:
         requests_count: Total number of requests made
     """
 
-    def __init__(self, config: LLMConfig) -> None:
+    def __init__(self, config: LLMConfig, owner_id: str = "default") -> None:
         """
         Initialize LLM service.
 
         Args:
             config: LLM configuration
+            owner_id: Budget scope identifier passed to the router for cycle-budget
+                isolation. Use the employee's UUID when each employee has its own
+                LLMService so that concurrent loops cannot reset each other's budget.
+                Defaults to "default" for backward compatibility.
 
         Raises:
             ValueError: If required API key is missing for configured provider
         """
         self.config = config
+        self._owner_id = owner_id
 
         # Initialize primary provider (legacy path)
         primary_model = MODELS[config.primary_model]
@@ -230,7 +235,7 @@ class LLMService:
             (provider, model_key)
         """
         if task_context is not None and self._router is not None:
-            decision = self._router.route(task_context)
+            decision = self._router.route(task_context, self._owner_id)
             provider = self._provider_pool.get(decision.model_key)
             if provider is not None:
                 return provider, decision.model_key
@@ -313,9 +318,9 @@ class LLMService:
         try:
             response = await provider.generate(request)
             self._track_cost_for_model(response, model_key)
-            if self._router:
+            if task_context is not None and self._router:
                 self._router.record_success(model_key)
-                self._router.record_cost(model_key, response.usage)
+                self._router.record_cost(model_key, response.usage, self._owner_id)
             return response
 
         except Exception as e:
@@ -324,12 +329,17 @@ class LLMService:
             if fallback:
                 fb_provider, fb_key = fallback
                 logger.info(f"Falling back to {fb_key}")
-                response = await fb_provider.generate(request)
-                self._track_cost_for_model(response, fb_key)
-                if self._router:
-                    self._router.record_success(fb_key)
-                    self._router.record_cost(fb_key, response.usage)
-                return response
+                try:
+                    response = await fb_provider.generate(request)
+                    self._track_cost_for_model(response, fb_key)
+                    if task_context is not None and self._router:
+                        self._router.record_success(fb_key)
+                        self._router.record_cost(fb_key, response.usage, self._owner_id)
+                    return response
+                except Exception:
+                    if task_context is not None and self._router:
+                        self._router.record_failure(fb_key)
+                    raise
             raise
 
     async def generate_structured(
@@ -366,9 +376,9 @@ class LLMService:
         try:
             response, parsed = await provider.generate_structured(request, response_format)
             self._track_cost_for_model(response, model_key)
-            if self._router:
+            if task_context is not None and self._router:
                 self._router.record_success(model_key)
-                self._router.record_cost(model_key, response.usage)
+                self._router.record_cost(model_key, response.usage, self._owner_id)
             return response, parsed
 
         except Exception as e:
@@ -377,12 +387,19 @@ class LLMService:
             if fallback:
                 fb_provider, fb_key = fallback
                 logger.info(f"Falling back to {fb_key}")
-                response, parsed = await fb_provider.generate_structured(request, response_format)
-                self._track_cost_for_model(response, fb_key)
-                if self._router:
-                    self._router.record_success(fb_key)
-                    self._router.record_cost(fb_key, response.usage)
-                return response, parsed
+                try:
+                    response, parsed = await fb_provider.generate_structured(
+                        request, response_format
+                    )
+                    self._track_cost_for_model(response, fb_key)
+                    if task_context is not None and self._router:
+                        self._router.record_success(fb_key)
+                        self._router.record_cost(fb_key, response.usage, self._owner_id)
+                    return response, parsed
+                except Exception:
+                    if task_context is not None and self._router:
+                        self._router.record_failure(fb_key)
+                    raise
             raise
 
     async def generate_with_tools(
@@ -420,9 +437,9 @@ class LLMService:
         try:
             response = await provider.generate_with_tools(request)
             self._track_cost_for_model(response, model_key)
-            if self._router:
+            if task_context is not None and self._router:
                 self._router.record_success(model_key)
-                self._router.record_cost(model_key, response.usage)
+                self._router.record_cost(model_key, response.usage, self._owner_id)
             return response
 
         except NotImplementedError:
@@ -434,12 +451,17 @@ class LLMService:
             if fallback:
                 fb_provider, fb_key = fallback
                 logger.info(f"Falling back to {fb_key} for generate_with_tools")
-                response = await fb_provider.generate_with_tools(request)
-                self._track_cost_for_model(response, fb_key)
-                if self._router:
-                    self._router.record_success(fb_key)
-                    self._router.record_cost(fb_key, response.usage)
-                return response
+                try:
+                    response = await fb_provider.generate_with_tools(request)
+                    self._track_cost_for_model(response, fb_key)
+                    if task_context is not None and self._router:
+                        self._router.record_success(fb_key)
+                        self._router.record_cost(fb_key, response.usage, self._owner_id)
+                    return response
+                except Exception:
+                    if task_context is not None and self._router:
+                        self._router.record_failure(fb_key)
+                    raise
             raise
 
     async def stream(
@@ -464,10 +486,10 @@ class LLMService:
             Content chunks as they arrive
 
         Note:
-            Streaming calls use the router for model selection but do not update
-            the router's cost tracking or circuit breaker state, because token
-            counts are only known after the stream is fully consumed. If accurate
-            budget accounting is required, use ``generate()`` instead.
+            Streaming calls update the circuit breaker (success/failure) but do
+            not update cost tracking because token counts are only known after
+            the stream is fully consumed. If accurate budget accounting is
+            required, use ``generate()`` instead.
         """
         messages = []
         if system:
@@ -476,9 +498,16 @@ class LLMService:
 
         request = LLMRequest(messages=messages, max_tokens=max_tokens, temperature=temperature)
 
-        provider, _ = self._get_provider_for_context(task_context)
-        async for chunk in provider.stream(request):  # type: ignore[attr-defined]
-            yield chunk
+        provider, model_key = self._get_provider_for_context(task_context)
+        try:
+            async for chunk in provider.stream(request):  # type: ignore[attr-defined]
+                yield chunk
+            if task_context is not None and self._router:
+                self._router.record_success(model_key)
+        except Exception:
+            if task_context is not None and self._router:
+                self._router.record_failure(model_key)
+            raise
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """
@@ -557,6 +586,16 @@ class LLMService:
                 f"requests: {self.requests_count})"
             )
 
+    def reset_cycle_budget(self) -> None:
+        """Reset the per-cycle cost counter for this service's owner.
+
+        Call at the start of each BDI cycle. Uses the ``owner_id`` set at
+        construction time so that concurrent loops for different employees
+        do not interfere with each other's budget tracking.
+        """
+        if self._router:
+            self._router.reset_cycle_budget(self._owner_id)
+
     def get_cost_summary(self) -> dict[str, Any]:
         """
         Get cost summary.
@@ -572,7 +611,7 @@ class LLMService:
             ),
         }
         if self._router:
-            summary["routing"] = self._router.get_budget_state()
+            summary["routing"] = self._router.get_budget_state(self._owner_id)
         return summary
 
     async def close(self) -> None:

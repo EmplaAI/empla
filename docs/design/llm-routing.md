@@ -53,7 +53,7 @@ LLMService.generate_structured(..., task_context=task_context)
                 ▼
           LLMRouter.route(task_context)
                 │
-                │  Evaluates 10 signals in <1ms
+                │  Evaluates 11 signals in <1ms
                 │
                 ▼
           RouterDecision
@@ -94,9 +94,9 @@ Three capability sets are maintained alongside the tier lists:
 
 ---
 
-## The 10 Routing Signals
+## The 11 Routing Signals
 
-Signals are evaluated in order. The first eight determine the **target tier**. The final two act as constraints applied after tier selection.
+Signals are evaluated in order. The first eight determine the **target tier**. Signal 9 normalizes the range. The final two act as constraints applied after tier selection.
 
 ### Signal 1: Task Type (Base Tier)
 
@@ -155,16 +155,23 @@ Within `_select_from_tier`, `TOOL_CALL_PREFERRED` models are sorted to the front
 
 ---
 
-### Signal 5: Structured Output Quality
+### Signal 5: Structured Output Reliability
 
-If `quality_threshold >= 0.9`, the caller requires near-perfect structured output fidelity. Escalate to tier 3 minimum.
+Two sub-signals are evaluated:
 
-```
-quality_threshold=0.9  → tier max(current, 3)
-quality_threshold=0.75 → no change
-```
+1. **Hard constraint:** `requires_structured_output=True` forces tier 2 minimum, since tier 1 (`gemini-3-flash-preview`) is not in `STRUCTURED_OUTPUT_RELIABLE`. Within `_select_from_tier`, `STRUCTURED_OUTPUT_RELIABLE` models are sorted to the front.
 
-Within `_select_from_tier`, `STRUCTURED_OUTPUT_RELIABLE` models are sorted to the front when `requires_structured_output=True`.
+   ```
+   requires_structured_output=True, tier=1 → tier 2 (hard constraint)
+   requires_structured_output=True, tier=2 → no change
+   ```
+
+2. **Quality threshold upgrade:** `quality_threshold >= 0.9` escalates to tier 3 minimum for near-perfect fidelity.
+
+   ```
+   quality_threshold=0.9  → tier max(current, 3)
+   quality_threshold=0.75 → no change
+   ```
 
 ---
 
@@ -183,7 +190,7 @@ cycle_cost=$0.075, soft_budget=$0.10, tier=2 → tier 1
 cycle_cost=$0.050, soft_budget=$0.10, tier=2 → no change
 ```
 
-`reset_cycle_budget()` is called at the start of `_execute_bdi_phases()` to zero the counter each cycle.
+`reset_cycle_budget(owner_id)` is called at the start of `_execute_bdi_phases()` to zero the counter for this employee each cycle. Passing an `owner_id` (e.g., the employee's UUID) ensures that concurrent loops scoped to different employees do not interfere with each other's budget tracking.
 
 **Interaction with retry (signal 8):** The soft-budget downgrade is intentionally reversible by retry. If a call fails (tier 1 produced bad output), the retry escalates back up. A failure signal is stronger than a cost signal.
 
@@ -393,8 +400,8 @@ response, parsed = await llm_service.generate_structured(
 
 The budget reset happens at the top of `_execute_bdi_phases()`:
 ```python
-if self.llm_service and self.llm_service._router:
-    self.llm_service._router.reset_cycle_budget()
+if self.llm_service:
+    self.llm_service.reset_cycle_budget()
 ```
 
 ---
@@ -493,9 +500,11 @@ summary = llm.get_cost_summary()
 empla/llm/
 ├── models.py          # TaskType, TaskContext, RouterDecision, ModelTier
 ├── config.py          # RoutingPolicy, LLMConfig (routing_policy field)
-├── router.py          # LLMRouter (10 signals, circuit breaker, budget)
+├── router.py          # LLMRouter (11 signals, circuit breaker, budget)
 └── __init__.py        # LLMService (provider pool, routing integration)
 
 tests/unit/
-└── test_llm_router.py # 37 unit tests — all 10 signals + edge cases
+
+tests/unit/
+└── test_llm_router.py # 37 unit tests — all 11 signals + edge cases
 ```

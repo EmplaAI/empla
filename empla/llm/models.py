@@ -166,6 +166,20 @@ class TaskContext:
     quality_threshold: float = 0.5  # 0.0-1.0; ≥0.9 triggers premium tier
     retry_count: int = 0
 
+    def __post_init__(self) -> None:
+        if not 1 <= self.priority <= 10:
+            raise ValueError(f"priority must be between 1 and 10, got {self.priority}")
+        if not 0.0 <= self.quality_threshold <= 1.0:
+            raise ValueError(
+                f"quality_threshold must be between 0.0 and 1.0, got {self.quality_threshold}"
+            )
+        if self.estimated_input_tokens < 0:
+            raise ValueError(
+                f"estimated_input_tokens must be >= 0, got {self.estimated_input_tokens}"
+            )
+        if self.retry_count < 0:
+            raise ValueError(f"retry_count must be >= 0, got {self.retry_count}")
+
 
 class RouterDecision(BaseModel):
     """Decision made by LLMRouter for a single call."""
