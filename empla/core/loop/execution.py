@@ -30,7 +30,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from empla.core.hooks import (
     HOOK_AFTER_BELIEF_UPDATE,
@@ -192,6 +192,7 @@ class ProactiveExecutionLoop(
         self.last_strategic_planning: datetime | None = None
         self.last_deep_reflection: datetime | None = None
         self._wake_event = asyncio.Event()
+        self._health_server: Any = None  # Set by runner after loop creation
 
         logger.info(
             f"Proactive loop initialized for {employee.name}",
@@ -326,6 +327,9 @@ class ProactiveExecutionLoop(
 
                 # Check for due scheduled actions → inject into working memory
                 await self._check_scheduled_actions()
+
+                # Drain external events from health server → inject as observations
+                await self._check_pending_events()
 
                 await self._execute_bdi_phases()
 
@@ -769,6 +773,58 @@ class ProactiveExecutionLoop(
         except Exception:
             logger.warning(
                 "Failed to check scheduled actions",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+
+    async def _check_pending_events(self) -> None:
+        """Drain external events from HealthServer and inject as observations.
+
+        Events arrive via POST /wake from the API server when external
+        webhooks fire (HubSpot deal update, calendar change, email received,
+        etc.). Each event becomes a high-priority working memory observation
+        so the LLM can decide how to respond.
+        """
+        if self._health_server is None:
+            return
+        if not hasattr(self.memory, "working"):
+            return
+
+        try:
+            events = self._health_server.drain_events()
+            if not events:
+                return
+
+            for event in events:
+                provider = event.get("provider", "unknown")
+                event_type = event.get("event_type", "unknown")
+                summary = event.get("summary", "")
+                description = f"EVENT: {provider} {event_type}"
+                if summary:
+                    description += f" — {summary}"
+
+                await self.memory.working.add_item(
+                    item_type="observation",
+                    content={
+                        "description": description,
+                        "subtype": "external_event",
+                        "provider": provider,
+                        "event_type": event_type,
+                        "payload": event.get("payload", {}),
+                        "received_at": event.get("received_at", ""),
+                    },
+                    importance=0.9,
+                )
+
+            logger.info(
+                "Injected %d external events into perception",
+                len(events),
+                extra={"employee_id": str(self.employee.id)},
+            )
+
+        except Exception:
+            logger.warning(
+                "Failed to check pending events",
                 exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )

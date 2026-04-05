@@ -460,6 +460,67 @@ class EmployeeManager:
             )
         return None
 
+    async def wake_employee(self, employee_id: UUID, event: dict[str, Any]) -> bool:
+        """Send a wake event to an employee subprocess.
+
+        Posts the event payload to the subprocess health server's
+        ``/wake`` endpoint, which stores the event and interrupts the
+        inter-cycle sleep so the loop processes it immediately.
+
+        Args:
+            employee_id: Target employee UUID.
+            event: Event dict with at least ``provider`` and ``event_type``.
+
+        Returns:
+            True if the wake was accepted, False if unreachable.
+        """
+        port = self._health_ports.get(employee_id)
+        if port is None:
+            logger.warning(
+                f"Cannot wake employee {employee_id}: no health port registered",
+                extra={"employee_id": str(employee_id)},
+            )
+            return False
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"http://127.0.0.1:{port}/wake",
+                    json=event,
+                    timeout=5.0,
+                )
+                if resp.status_code == 200:
+                    logger.info(
+                        f"Wake event sent to employee {employee_id}",
+                        extra={
+                            "employee_id": str(employee_id),
+                            "provider": event.get("provider"),
+                            "event_type": event.get("event_type"),
+                        },
+                    )
+                    return True
+                logger.warning(
+                    f"Wake request returned {resp.status_code} for employee {employee_id}",
+                    extra={"employee_id": str(employee_id), "status_code": resp.status_code},
+                )
+        except httpx.ConnectError:
+            logger.warning(
+                f"Wake connection refused for employee {employee_id} on port {port}",
+                extra={"employee_id": str(employee_id), "health_port": port},
+            )
+        except httpx.TimeoutException:
+            logger.warning(
+                f"Wake request timed out for employee {employee_id} on port {port}",
+                extra={"employee_id": str(employee_id), "health_port": port},
+            )
+        except httpx.HTTPError:
+            logger.warning(
+                f"Wake request failed for employee {employee_id} on port {port}",
+                exc_info=True,
+                extra={"employee_id": str(employee_id), "health_port": port},
+            )
+        return False
+
     def list_running(self) -> list[UUID]:
         """Get list of running employee IDs."""
         # Prune dead processes (records error state, cleans internal maps)
