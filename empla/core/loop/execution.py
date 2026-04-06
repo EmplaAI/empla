@@ -30,7 +30,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from empla.core.hooks import (
     HOOK_AFTER_BELIEF_UPDATE,
@@ -70,6 +70,7 @@ from empla.models.employee import Employee
 if TYPE_CHECKING:
     from empla.employees.identity import EmployeeIdentity
     from empla.llm import LLMService
+    from empla.runner.health import HealthServer
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ class ProactiveExecutionLoop(
         self.last_strategic_planning: datetime | None = None
         self.last_deep_reflection: datetime | None = None
         self._wake_event = asyncio.Event()
-        self._health_server: Any = None  # Set by runner after loop creation
+        self._health_server: HealthServer | None = None  # Set by runner after loop creation
 
         logger.info(
             f"Proactive loop initialized for {employee.name}",

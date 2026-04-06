@@ -19,6 +19,7 @@ Flow:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -171,10 +172,10 @@ async def receive_webhook(
 
     manager = get_employee_manager()
     event_dict = event.model_dump(mode="json")
-    notified = 0
-    for emp_id in employee_ids:
-        if await manager.wake_employee(emp_id, event_dict):
-            notified += 1
+    results = await asyncio.gather(
+        *(manager.wake_employee(emp_id, event_dict) for emp_id in employee_ids)
+    )
+    notified = sum(1 for r in results if r)
 
     if notified == 0 and employee_ids:
         logger.error(
