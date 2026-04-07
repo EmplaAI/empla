@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -39,37 +38,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _parse_hubspot(payload: dict[str, Any] | list[Any]) -> tuple[str, str]:
-    """Extract event type and summary from HubSpot webhook payload."""
-    # HubSpot sends an array of events; take the first
-    events = payload if isinstance(payload, list) else [payload]
-    if not events:
-        return "unknown", ""
-    event = events[0] if isinstance(events[0], dict) else {}
-    sub_type = event.get("subscriptionType", "unknown")
-    object_id = event.get("objectId", "")
-    return sub_type, f"objectId={object_id}" if object_id else ""
+def _ensure_webhook_parsers_loaded() -> None:
+    """Import integration webhook modules so they register their parsers.
+
+    Each integration has a webhook.py that calls register_webhook_parser()
+    at import time. We import them here (once) so the registry is populated
+    before the first webhook arrives.
+    """
+    import importlib
+
+    _modules = [
+        "empla.integrations.hubspot.webhook",
+        "empla.integrations.google_calendar.webhook",
+        # Add new integrations here — or use entry_points for plugins
+    ]
+    for mod in _modules:
+        try:
+            importlib.import_module(mod)
+        except ImportError:
+            logger.debug("Webhook parser module %s not available", mod)
 
 
-def _parse_google(payload: dict[str, Any]) -> tuple[str, str]:
-    """Extract event type and summary from Google push notification."""
-    resource_type = payload.get("resourceType", "unknown")
-    change_type = payload.get("changeType", "unknown")
-    return f"{resource_type}.{change_type}", ""
-
-
-def _parse_generic(payload: dict[str, Any]) -> tuple[str, str]:
-    """Fallback parser for unknown providers."""
-    return payload.get("event_type", "unknown"), payload.get("summary", "")
-
-
-# Provider-specific event type extractors.
-# Each returns (event_type, summary) from the raw payload.
-_PROVIDER_PARSERS: dict[str, Any] = {
-    "hubspot": _parse_hubspot,
-    "google_workspace": _parse_google,
-    "google_calendar": _parse_google,
-}
+_ensure_webhook_parsers_loaded()
 
 
 async def _find_tenant_by_webhook_token(db: DBSession, provider: str, token: str) -> UUID | None:
@@ -149,7 +139,9 @@ async def receive_webhook(
         ) from exc
 
     # Extract event type and summary using provider-specific parser
-    parser = _PROVIDER_PARSERS.get(provider, _parse_generic)
+    from empla.integrations.webhooks import get_webhook_parser
+
+    parser = get_webhook_parser(provider)
     event_type, summary = parser(raw_payload)
 
     # Build normalized event

@@ -422,37 +422,39 @@ class TestProviderParsers:
     """Tests for provider-specific webhook payload parsers."""
 
     def test_hubspot_parser(self):
-        from empla.api.v1.endpoints.webhooks import _parse_hubspot
+        from empla.integrations.hubspot.webhook import parse_hubspot_webhook
 
-        event_type, summary = _parse_hubspot(
+        event_type, summary = parse_hubspot_webhook(
             [{"subscriptionType": "deal.propertyChange", "objectId": 12345}]
         )
         assert event_type == "deal.propertyChange"
         assert "12345" in summary
 
     def test_hubspot_parser_empty(self):
-        from empla.api.v1.endpoints.webhooks import _parse_hubspot
+        from empla.integrations.hubspot.webhook import parse_hubspot_webhook
 
-        event_type, _summary = _parse_hubspot([])
+        event_type, _summary = parse_hubspot_webhook([])
         assert event_type == "unknown"
 
     def test_hubspot_parser_dict_payload(self):
         """HubSpot sometimes sends a single dict instead of array."""
-        from empla.api.v1.endpoints.webhooks import _parse_hubspot
+        from empla.integrations.hubspot.webhook import parse_hubspot_webhook
 
-        event_type, _summary = _parse_hubspot(
+        event_type, _summary = parse_hubspot_webhook(
             {"subscriptionType": "contact.creation", "objectId": 99}
         )
         assert event_type == "contact.creation"
 
     def test_google_parser(self):
-        from empla.api.v1.endpoints.webhooks import _parse_google
+        from empla.integrations.google_calendar.webhook import parse_google_webhook
 
-        event_type, _summary = _parse_google({"resourceType": "calendar", "changeType": "updated"})
+        event_type, _summary = parse_google_webhook(
+            {"resourceType": "calendar", "changeType": "updated"}
+        )
         assert event_type == "calendar.updated"
 
     def test_generic_parser(self):
-        from empla.api.v1.endpoints.webhooks import _parse_generic
+        from empla.integrations.webhooks import _parse_generic
 
         event_type, summary = _parse_generic(
             {"event_type": "custom.event", "summary": "Something happened"}
@@ -461,11 +463,31 @@ class TestProviderParsers:
         assert summary == "Something happened"
 
     def test_generic_parser_defaults(self):
-        from empla.api.v1.endpoints.webhooks import _parse_generic
+        from empla.integrations.webhooks import _parse_generic
 
         event_type, summary = _parse_generic({})
         assert event_type == "unknown"
         assert summary == ""
+
+    def test_registry_lookup(self):
+        """get_webhook_parser should return registered parsers or generic fallback."""
+        from empla.integrations.webhooks import _parse_generic, get_webhook_parser
+
+        # Registered providers return their parser
+        parser = get_webhook_parser("hubspot")
+        assert parser is not _parse_generic
+
+        # Unknown provider returns generic fallback
+        parser = get_webhook_parser("unknown_provider")
+        assert parser is _parse_generic
+
+    def test_list_registered_providers(self):
+        """list_registered_providers should include registered integrations."""
+        from empla.integrations.webhooks import list_registered_providers
+
+        providers = list_registered_providers()
+        assert "hubspot" in providers
+        assert "google_calendar" in providers
 
 
 # ============================================================================
