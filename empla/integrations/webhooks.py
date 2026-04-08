@@ -49,8 +49,18 @@ def register_webhook_parser(
         aliases: Optional additional provider names that use the same parser
             (e.g. ["google_workspace"] for google_calendar).
     """
+    if provider in _registry:
+        logger.warning(
+            "register_webhook_parser: overwriting existing parser for '%s'",
+            provider,
+        )
     _registry[provider] = parser
     for alias in aliases or []:
+        if alias in _registry:
+            logger.warning(
+                "register_webhook_parser: overwriting existing parser for alias '%s'",
+                alias,
+            )
         _registry[alias] = parser
 
 

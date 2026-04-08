@@ -536,9 +536,16 @@ class TestWakeEmployee:
     @pytest.mark.asyncio
     async def test_connection_refused_returns_false(self):
         """wake_employee returns False when subprocess is unreachable."""
+        import socket
+
+        # Find an ephemeral port that's guaranteed not in use
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            unused_port = s.getsockname()[1]
+
         manager = self._make_manager()
         emp_id = uuid4()
-        manager._health_ports[emp_id] = 19999  # Nothing listening
+        manager._health_ports[emp_id] = unused_port
 
         result = await manager.wake_employee(emp_id, {"provider": "test"})
         assert result is False

@@ -165,9 +165,20 @@ async def receive_webhook(
     manager = get_employee_manager()
     event_dict = event.model_dump(mode="json")
     results = await asyncio.gather(
-        *(manager.wake_employee(emp_id, event_dict) for emp_id in employee_ids)
+        *(manager.wake_employee(emp_id, event_dict) for emp_id in employee_ids),
+        return_exceptions=True,
     )
-    notified = sum(1 for r in results if r)
+    notified = 0
+    for emp_id, result in zip(employee_ids, results, strict=True):
+        if result is True:
+            notified += 1
+        elif isinstance(result, Exception):
+            logger.error(
+                "Unexpected error waking employee %s",
+                emp_id,
+                exc_info=result,
+                extra={"employee_id": str(emp_id), "provider": provider},
+            )
 
     if notified == 0 and employee_ids:
         logger.error(
