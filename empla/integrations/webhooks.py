@@ -111,4 +111,8 @@ def autodiscover_parsers() -> None:
         try:
             importlib.import_module(module_name)
         except Exception:
-            logger.warning("Failed to load webhook parser from %s", module_name, exc_info=True)
+            logger.error(
+                "Failed to load webhook parser from %s — provider will use generic fallback",
+                module_name,
+                exc_info=True,
+            )

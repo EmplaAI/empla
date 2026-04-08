@@ -838,7 +838,13 @@ class ProactiveExecutionLoop(
                     },
                 )
 
-        if injected:
+        if injected == 0 and events:
+            logger.error(
+                "ALL %d external events failed injection — events lost",
+                len(events),
+                extra={"employee_id": str(self.employee.id)},
+            )
+        elif injected:
             logger.info(
                 "Injected %d/%d external events into perception",
                 injected,
