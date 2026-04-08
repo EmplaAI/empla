@@ -12,9 +12,15 @@ signature verification can be added per provider.
 Flow:
   External provider → POST /api/v1/webhooks/{provider} (X-Webhook-Token header)
   → validate token against Integration table
-  → find active employees for that tenant
+  → find employees that have credentials for this provider
   → EmployeeManager.wake_employee() for each
   → employee loop wakes, drains events, injects as observations
+
+Employee routing:
+  Only employees with an active IntegrationCredential for the webhook's
+  provider are woken. This is the direct, predictable link: if an employee
+  has a credential for HubSpot, they get HubSpot webhooks. Tenant-level
+  credentials (employee_id IS NULL) wake all active employees.
 """
 
 from __future__ import annotations
@@ -30,36 +36,17 @@ from sqlalchemy import select
 from empla.api.deps import DBSession
 from empla.api.v1.schemas.webhook import WebhookEvent, WebhookResponse
 from empla.models.employee import Employee
-from empla.models.integration import Integration
+from empla.models.integration import Integration, IntegrationCredential
 from empla.services.employee_manager import get_employee_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Auto-discover webhook parsers from empla/integrations/*/webhook.py
+from empla.integrations.webhooks import autodiscover_parsers  # noqa: E402
 
-def _ensure_webhook_parsers_loaded() -> None:
-    """Import integration webhook modules so they register their parsers.
-
-    Each integration has a webhook.py that calls register_webhook_parser()
-    at import time. We import them here (once) so the registry is populated
-    before the first webhook arrives.
-    """
-    import importlib
-
-    _modules = [
-        "empla.integrations.hubspot.webhook",
-        "empla.integrations.google_calendar.webhook",
-        # Add new integrations here — or use entry_points for plugins
-    ]
-    for mod in _modules:
-        try:
-            importlib.import_module(mod)
-        except ImportError:
-            logger.debug("Webhook parser module %s not available", mod)
-
-
-_ensure_webhook_parsers_loaded()
+autodiscover_parsers()
 
 
 async def _find_tenant_by_webhook_token(db: DBSession, provider: str, token: str) -> UUID | None:
@@ -79,14 +66,52 @@ async def _find_tenant_by_webhook_token(db: DBSession, provider: str, token: str
     return result.scalar_one_or_none()
 
 
-async def _find_active_employees(db: DBSession, tenant_id: UUID) -> list[UUID]:
-    """Find all active employees for a tenant."""
+async def _find_employees_for_provider(db: DBSession, tenant_id: UUID, provider: str) -> list[UUID]:
+    """Find active employees that use this integration provider.
+
+    Routes webhooks to the right employees based on who actually has
+    credentials for the provider. Tenant-level credentials (employee_id
+    IS NULL) cause all active employees to be woken.
+    """
+    # Check if there's a tenant-level credential (shared across all employees)
+    tenant_cred = await db.execute(
+        select(IntegrationCredential.id)
+        .join(Integration, IntegrationCredential.integration_id == Integration.id)
+        .where(
+            Integration.tenant_id == tenant_id,
+            Integration.provider == provider,
+            IntegrationCredential.employee_id.is_(None),
+            IntegrationCredential.status == "active",
+            IntegrationCredential.deleted_at.is_(None),
+        )
+        .limit(1)
+    )
+    if tenant_cred.scalar_one_or_none() is not None:
+        # Tenant-level credential → wake all active employees
+        result = await db.execute(
+            select(Employee.id).where(
+                Employee.tenant_id == tenant_id,
+                Employee.status == "active",
+                Employee.deleted_at.is_(None),
+            )
+        )
+        return list(result.scalars().all())
+
+    # Employee-level credentials → only wake employees that have them
     result = await db.execute(
-        select(Employee.id).where(
-            Employee.tenant_id == tenant_id,
+        select(IntegrationCredential.employee_id)
+        .join(Integration, IntegrationCredential.integration_id == Integration.id)
+        .join(Employee, IntegrationCredential.employee_id == Employee.id)
+        .where(
+            Integration.tenant_id == tenant_id,
+            Integration.provider == provider,
+            IntegrationCredential.employee_id.is_not(None),
+            IntegrationCredential.status == "active",
+            IntegrationCredential.deleted_at.is_(None),
             Employee.status == "active",
             Employee.deleted_at.is_(None),
         )
+        .distinct()
     )
     return list(result.scalars().all())
 
@@ -110,7 +135,7 @@ async def receive_webhook(
     The endpoint:
     1. Validates the token against the Integration table
     2. Parses the provider-specific payload
-    3. Wakes all active employees for the tenant
+    3. Wakes employees that have credentials for this provider
     """
     # Validate webhook token
     tenant_id = await _find_tenant_by_webhook_token(db, provider, x_webhook_token)
@@ -153,11 +178,11 @@ async def receive_webhook(
         received_at=datetime.now(UTC),
     )
 
-    # Find active employees for this tenant and wake them
-    employee_ids = await _find_active_employees(db, tenant_id)
+    # Find employees that have credentials for this provider
+    employee_ids = await _find_employees_for_provider(db, tenant_id, provider)
     if not employee_ids:
         logger.info(
-            "Webhook received but no active employees for tenant",
+            "Webhook received but no employees with credentials for provider",
             extra={"provider": provider, "tenant_id": str(tenant_id)},
         )
         return WebhookResponse(status="accepted", employees_notified=0)

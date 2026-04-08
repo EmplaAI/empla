@@ -633,7 +633,7 @@ class TestWebhookEndpoint:
             ),
             patch.object(
                 webhooks,
-                "_find_active_employees",
+                "_find_employees_for_provider",
                 new_callable=AsyncMock,
                 return_value=[emp_id],
             ),
@@ -680,7 +680,7 @@ class TestWebhookEndpoint:
             ),
             patch.object(
                 webhooks,
-                "_find_active_employees",
+                "_find_employees_for_provider",
                 new_callable=AsyncMock,
                 return_value=[],
             ),
@@ -714,7 +714,7 @@ class TestWebhookEndpoint:
             ),
             patch.object(
                 webhooks,
-                "_find_active_employees",
+                "_find_employees_for_provider",
                 new_callable=AsyncMock,
                 return_value=[uuid4()],
             ),
@@ -754,7 +754,7 @@ class TestWebhookEndpoint:
             ),
             patch.object(
                 webhooks,
-                "_find_active_employees",
+                "_find_employees_for_provider",
                 new_callable=AsyncMock,
                 return_value=emp_ids,
             ),
