@@ -167,7 +167,15 @@ async def receive_webhook(
     from empla.integrations.webhooks import get_webhook_parser
 
     parser = get_webhook_parser(provider)
-    event_type, summary = parser(raw_payload)
+    try:
+        event_type, summary = parser(raw_payload)
+    except Exception:
+        logger.warning(
+            "Webhook parser failed for provider '%s', falling back to generic",
+            provider,
+            exc_info=True,
+        )
+        event_type, summary = "unknown", ""
 
     # Build normalized event
     event = WebhookEvent(
