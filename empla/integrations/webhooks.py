@@ -65,8 +65,18 @@ def register_webhook_parser(
         _registry[alias] = parser
 
 
+_discovered = False
+
+
 def get_webhook_parser(provider: str) -> WebhookParser:
-    """Get the parser for a provider, falling back to the generic parser."""
+    """Get the parser for a provider, falling back to the generic parser.
+
+    Triggers autodiscovery on first call (lazy, not at import time).
+    """
+    global _discovered  # noqa: PLW0603
+    if not _discovered:
+        autodiscover_parsers()
+        _discovered = True
     return _registry.get(provider, _parse_generic)
 
 

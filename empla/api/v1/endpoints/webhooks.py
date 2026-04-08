@@ -30,7 +30,7 @@ import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Path, Request, status
 from sqlalchemy import select
 
 from empla.api.deps import DBSession
@@ -43,27 +43,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Auto-discover webhook parsers from empla/integrations/*/webhook.py
-from empla.integrations.webhooks import autodiscover_parsers  # noqa: E402
-
-autodiscover_parsers()
-
 
 async def _find_tenant_by_webhook_token(db: DBSession, provider: str, token: str) -> UUID | None:
     """Look up the tenant that owns this webhook token.
 
     The token is stored in Integration.oauth_config["webhook_token"].
-    Returns the tenant_id or None if not found.
+    Uses constant-time comparison to prevent timing side-channel attacks
+    (this is the sole auth mechanism on a public endpoint).
     """
-    # Look up integration by extracting webhook_token from JSONB config
+    import hmac
+
     result = await db.execute(
-        select(Integration.tenant_id).where(
+        select(Integration.tenant_id, Integration.oauth_config["webhook_token"].astext).where(
             Integration.provider == provider,
-            Integration.oauth_config["webhook_token"].astext == token,
             Integration.status == "active",
+            Integration.oauth_config["webhook_token"].astext.is_not(None),
         )
     )
-    return result.scalar_one_or_none()
+    for tenant_id, stored_token in result.all():
+        if hmac.compare_digest(stored_token, token):
+            return tenant_id
+    return None
 
 
 async def _find_employees_for_provider(db: DBSession, tenant_id: UUID, provider: str) -> list[UUID]:
@@ -124,7 +124,7 @@ async def _find_employees_for_provider(db: DBSession, tenant_id: UUID, provider:
 async def receive_webhook(
     db: DBSession,
     request: Request,
-    provider: str,
+    provider: str = Path(max_length=64, pattern=r"^[a-z][a-z0-9_]*$"),
     x_webhook_token: str = Header(description="Webhook authentication token"),
 ) -> WebhookResponse:
     """Receive a webhook from an external integration provider.
@@ -202,6 +202,12 @@ async def receive_webhook(
                 "Unexpected error waking employee %s",
                 emp_id,
                 exc_info=result,
+                extra={"employee_id": str(emp_id), "provider": provider},
+            )
+        else:
+            logger.warning(
+                "Failed to wake employee %s (unreachable)",
+                emp_id,
                 extra={"employee_id": str(emp_id), "provider": provider},
             )
 

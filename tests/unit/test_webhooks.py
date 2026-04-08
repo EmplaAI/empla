@@ -44,20 +44,20 @@ class TestHealthServerWake:
     def test_drain_events_clears_queue(self):
         """drain_events returns events and clears the queue."""
         server = self._make_server()
-        server._pending_events = [{"provider": "hubspot"}, {"provider": "google"}]
+        server._pending_events.extend([{"provider": "hubspot"}, {"provider": "google"}])
 
         events = server.drain_events()
         assert len(events) == 2
         assert server.drain_events() == []  # Queue cleared
 
-    def test_drain_events_returns_original_list(self):
-        """drain_events returns the actual list, not a copy (for efficiency)."""
+    def test_drain_events_returns_list(self):
+        """drain_events returns a list of pending events."""
         server = self._make_server()
-        original = [{"provider": "test"}]
-        server._pending_events = original
+        server._pending_events.append({"provider": "test"})
 
         result = server.drain_events()
-        assert result is original
+        assert isinstance(result, list)
+        assert result == [{"provider": "test"}]
 
     @pytest.mark.asyncio
     async def test_wake_endpoint_stores_event(self):
@@ -254,7 +254,7 @@ class TestHealthServerWake:
     async def test_health_endpoint_shows_pending_count(self):
         """GET /health should include pending_events count."""
         server = self._make_server()
-        server._pending_events = [{"a": 1}, {"b": 2}]
+        server._pending_events.extend([{"a": 1}, {"b": 2}])
         await server.start()
 
         try:

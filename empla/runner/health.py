@@ -14,6 +14,7 @@ import contextlib
 import json
 import logging
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
@@ -44,7 +45,7 @@ class HealthServer:
         self._server: asyncio.Server | None = None
         self.cycle_count = 0  # TODO: wire to ProactiveExecutionLoop.cycle_count
         self._wake_callback = wake_callback
-        self._pending_events: list[dict[str, Any]] = []
+        self._pending_events: deque[dict[str, Any]] = deque(maxlen=_MAX_PENDING_EVENTS)
 
     async def start(self) -> None:
         """Start the health server."""
@@ -77,8 +78,8 @@ class HealthServer:
         events that arrived since the last drain. Safe in single-threaded
         asyncio (no preemption between the swap and reassignment).
         """
-        events = self._pending_events
-        self._pending_events = []
+        events = list(self._pending_events)
+        self._pending_events.clear()
         return events
 
     async def _handle_request(
@@ -179,7 +180,7 @@ class HealthServer:
             return '{"error": "payload must be a JSON object"}', 400
 
         if len(self._pending_events) >= _MAX_PENDING_EVENTS:
-            dropped = self._pending_events.pop(0)
+            dropped = self._pending_events.popleft()
             logger.warning(
                 "Pending events queue full, dropping oldest event",
                 extra={
