@@ -102,6 +102,14 @@ export {
   useBeliefs,
   useGoals,
   useIntentions,
+  // Costs
+  costKeys,
+  useCostSummary,
+  useCostHistory,
+  // Playbooks
+  playbookKeys,
+  usePlaybooks,
+  usePlaybookStats,
   // MCP Servers
   mcpServerKeys,
   useCreateMCPServer,

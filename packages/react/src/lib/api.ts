@@ -1014,6 +1014,167 @@ export function createApiClient(config: ApiClientConfig) {
     };
   }
 
+  // =========================================================================
+  // Cost Endpoints
+  // =========================================================================
+
+  async function getCostSummary(params: {
+    employeeId: string;
+    hours?: number;
+  }): Promise<{
+    employeeId: string;
+    hours: number;
+    totalCostUsd: number;
+    avgCostPerCycle: number;
+    totalCycles: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+  }> {
+    const searchParams = new URLSearchParams();
+    if (params.hours !== undefined) searchParams.set('hours', params.hours.toString());
+    const query = searchParams.toString();
+
+    const response = await request<{
+      employee_id: string;
+      hours: number;
+      total_cost_usd: number;
+      avg_cost_per_cycle: number;
+      total_cycles: number;
+      total_input_tokens: number;
+      total_output_tokens: number;
+    }>(`/v1/metrics/employees/${params.employeeId}/costs${query ? `?${query}` : ''}`);
+
+    return {
+      employeeId: response.employee_id,
+      hours: response.hours,
+      totalCostUsd: response.total_cost_usd,
+      avgCostPerCycle: response.avg_cost_per_cycle,
+      totalCycles: response.total_cycles,
+      totalInputTokens: response.total_input_tokens,
+      totalOutputTokens: response.total_output_tokens,
+    };
+  }
+
+  async function getCostHistory(params: {
+    employeeId: string;
+    hours?: number;
+  }): Promise<{
+    items: Array<{ timestamp: string; costUsd: number; cycle: number | null }>;
+    total: number;
+  }> {
+    const searchParams = new URLSearchParams();
+    if (params.hours !== undefined) searchParams.set('hours', params.hours.toString());
+    const query = searchParams.toString();
+
+    const response = await request<{
+      items: Array<{ timestamp: string; cost_usd: number; cycle: number | null }>;
+      total: number;
+    }>(`/v1/metrics/employees/${params.employeeId}/costs/history${query ? `?${query}` : ''}`);
+
+    return {
+      items: response.items.map((item) => ({
+        timestamp: item.timestamp,
+        costUsd: item.cost_usd,
+        cycle: item.cycle,
+      })),
+      total: response.total,
+    };
+  }
+
+  // =========================================================================
+  // Playbook Endpoints
+  // =========================================================================
+
+  async function listPlaybooks(params: {
+    employeeId: string;
+    minSuccessRate?: number;
+    learnedFrom?: string;
+    sortBy?: string;
+    limit?: number;
+  }): Promise<{
+    items: Array<{
+      id: string;
+      name: string;
+      description: string | null;
+      procedureType: string;
+      successRate: number;
+      executionCount: number;
+      successCount: number;
+      avgExecutionTime: number | null;
+      lastExecutedAt: string | null;
+      promotedAt: string | null;
+      learnedFrom: string | null;
+    }>;
+    total: number;
+  }> {
+    const searchParams = new URLSearchParams();
+    if (params.minSuccessRate !== undefined) searchParams.set('min_success_rate', params.minSuccessRate.toString());
+    if (params.learnedFrom) searchParams.set('learned_from', params.learnedFrom);
+    if (params.sortBy) searchParams.set('sort_by', params.sortBy);
+    if (params.limit !== undefined) searchParams.set('limit', params.limit.toString());
+    const query = searchParams.toString();
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        name: string;
+        description: string | null;
+        procedure_type: string;
+        success_rate: number;
+        execution_count: number;
+        success_count: number;
+        avg_execution_time: number | null;
+        last_executed_at: string | null;
+        promoted_at: string | null;
+        learned_from: string | null;
+      }>;
+      total: number;
+    }>(`/v1/employees/${params.employeeId}/playbooks${query ? `?${query}` : ''}`);
+
+    return {
+      items: response.items.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        procedureType: p.procedure_type,
+        successRate: p.success_rate,
+        executionCount: p.execution_count,
+        successCount: p.success_count,
+        avgExecutionTime: p.avg_execution_time,
+        lastExecutedAt: p.last_executed_at,
+        promotedAt: p.promoted_at,
+        learnedFrom: p.learned_from,
+      })),
+      total: response.total,
+    };
+  }
+
+  async function getPlaybookStats(params: {
+    employeeId: string;
+  }): Promise<{
+    employeeId: string;
+    totalPlaybooks: number;
+    avgSuccessRate: number;
+    totalExecutions: number;
+    promotionCandidates: number;
+  }> {
+    const response = await request<{
+      employee_id: string;
+      total_playbooks: number;
+      avg_success_rate: number;
+      total_executions: number;
+      promotion_candidates: number;
+    }>(`/v1/employees/${params.employeeId}/playbooks/stats`);
+
+    return {
+      employeeId: response.employee_id,
+      totalPlaybooks: response.total_playbooks,
+      avgSuccessRate: response.avg_success_rate,
+      totalExecutions: response.total_executions,
+      promotionCandidates: response.promotion_candidates,
+    };
+  }
+
   return {
     setAuthToken,
     login,
@@ -1045,6 +1206,10 @@ export function createApiClient(config: ApiClientConfig) {
     listGoals,
     listIntentions,
     listBeliefs,
+    getCostSummary,
+    getCostHistory,
+    listPlaybooks,
+    getPlaybookStats,
   };
 }
 

@@ -904,6 +904,17 @@ class ProactiveExecutionLoop(
             except Exception:
                 logger.debug("Health monitor query failed, recording without tool stats")
 
+            # Collect LLM cost for this cycle (before reset_cycle_budget)
+            llm_cost_usd = None
+            try:
+                if self.llm_service:
+                    cost_summary = self.llm_service.get_cost_summary()
+                    routing = cost_summary.get("routing")
+                    if routing and "cycle_cost_usd" in routing:
+                        llm_cost_usd = routing["cycle_cost_usd"]
+            except Exception:
+                logger.debug("LLM cost summary query failed, recording without cost")
+
             async with sessionmaker() as metrics_session:
                 snapshot = await record_cycle_metrics(
                     metrics_session,
@@ -913,6 +924,7 @@ class ProactiveExecutionLoop(
                     duration_seconds=duration_seconds,
                     success=success,
                     tool_stats=tool_stats,
+                    llm_cost_usd=llm_cost_usd,
                 )
                 await metrics_session.commit()
                 # Only advance cache AFTER commit succeeds

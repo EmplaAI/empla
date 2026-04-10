@@ -10,12 +10,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from empla.api.deps import CurrentUser, DBSession
 from empla.models.audit import Metric
+from empla.models.employee import Employee
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,33 @@ class MetricListResponse(BaseModel):
     total: int
     page: int
     pages: int
+
+
+class CostSummary(BaseModel):
+    """LLM cost summary for a time range."""
+
+    employee_id: UUID
+    hours: int
+    total_cost_usd: float
+    avg_cost_per_cycle: float
+    total_cycles: int
+    total_input_tokens: int
+    total_output_tokens: int
+
+
+class CostHistoryPoint(BaseModel):
+    """Single cost data point."""
+
+    timestamp: datetime
+    cost_usd: float
+    cycle: int | None = None
+
+
+class CostHistoryResponse(BaseModel):
+    """Cost time-series data."""
+
+    items: list[CostHistoryPoint]
+    total: int
 
 
 # ============================================================================
@@ -234,3 +262,129 @@ async def get_metric_history(
         page=page,
         pages=pages,
     )
+
+
+# ============================================================================
+# Cost Endpoints
+# ============================================================================
+
+
+async def _verify_employee(db: DBSession, employee_id: UUID, tenant_id: UUID) -> None:
+    """Verify employee exists and belongs to tenant."""
+    result = await db.execute(
+        select(Employee.id).where(
+            Employee.id == employee_id,
+            Employee.tenant_id == tenant_id,
+            Employee.deleted_at.is_(None),
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+
+
+@router.get(
+    "/employees/{employee_id}/costs",
+    response_model=CostSummary,
+)
+async def get_cost_summary(
+    employee_id: UUID,
+    db: DBSession,
+    auth: CurrentUser,
+    hours: Annotated[int, Query(ge=1, le=168)] = 24,
+) -> CostSummary:
+    """Get aggregated LLM cost summary for an employee."""
+    await _verify_employee(db, employee_id, auth.tenant_id)
+    since = datetime.now(UTC) - timedelta(hours=hours)
+    base = [
+        Metric.tenant_id == auth.tenant_id,
+        Metric.employee_id == employee_id,
+        Metric.timestamp >= since,
+        Metric.deleted_at.is_(None),
+    ]
+
+    # Total cost
+    cost_result = await db.execute(
+        select(func.sum(Metric.value)).where(*base, Metric.metric_name == "llm.cost_usd")
+    )
+    total_cost = float(cost_result.scalar() or 0)
+
+    # Total cycles (from cycle.duration_seconds count)
+    cycle_result = await db.execute(
+        select(func.count()).where(*base, Metric.metric_name == "cycle.duration_seconds")
+    )
+    total_cycles = int(cycle_result.scalar() or 0)
+
+    # Token totals
+    input_result = await db.execute(
+        select(func.sum(Metric.value)).where(*base, Metric.metric_name == "llm.input_tokens")
+    )
+    total_input = int(input_result.scalar() or 0)
+
+    output_result = await db.execute(
+        select(func.sum(Metric.value)).where(*base, Metric.metric_name == "llm.output_tokens")
+    )
+    total_output = int(output_result.scalar() or 0)
+
+    return CostSummary(
+        employee_id=employee_id,
+        hours=hours,
+        total_cost_usd=round(total_cost, 4),
+        avg_cost_per_cycle=round(total_cost / total_cycles, 6) if total_cycles > 0 else 0.0,
+        total_cycles=total_cycles,
+        total_input_tokens=total_input,
+        total_output_tokens=total_output,
+    )
+
+
+@router.get(
+    "/employees/{employee_id}/costs/history",
+    response_model=CostHistoryResponse,
+)
+async def get_cost_history(
+    employee_id: UUID,
+    db: DBSession,
+    auth: CurrentUser,
+    hours: Annotated[int, Query(ge=1, le=168)] = 24,
+) -> CostHistoryResponse:
+    """Get time-series LLM cost data for an employee."""
+    await _verify_employee(db, employee_id, auth.tenant_id)
+    since = datetime.now(UTC) - timedelta(hours=hours)
+
+    query = (
+        select(Metric)
+        .where(
+            Metric.tenant_id == auth.tenant_id,
+            Metric.employee_id == employee_id,
+            Metric.metric_name == "llm.cost_usd",
+            Metric.timestamp >= since,
+            Metric.deleted_at.is_(None),
+        )
+        .order_by(Metric.timestamp.desc())
+        .limit(500)
+    )
+    result = await db.execute(query)
+    items = [
+        CostHistoryPoint(
+            timestamp=m.timestamp,
+            cost_usd=m.value,
+            cycle=m.tags.get("cycle") if m.tags else None,
+        )
+        for m in result.scalars()
+    ]
+
+    # True total (not capped by limit)
+    count_result = await db.execute(
+        select(func.count()).where(
+            Metric.tenant_id == auth.tenant_id,
+            Metric.employee_id == employee_id,
+            Metric.metric_name == "llm.cost_usd",
+            Metric.timestamp >= since,
+            Metric.deleted_at.is_(None),
+        )
+    )
+    total = int(count_result.scalar() or 0)
+
+    return CostHistoryResponse(items=items, total=total)

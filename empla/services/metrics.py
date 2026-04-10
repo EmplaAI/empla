@@ -82,6 +82,9 @@ async def record_cycle_metrics(
     duration_seconds: float,
     success: bool,
     tool_stats: list[dict[str, Any]] | None = None,
+    llm_cost_usd: float | None = None,
+    llm_input_tokens: int | None = None,
+    llm_output_tokens: int | None = None,
 ) -> dict[str, float] | None:
     """Record metrics for a completed BDI cycle.
 
@@ -96,6 +99,9 @@ async def record_cycle_metrics(
         duration_seconds: Wall-clock cycle duration.
         success: Whether the cycle completed without error.
         tool_stats: Optional list of dicts from IntegrationHealthMonitor.get_all_status().
+        llm_cost_usd: LLM cost for this cycle in USD (from LLMRouter budget tracking).
+        llm_input_tokens: Total input tokens consumed this cycle.
+        llm_output_tokens: Total output tokens consumed this cycle.
 
     Returns:
         New tool stats snapshot to persist in _previous_tool_stats (caller
@@ -151,6 +157,41 @@ async def record_cycle_metrics(
                     tags={"cycle": cycle_count},
                 ),
             ]
+        )
+
+    # LLM cost metrics
+    if llm_cost_usd is not None and llm_cost_usd > 0:
+        metrics.append(
+            Metric(
+                tenant_id=tenant_id,
+                employee_id=employee_id,
+                metric_name="llm.cost_usd",
+                metric_type="counter",
+                value=round(llm_cost_usd, 6),
+                tags={"cycle": cycle_count},
+            )
+        )
+    if llm_input_tokens is not None and llm_input_tokens > 0:
+        metrics.append(
+            Metric(
+                tenant_id=tenant_id,
+                employee_id=employee_id,
+                metric_name="llm.input_tokens",
+                metric_type="counter",
+                value=float(llm_input_tokens),
+                tags={"cycle": cycle_count},
+            )
+        )
+    if llm_output_tokens is not None and llm_output_tokens > 0:
+        metrics.append(
+            Metric(
+                tenant_id=tenant_id,
+                employee_id=employee_id,
+                metric_name="llm.output_tokens",
+                metric_type="counter",
+                value=float(llm_output_tokens),
+                tags={"cycle": cycle_count},
+            )
         )
 
     for m in metrics:

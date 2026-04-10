@@ -24,6 +24,8 @@ import { ActivityFeed } from '@/components/activity/activity-feed';
 import { GoalsPanel } from '@/components/bdi/goals-panel';
 import { IntentionsPanel } from '@/components/bdi/intentions-panel';
 import { BeliefsPanel } from '@/components/bdi/beliefs-panel';
+import { CostPanel } from '@/components/costs/cost-panel';
+import { PlaybookPanel } from '@/components/playbooks/playbook-panel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EmployeeEditDialog } from '@/components/employees/employee-edit-dialog';
 import { getInitials, cn } from '@/lib/utils';
@@ -255,6 +257,8 @@ export function EmployeeDetailPage() {
               <TabsTrigger value="goals">Goals</TabsTrigger>
               <TabsTrigger value="intentions">Intentions</TabsTrigger>
               <TabsTrigger value="beliefs">Beliefs</TabsTrigger>
+              <TabsTrigger value="costs">Costs</TabsTrigger>
+              <TabsTrigger value="playbooks">Playbooks</TabsTrigger>
             </TabsList>
             <TabsContent value="activity">
               <ActivityFeed employeeId={employee.id} />
@@ -267,6 +271,12 @@ export function EmployeeDetailPage() {
             </TabsContent>
             <TabsContent value="beliefs">
               <BeliefsPanel employeeId={employee.id} />
+            </TabsContent>
+            <TabsContent value="costs">
+              <CostPanel employeeId={employee.id} />
+            </TabsContent>
+            <TabsContent value="playbooks">
+              <PlaybookPanel employeeId={employee.id} />
             </TabsContent>
           </Tabs>
         </div>
