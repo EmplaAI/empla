@@ -16,6 +16,7 @@ from empla.api.v1.endpoints import (
     mcp_servers,
     metrics,
     roles,
+    webhooks,
 )
 
 api_router = APIRouter()
@@ -30,3 +31,4 @@ api_router.include_router(mcp_servers.router, prefix="/mcp-servers", tags=["mcp-
 api_router.include_router(roles.router, prefix="/roles", tags=["roles"])
 api_router.include_router(bdi.router, prefix="/employees", tags=["bdi"])
 api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
+api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])

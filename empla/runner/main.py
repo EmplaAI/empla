@@ -334,6 +334,15 @@ async def run_employee(
             )
             if dev:
                 await _setup_dev_integrations(employee)
+
+            # Wire health server → loop for event-driven wake triggers.
+            # After start() the loop exists; set the health server reference
+            # so the loop can drain events, and give the health server the
+            # wake callback so POST /wake triggers an immediate cycle.
+            if employee._loop is not None:
+                employee._loop._health_server = health
+                health._wake_callback = employee._loop.wake
+
             await employee._run_loop()
 
         employee_task = asyncio.create_task(_run())
