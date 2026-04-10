@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-04-10 - Dashboard: Cost Panel + Playbook Viewer
+
+**Phase:** Phase 4 — Efficiency + Intelligence (PR 4 of 4)
+
+### Added
+
+- **LLM cost persistence.** Per-cycle LLM cost (`llm.cost_usd`) is now recorded
+  to the Metric table from `LLMRouter.get_budget_state()`. Cost data flows from
+  in-memory budget tracking → metrics recorder → DB → API → dashboard.
+- **Cost API endpoints.** `GET /metrics/employees/{id}/costs` returns aggregated
+  cost summary (total, avg/cycle, tokens). `GET .../costs/history` returns
+  time-series cost data for visualization.
+- **Playbook API endpoints.** `GET /employees/{id}/playbooks` lists playbooks
+  with sorting/filtering by success rate, source, and execution count.
+  `GET .../playbooks/stats` returns aggregates including promotion candidates.
+- **Dashboard Cost panel.** Summary cards (total cost, avg/cycle) with per-cycle
+  cost bars. Token stats shown when available, hidden when not yet tracked.
+- **Dashboard Playbook panel.** Stats row (total, avg success, executions,
+  candidates) with sortable table showing success bars, source badges, and
+  promotion dates.
+- **React hooks.** `useCostSummary`, `useCostHistory`, `usePlaybooks`,
+  `usePlaybookStats` with React Query integration and auto-refresh.
+- Two new tabs (Costs, Playbooks) in employee detail page.
+
+---
+
 ## 2026-03-25 - Playbook System with Autonomous Discovery
 
 **Phase:** Phase 4 — Efficiency + Intelligence (PR 1 of 4)
