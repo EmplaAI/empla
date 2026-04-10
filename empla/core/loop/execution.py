@@ -909,8 +909,9 @@ class ProactiveExecutionLoop(
             try:
                 if self.llm_service:
                     cost_summary = self.llm_service.get_cost_summary()
-                    routing = cost_summary.get("routing", {})
-                    llm_cost_usd = routing.get("cycle_cost_usd", 0.0)
+                    routing = cost_summary.get("routing")
+                    if routing and "cycle_cost_usd" in routing:
+                        llm_cost_usd = routing["cycle_cost_usd"]
             except Exception:
                 logger.debug("LLM cost summary query failed, recording without cost")
 
