@@ -63,11 +63,11 @@ function PlaybookPanelSkeleton() {
 }
 
 export function PlaybookPanel({ employeeId }: { employeeId: string }) {
-  const { data: stats, isLoading: statsLoading } = usePlaybookStats(employeeId, {
+  const { data: stats, isLoading: statsLoading, isError: statsError } = usePlaybookStats(employeeId, {
     autoRefresh: true,
     interval: 60,
   });
-  const { data: playbooks, isLoading: listLoading } = usePlaybooks(employeeId, {
+  const { data: playbooks, isLoading: listLoading, isError: listError } = usePlaybooks(employeeId, {
     sortBy: 'success_rate',
     limit: 50,
   });
@@ -82,6 +82,23 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
         </CardHeader>
         <CardContent>
           <PlaybookPanelSkeleton />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (statsError || listError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <BookOpen className="h-4 w-4" /> Playbooks
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Failed to load playbook data. Try refreshing.
+          </p>
         </CardContent>
       </Card>
     );

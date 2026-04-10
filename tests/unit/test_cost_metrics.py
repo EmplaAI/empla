@@ -14,7 +14,7 @@ class TestRecordCycleMetricsWithCost:
     """Tests for LLM cost recording in record_cycle_metrics."""
 
     @pytest.mark.asyncio
-    async def test_records_llm_cost_metric(self):
+    async def test_records_llm_cost_metric(self) -> None:
         """LLM cost should be persisted as llm.cost_usd metric."""
         from empla.services.metrics import record_cycle_metrics
 
@@ -42,7 +42,7 @@ class TestRecordCycleMetricsWithCost:
         assert cost_metrics[0].value == pytest.approx(0.042, abs=1e-6)
 
     @pytest.mark.asyncio
-    async def test_records_token_counts(self):
+    async def test_records_token_counts(self) -> None:
         """Token counts should be persisted when provided."""
         from empla.services.metrics import record_cycle_metrics
 
@@ -66,7 +66,7 @@ class TestRecordCycleMetricsWithCost:
         assert "llm.output_tokens" in names
 
     @pytest.mark.asyncio
-    async def test_skips_zero_cost(self):
+    async def test_skips_zero_cost(self) -> None:
         """Zero LLM cost should not create a metric row."""
         from empla.services.metrics import record_cycle_metrics
 
@@ -88,7 +88,7 @@ class TestRecordCycleMetricsWithCost:
         assert "llm.cost_usd" not in names
 
     @pytest.mark.asyncio
-    async def test_skips_none_cost(self):
+    async def test_skips_none_cost(self) -> None:
         """None LLM cost should not create a metric row."""
         from empla.services.metrics import record_cycle_metrics
 
@@ -110,7 +110,7 @@ class TestRecordCycleMetricsWithCost:
         assert "llm.cost_usd" not in names
 
     @pytest.mark.asyncio
-    async def test_backward_compatible_no_cost_args(self):
+    async def test_backward_compatible_no_cost_args(self) -> None:
         """Existing callers without cost args should still work."""
         from empla.services.metrics import record_cycle_metrics
 
@@ -135,7 +135,7 @@ class TestRecordCycleMetricsWithCost:
 class TestLlmCostSummaryExtraction:
     """Tests for extracting LLM cost from the service summary dict."""
 
-    def test_cost_extraction_from_routing(self):
+    def test_cost_extraction_from_routing(self) -> None:
         """Verify cost is extracted from LLM service get_cost_summary."""
         summary = {
             "total_cost": 1.5,
@@ -146,7 +146,7 @@ class TestLlmCostSummaryExtraction:
         cost = routing.get("cycle_cost_usd", 0.0)
         assert cost == pytest.approx(0.08)
 
-    def test_missing_routing_defaults_to_zero(self):
+    def test_missing_routing_defaults_to_zero(self) -> None:
         """Missing routing key should default to 0."""
         summary = {"total_cost": 0, "requests_count": 0}
         routing = summary.get("routing", {})

@@ -906,8 +906,6 @@ class ProactiveExecutionLoop(
 
             # Collect LLM cost for this cycle (before reset_cycle_budget)
             llm_cost_usd = None
-            llm_input_tokens = None
-            llm_output_tokens = None
             try:
                 if self.llm_service:
                     cost_summary = self.llm_service.get_cost_summary()
@@ -926,8 +924,6 @@ class ProactiveExecutionLoop(
                     success=success,
                     tool_stats=tool_stats,
                     llm_cost_usd=llm_cost_usd,
-                    llm_input_tokens=llm_input_tokens,
-                    llm_output_tokens=llm_output_tokens,
                 )
                 await metrics_session.commit()
                 # Only advance cache AFTER commit succeeds

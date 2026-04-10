@@ -59,13 +59,15 @@ function CostPanelSkeleton() {
   );
 }
 
+const DISPLAY_LIMIT = 20;
+
 export function CostPanel({ employeeId }: { employeeId: string }) {
-  const { data: summary, isLoading: summaryLoading } = useCostSummary(employeeId, {
+  const { data: summary, isLoading: summaryLoading, isError: summaryError } = useCostSummary(employeeId, {
     hours: 24,
     autoRefresh: true,
     interval: 60,
   });
-  const { data: history, isLoading: historyLoading } = useCostHistory(employeeId, {
+  const { data: history, isLoading: historyLoading, isError: historyError } = useCostHistory(employeeId, {
     hours: 24,
   });
 
@@ -79,6 +81,23 @@ export function CostPanel({ employeeId }: { employeeId: string }) {
         </CardHeader>
         <CardContent>
           <CostPanelSkeleton />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (summaryError || historyError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <DollarSign className="h-4 w-4" /> LLM Costs (24h)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            Failed to load cost data. Try refreshing.
+          </p>
         </CardContent>
       </Card>
     );
@@ -140,11 +159,11 @@ export function CostPanel({ employeeId }: { employeeId: string }) {
         {!historyLoading && history && history.items.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-medium text-muted-foreground">
-              Cost per cycle (recent {history.items.length})
+              Cost per cycle (recent {Math.min(history.items.length, DISPLAY_LIMIT)})
             </p>
             <div className="space-y-1.5">
-              {history.items.slice(0, 20).map((item, i) => (
-                <div key={i} className="flex items-center gap-2">
+              {history.items.slice(0, DISPLAY_LIMIT).map((item) => (
+                <div key={item.timestamp} className="flex items-center gap-2">
                   <span className="w-16 text-right text-xs text-muted-foreground">
                     ${item.costUsd.toFixed(4)}
                   </span>
