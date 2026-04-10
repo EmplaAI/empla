@@ -11,11 +11,12 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from empla.api.deps import CurrentUser, DBSession
+from empla.models.employee import Employee
 from empla.models.memory import ProceduralMemory
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,27 @@ class PlaybookStats(BaseModel):
 
 
 # ============================================================================
+# Helpers
+# ============================================================================
+
+
+async def _verify_employee(db: DBSession, employee_id: UUID, tenant_id: UUID) -> None:
+    """Verify employee exists and belongs to tenant."""
+    result = await db.execute(
+        select(Employee.id).where(
+            Employee.id == employee_id,
+            Employee.tenant_id == tenant_id,
+            Employee.deleted_at.is_(None),
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+
+
+# ============================================================================
 # Endpoints
 # ============================================================================
 
@@ -88,6 +110,7 @@ async def list_playbooks(
     Returns promoted procedures with their success rates, execution counts,
     and other performance data for the dashboard playbook viewer.
     """
+    await _verify_employee(db, employee_id, auth.tenant_id)
     filters = [
         ProceduralMemory.tenant_id == auth.tenant_id,
         ProceduralMemory.employee_id == employee_id,
@@ -146,6 +169,7 @@ async def get_playbook_stats(
     auth: CurrentUser,
 ) -> PlaybookStats:
     """Get aggregate playbook statistics for an employee."""
+    await _verify_employee(db, employee_id, auth.tenant_id)
     base = [
         ProceduralMemory.tenant_id == auth.tenant_id,
         ProceduralMemory.employee_id == employee_id,

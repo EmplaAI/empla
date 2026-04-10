@@ -10,12 +10,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from empla.api.deps import CurrentUser, DBSession
 from empla.models.audit import Metric
+from empla.models.employee import Employee
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +269,22 @@ async def get_metric_history(
 # ============================================================================
 
 
+async def _verify_employee(db: DBSession, employee_id: UUID, tenant_id: UUID) -> None:
+    """Verify employee exists and belongs to tenant."""
+    result = await db.execute(
+        select(Employee.id).where(
+            Employee.id == employee_id,
+            Employee.tenant_id == tenant_id,
+            Employee.deleted_at.is_(None),
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+
+
 @router.get(
     "/employees/{employee_id}/costs",
     response_model=CostSummary,
@@ -279,6 +296,7 @@ async def get_cost_summary(
     hours: Annotated[int, Query(ge=1, le=168)] = 24,
 ) -> CostSummary:
     """Get aggregated LLM cost summary for an employee."""
+    await _verify_employee(db, employee_id, auth.tenant_id)
     since = datetime.now(UTC) - timedelta(hours=hours)
     base = [
         Metric.tenant_id == auth.tenant_id,
@@ -332,6 +350,7 @@ async def get_cost_history(
     hours: Annotated[int, Query(ge=1, le=168)] = 24,
 ) -> CostHistoryResponse:
     """Get time-series LLM cost data for an employee."""
+    await _verify_employee(db, employee_id, auth.tenant_id)
     since = datetime.now(UTC) - timedelta(hours=hours)
 
     query = (
@@ -356,4 +375,16 @@ async def get_cost_history(
         for m in result.scalars()
     ]
 
-    return CostHistoryResponse(items=items, total=len(items))
+    # True total (not capped by limit)
+    count_result = await db.execute(
+        select(func.count()).where(
+            Metric.tenant_id == auth.tenant_id,
+            Metric.employee_id == employee_id,
+            Metric.metric_name == "llm.cost_usd",
+            Metric.timestamp >= since,
+            Metric.deleted_at.is_(None),
+        )
+    )
+    total = int(count_result.scalar() or 0)
+
+    return CostHistoryResponse(items=items, total=total)
