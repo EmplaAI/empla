@@ -114,7 +114,7 @@ export function CostPanel({ employeeId }: { employeeId: string }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Summary stats */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <StatCard
             label="Total Cost"
             value={`$${summary.totalCostUsd.toFixed(4)}`}
@@ -126,12 +126,14 @@ export function CostPanel({ employeeId }: { employeeId: string }) {
             value={`$${summary.avgCostPerCycle.toFixed(4)}`}
             icon={Zap}
           />
-          <StatCard
-            label="Tokens"
-            value={formatTokens(summary.totalInputTokens + summary.totalOutputTokens)}
-            icon={Hash}
-            subtitle={`${formatTokens(summary.totalInputTokens)} in / ${formatTokens(summary.totalOutputTokens)} out`}
-          />
+          {(summary.totalInputTokens + summary.totalOutputTokens > 0) && (
+            <StatCard
+              label="Tokens"
+              value={formatTokens(summary.totalInputTokens + summary.totalOutputTokens)}
+              icon={Hash}
+              subtitle={`${formatTokens(summary.totalInputTokens)} in / ${formatTokens(summary.totalOutputTokens)} out`}
+            />
+          )}
         </div>
 
         {/* Cost per cycle history */}
