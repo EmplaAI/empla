@@ -1214,3 +1214,123 @@ async def test_check_goal_achievement_db_error_handled(proactive_loop, mock_goal
 
     # Should not raise
     await proactive_loop._check_goal_achievement(goal, {"deals_closed": 15})
+
+
+# ============================================================================
+# Test: _record_cycle_metrics sessionmaker wiring (regression for silent bug)
+# ============================================================================
+#
+# Context: PR #71/#76 shipped cycle metrics + cost panel, but execution.py:886
+# read `getattr(self.employee, "_sessionmaker", None)`. ``self.employee`` is
+# the SQLAlchemy Employee ORM row, not the DigitalEmployee instance where
+# ``_sessionmaker`` lives. Result: the getattr always returned None and
+# metrics silently no-op'd in production. The cost panel in #76 displayed
+# zero cost for real employees. Zero tests covered the real path.
+#
+# Fix: Pass ``sessionmaker`` explicitly to ProactiveExecutionLoop.__init__
+# and read from ``self._sessionmaker``. These tests assert the wiring works.
+
+
+@pytest.mark.asyncio
+async def test_record_cycle_metrics_uses_injected_sessionmaker(
+    mock_employee, mock_beliefs, mock_goals, mock_intentions, mock_memory, loop_config
+):
+    """_record_cycle_metrics uses the sessionmaker passed into __init__.
+
+    Regression for a bug where the loop read _sessionmaker off the ORM row
+    and silently no-op'd. If this test fails with "no sessionmaker", the
+    getattr pattern has crept back in.
+    """
+    from contextlib import asynccontextmanager
+
+    # Track session lifecycle calls
+    committed = False
+    session = AsyncMock()
+    session.commit = AsyncMock()
+    session.add = Mock()
+
+    async def _commit():
+        nonlocal committed
+        committed = True
+
+    session.commit.side_effect = _commit
+
+    @asynccontextmanager
+    async def _session_cm():
+        yield session
+
+    sessionmaker_mock = Mock(side_effect=_session_cm)
+
+    mock_employee.tenant_id = uuid4()
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=mock_intentions,
+        memory=mock_memory,
+        config=loop_config,
+        sessionmaker=sessionmaker_mock,
+    )
+
+    # Invoke the private method directly (unit-level regression test)
+    await loop._record_cycle_metrics(duration_seconds=1.5, success=True)
+
+    # The sessionmaker must have been called — before the fix this would
+    # never happen because the loop read _sessionmaker from the Employee row.
+    assert sessionmaker_mock.called, (
+        "sessionmaker was not invoked — _record_cycle_metrics is silently "
+        "no-op'ing. Check that ProactiveExecutionLoop.__init__ accepts a "
+        "sessionmaker parameter and _record_cycle_metrics reads from "
+        "self._sessionmaker."
+    )
+    assert committed, "session.commit was not called — metrics write did not complete"
+
+
+@pytest.mark.asyncio
+async def test_record_cycle_metrics_no_sessionmaker_returns_gracefully(
+    mock_employee, mock_beliefs, mock_goals, mock_intentions, mock_memory, loop_config
+):
+    """When no sessionmaker is provided, the loop logs and skips — no crash."""
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=mock_intentions,
+        memory=mock_memory,
+        config=loop_config,
+        # sessionmaker omitted
+    )
+
+    # Should not raise
+    await loop._record_cycle_metrics(duration_seconds=1.5, success=True)
+    assert loop._sessionmaker is None
+
+
+@pytest.mark.asyncio
+async def test_record_cycle_metrics_ignores_sessionmaker_on_employee_row(
+    mock_employee, mock_beliefs, mock_goals, mock_intentions, mock_memory, loop_config
+):
+    """Regression: stamping _sessionmaker on the Employee row must NOT work.
+
+    Historically the loop read getattr(self.employee, "_sessionmaker", None).
+    If anyone tries to restore that pattern, this test catches it.
+    """
+    # Stamp _sessionmaker on the ORM row (the OLD broken location)
+    wrong_sessionmaker = Mock()
+    mock_employee._sessionmaker = wrong_sessionmaker
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=mock_intentions,
+        memory=mock_memory,
+        config=loop_config,
+        # sessionmaker deliberately NOT passed
+    )
+
+    await loop._record_cycle_metrics(duration_seconds=1.5, success=True)
+
+    # The sessionmaker on the ORM row must NOT have been used
+    wrong_sessionmaker.assert_not_called()

@@ -1,67 +1,76 @@
 # empla - Roadmap
 
-> **Updated:** 2026-03-24
-> **Strategy:** Production Foundation in progress. BDI loop complete (including
-> GoalRecommendation, deep reflection → beliefs, non-numeric goal completion).
-> JWT auth shipped. Next: dashboard metrics, test coverage push, then re-plan
-> Phase 4 direction.
-> **Reference:** `ARCHITECTURE.md`, `docs/designs/product-strategy-2026-03.md`
+> **Updated:** 2026-04-11
+> **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5 (Platform
+> Completeness + Employee Polish) planned and reviewed. Next: PR #77 foundation,
+> then 9 more PRs split across Phase 5A and 5B.
+> **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
 
 ## Current State
 
-Tests: 781 collected, ~52% coverage | Employees: SalesAE, CSM
-Working: Complete BDI loop with GoalRecommendation, deep reflection belief
-conversion, non-numeric goal LLM completion checks. Direct HubSpot CRM +
-Google Calendar + Email connectors via httpx. Trust boundary (taint-based,
-global deny, role restrictions). Integration health monitoring with BDI belief
-generation. OAuth credential injection at startup. JWT authentication (HS256)
-with production guards. Dashboard with BDI tabs (Goals, Intentions, Beliefs).
-Execution loop split into 7 focused modules.
+Tests: **1644 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Employees: SalesAE, CSM (with PM, SDR, Recruiter coming in PR #78) |
+Core features: Complete BDI loop, playbook system with autonomous discovery,
+event-driven wake + scheduled actions, webhooks with credential-based routing,
+LLM routing layer with cost tracking, cost panel + playbook viewer in dashboard.
+Direct HubSpot CRM, Google Calendar, and Email connectors via httpx.
+JWT auth, trust boundary, integration health monitoring.
 
 ---
 
-## Production Foundation (in progress)
+## Phase 5 — Platform Completeness + Employee Polish (in progress)
 
-Remaining items from the Production Foundation plan (CEO + Eng reviewed).
+Direction: "features first, make sure the employee works, everything is exposed,
+people can create new employees." See `docs/designs/phase5-platform-completeness.md`
+for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completeness.
 
-### ~~1. Dashboard metrics~~ (PR #71)
+### Phase 5A — Core Completeness (4 PRs)
 
-~~Persist cycle metrics to DB, expose via API.~~ Done — cycle duration,
-success/failure, tool call deltas, tool latency. API endpoints for summary
-and time-series history. React dashboard panel deferred.
+- **PR #77 — Foundation** (in progress): docs housekeeping, critical cost metrics
+  hotfix (execution.py:886 silent no-op bug from Phase 4), 16 pre-existing test
+  failures fixed (LLM router + service tests), DESIGN.md creation, Button a11y
+  fix (44×44px WCAG 2.5.5), reduced-motion support
+- **PR #78** — CatalogBackedEmployee refactor + PM, SDR, Recruiter classes
+- **PR #79** — Memory browsing UI (Episodic, Semantic, Procedural, Working) +
+  4-group tab restructure (Activity/Mind/Operations/Business)
+- **PR #80** — Tool catalog + per-employee tool health
 
-### 2. Test coverage push (52% → 80%)
+### Phase 5B — User Power + Visibility (6 PRs)
 
-Write tests for untested paths across the codebase. Focus on: BDI loop
-integration paths, API endpoints (TestClient), LLM service error handling,
-integration connectors, and settings validation.
+- **PR #81** — Webhook UI + event feed + setup wizards (HubSpot, Calendar, Gmail)
+- **PR #82** — Scheduler panel (read + cancel + tagged user-requested add)
+- **PR #83** — Real settings page (LLM, cost, cycle, trust read-only, notifications)
+  with runner-restart reload pattern. Kills `hubspot/tools.py:150` quarterly_target
+  TODO.
+- **PR #84** — Playbook editor with optimistic locking (version column on
+  ProceduralMemory, bumped by both API + autonomous promotion path)
+- **PR #85** — Custom role builder with admin review gate (GenericEmployee for
+  runtime resolution)
+- **PR #86** — Inbox (employee→human messaging with structured content blocks)
+
+**Total:** 10 PRs, ~7-9 days CC time, target 2091 tests passing (up ~195 from current
+1644 unit-test-only baseline).
 
 ---
 
-## Phase 4: TBD — Re-plan After Production Data
+## Phase 6 — Production Resilience (deferred from Phase 5)
 
-Direction to be decided after Production Foundation ships and we have metrics
-data from real usage. Candidates (from CEO review):
-
-- **Efficiency + Intelligence** — Playbook system, adaptive cycle frequency,
-  event-driven triggers. Drops LLM cost from ~$65/day to ~$10-15/day.
-- **Native Workspace** — empla-native contacts, pipeline, tasks. Competitive
-  moat. Decouples from external APIs.
-- **Hybrid** — cherry-pick from both based on production observations.
-
-Run `/plan-ceo-review` after Production Foundation merges to decide.
-
----
-
-## Phase 5: Production Resilience
+Direction to be decided after Phase 5 ships. Candidates from CEO review:
 
 - LLM failover — primary + fallback models, ProviderHealth tracking
 - Context window compaction — token counting, auto-compaction
 - Timeouts/watchdogs — per-call + per-cycle timeouts, loop detection
 - Graceful shutdown & state persistence — save/resume BDI state
 - Exponential loop backoff — cycle-level backoff on failure
+- Paused-employee event loss fix (bump HealthServer._pending_events maxlen=100
+  or persist events to DB)
+
+Alternative directions also in the backlog:
+- **Native Workspace** — empla-owned contacts, pipeline, tasks (competitive moat)
+- **"Hire One" production sprint** — deploy one real employee against a real
+  pipeline to validate the full platform
 
 ---
 
@@ -69,18 +78,19 @@ Run `/plan-ceo-review` after Production Foundation merges to decide.
 
 - Password/OAuth verification on login — User model needs password field,
   bcrypt hashing, or OAuth/SAML flow. Required before multi-tenant production.
-- Dashboard trust boundary controls — per-tenant settings for high-risk
-  tool classification, global deny lists, and role restrictions
 - Token revocation — jti claim, revocation list for compromised tokens
 - Rate limiting on auth endpoints
 - Observation prioritization — let perception LLM classify importance
 - Structured world model — replace SPO belief triples with typed domain model
 - Goal-task trees — hierarchical decomposition instead of flat goals + intentions
 - Active hours gating — configurable work schedule
-- Hot-reload config — update without restart
+- Hot-reload config without DB roundtrip — in-memory pub/sub invalidation
+  (alternative to the runner-restart pattern chosen in Phase 5)
 - Multi-employee coordination — handoff protocols, shared beliefs
-- New employee types (PM) — prove platform extensibility
 - Embedding-based procedure search — pgvector similarity
+- Daily digest (tenant-level scheduler) — for inbox summaries
+- Trust rule editing UI (needs trust language design review first)
+- Custom webhook setup wizards for providers beyond HubSpot/Calendar/Gmail
 - Developer experience docs — guides for creating custom employees
 
 ---
@@ -103,9 +113,8 @@ unified tool architecture (@tool + ToolRouter)
 
 **Phase 2.75 — Integration Router & Agentic Perception (PR #56):**
 IntegrationRouter for tool-based integrations, agentic perception via LLM
-tool calling, role catalog as single source of truth, test infrastructure
-(calendar MCP server, seed scenarios, dev_e2e.sh), activity recorder for
-dashboard feed
+tool calling, role catalog as single source of truth, test infrastructure,
+activity recorder for dashboard feed
 
 **Phase 3A — Platform Solidification (PR #58, #59):**
 Removed old capabilities system, completed agentic execution, LLM-driven goal
@@ -113,31 +122,35 @@ evaluation + achievement hooks, procedural memory recording + maintenance +
 plan influence
 
 **Phase 3A.5 — E2E Validation (2026-03-17/18):**
-Full E2E test with production code + test MCP servers (15 tests). Runner wires
-MCP servers from DB. Vertex AI schema sanitization. Fixed DB constraint
-mismatches. Dashboard BDI tabs. Goal/intention dedup. Belief extraction
-prompt improvement.
+Full E2E test with production code + test MCP servers. Runner wires MCP servers
+from DB. Vertex AI schema sanitization. Dashboard BDI tabs. Goal/intention dedup.
 
 **Phase 3B — Real-World Integrations (PRs #61-#67, 2026-03-19/20):**
 Direct HubSpot CRM + Google Calendar + Email connectors via httpx. OAuth
 credential injection at startup. LLM trust boundary (taint-based, global deny,
 role restrictions). Integration health monitoring with BDI belief generation.
 Execution loop refactored into 7 focused modules via mixin pattern.
-ARCHITECTURE.md rewritten to reflect reality.
 
 **Phase 3C — BDI Loop Completion (PR #68, 2026-03-24):**
-GoalRecommendation wired into strategic planning (description-based fuzzy
-matching). Deep reflection insights converted to typed beliefs
-(strategy_effectiveness, known_failure_patterns, improvement_opportunities)
-and procedural memory. Non-numeric goal LLM completion checks alongside TTL.
-37 new tests.
+GoalRecommendation wired into strategic planning. Deep reflection insights
+converted to typed beliefs and procedural memory. Non-numeric goal LLM
+completion checks alongside TTL.
 
 **Production Foundation — JWT Auth (PR #69, 2026-03-24):**
-Replaced stub user_id:tenant_id tokens with JWT (HS256). Production guards
-(fail-fast on default/short secret in non-dev, algorithm locked to HMAC
-family). Unified error messages prevent tenant enumeration. PyJWTError catch
-for config errors. 27 new tests.
+Replaced stub tokens with JWT (HS256). Production guards, unified error
+messages, PyJWTError catch.
+
+**Phase 3C.5 — Metrics & Coverage (PR #71, #72, 2026-03-24):**
+Dashboard-native cycle metrics (persisted to Metric table). Test coverage
+push. NOTE: cycle metrics had a latent bug where `_sessionmaker` was read
+from the wrong object, causing silent no-op in production — fixed in PR #77.
+
+**Phase 4 — Efficiency + Intelligence (PRs #73-#76, 2026-03-25 to 2026-04-10):**
+Playbook system with autonomous discovery (#73). Event-driven wake + scheduled
+actions (#74). Webhooks with credential-based routing (#75). Dashboard cost
+panel + playbook viewer (#76). Also: LLM routing layer with rule-based model
+selection (merged from ml-workflow branch).
 
 ---
 
-**Last Updated:** 2026-03-24
+**Last Updated:** 2026-04-11

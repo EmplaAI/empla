@@ -1,7 +1,7 @@
 # empla — Architecture
 
-> **Last Updated:** 2026-03-20
-> **Status:** Reflects current codebase (post Phase 3B)
+> **Last Updated:** 2026-04-11
+> **Status:** Reflects current codebase (post Phase 4)
 
 ---
 
@@ -221,7 +221,7 @@ FastAPI at `/api/v1/`:
 | HTTP client | httpx (for HubSpot, Google Calendar) |
 | MCP | Model Context Protocol (stdio + HTTP) |
 | Frontend | React + TypeScript |
-| Testing | pytest (781 tests) |
+| Testing | pytest (1644 unit tests, ~70% unit coverage) |
 | Linting | ruff |
 | Type checking | mypy |
 | Package manager | uv |
@@ -261,25 +261,62 @@ empla/
 └── settings.py             # Centralized settings (pydantic-settings)
 ```
 
+## Phase 4 — Shipped (2026-03-25 to 2026-04-10)
+
+Phase 4 (Efficiency + Intelligence) added four major subsystems:
+
+- **Playbook system with autonomous discovery** (PR #73): procedures that
+  demonstrate consistent success (3+ executions, 70%+ success rate) are
+  automatically promoted to playbooks. During planning, available playbooks
+  are presented as context options to the LLM, which decides whether to reuse,
+  adapt, or ignore them. Playbook success feedback loop updates success_rate
+  from execution outcomes. Auto-demotes playbooks with <50% success after 5+
+  runs. Fields: `is_playbook`, `promoted_at` on `ProceduralMemory`.
+- **Event-driven wake + scheduled actions** (PR #74): the loop uses
+  `self._wake_event` (asyncio.Event) to interrupt inter-cycle sleep. Scheduled
+  actions are stored as `WorkingMemory` items with `subtype="scheduled_action"`
+  and injected as observations when due. Recurring actions re-schedule
+  themselves. Also adds `_check_pending_events` for external event drain.
+- **Webhooks with credential-based routing** (PR #75): public
+  `/api/v1/webhooks/{provider}` endpoints authenticate via `X-Webhook-Token`
+  (stored in `Integration.oauth_config["webhook_token"]`, constant-time
+  comparison). Events are routed to employees with matching
+  `IntegrationCredential` for the provider. Tenant-level credentials wake all
+  active employees. HealthServer has a `/wake` endpoint that drains events
+  into the loop's working memory.
+- **Dashboard cost panel + playbook viewer** (PR #76): React panels for
+  per-cycle cost visualization and playbook list with stats.
+
+**Also shipped in the ml-workflow merge:**
+
+- **LLM routing layer** (`empla/llm/router.py`): rule-based model selection
+  across 11 signals (task type, priority, context length, retry escalation,
+  circuit breaker, soft/hard budget, etc.). Per-owner budget tracking via
+  `defaultdict[str, float]` keyed on `owner_id` (employee ID). Used by the
+  `LLMService` when routing is enabled.
+
 ## What's NOT Built Yet
 
-See `TODO.md` for the full roadmap. Key items:
+See `TODO.md` for the full roadmap. Phase 5 is the current work.
 
-- **Prometheus metrics** — TODO markers in loop code, health monitor exists
-- **Production auth** — JWT (HS256) implemented, password verification deferred
-- **LLM failover** — primary + fallback models
-- **Adaptive cycle frequency** — currently fixed interval
-- **Playbook system** — codified tool sequences
-- **Event-driven triggers** — react to changes instead of polling
+Key items still deferred:
+
+- **LLM failover** — primary + fallback with ProviderHealth tracking (Phase 6)
+- **Context window compaction** — token counting, auto-compaction (Phase 6)
+- **Timeouts/watchdogs** — per-call + per-cycle limits (Phase 6)
+- **Graceful shutdown & state persistence** (Phase 6)
 - **Multi-employee coordination** — handoff protocols
 - **empla-native workspace** — contacts/pipeline/tasks as first-class data
+- **Password/OAuth verification on login** (still backlog)
+- **Paused-employee event loss** — `HealthServer._pending_events` deque has
+  maxlen=100, events while paused can drop. Pre-existing, noted in Phase 5 TODOs.
 
 ## Design Decisions
 
 1. **BDI over task queues** — Employees reason about goals, not execute task lists
 2. **Direct connectors over adapters** — HubSpot/Calendar call APIs directly via httpx. No premature abstraction.
 3. **Taint-based trust boundary** — Structured data (CRM) passes freely. Role restrictions activate only after processing untrusted content (email).
-4. **Mixin pattern for loop** — Execution loop split into 7 focused modules via Python mixins. Orchestrator is 715 lines.
+4. **Mixin pattern for loop** — Execution loop split into modules via Python mixins (`perception.py`, `planning.py`, `goal_management.py`, `intention_execution.py`, `reflection.py`, `events.py`). Orchestrator (`execution.py`) is ~960 lines.
 5. **Single tenant per process** — Runner spawns one process per employee. Module-level state is safe.
 6. **PostgreSQL for everything** — Relational + JSONB + pgvector. No separate vector DB, graph DB, or cache until proven necessary.
 
