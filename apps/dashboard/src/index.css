@@ -127,3 +127,18 @@
     }
   }
 }
+
+/* Accessibility: honor prefers-reduced-motion.
+ * Users with vestibular disorders or motion sensitivity opt out of animations
+ * via OS settings. Disable non-essential animation and transition durations
+ * when the preference is set. Pulse, glow, scale, and fade effects all stop. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

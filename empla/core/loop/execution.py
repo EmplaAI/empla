@@ -68,6 +68,8 @@ from empla.core.loop.reflection import ReflectionMixin
 from empla.models.employee import Employee
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from empla.employees.identity import EmployeeIdentity
     from empla.llm import LLMService
     from empla.runner.health import HealthServer
@@ -139,6 +141,7 @@ class ProactiveExecutionLoop(
         hooks: HookRegistry | None = None,
         tool_router: ToolSourceProtocol | None = None,
         identity: EmployeeIdentity | None = None,
+        sessionmaker: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop.
@@ -158,6 +161,11 @@ class ProactiveExecutionLoop(
             tool_router: Optional unified tool source for tool discovery and execution.
             identity: Optional EmployeeIdentity providing name, role, personality,
                 and goals context for LLM prompts.
+            sessionmaker: Optional async sessionmaker used for short-lived metrics
+                writes. Required for cycle metrics to persist. Previously read via
+                ``getattr(self.employee, "_sessionmaker", None)`` which silently
+                no-op'd because ``self.employee`` is the ORM row, not the
+                ``DigitalEmployee`` instance that holds ``_sessionmaker``.
         """
         self.employee = employee
         self.beliefs = beliefs
@@ -169,6 +177,7 @@ class ProactiveExecutionLoop(
         self._status_checker = status_checker
         self._hooks = hooks or HookRegistry()
         self._identity = identity
+        self._sessionmaker = sessionmaker
         if identity is not None:
             self._identity_prompt: str | None = identity.to_system_prompt()
             logger.debug(
@@ -883,8 +892,12 @@ class ProactiveExecutionLoop(
         Uses a separate session so metrics writes don't pollute the BDI
         loop's long-lived session. Cache update deferred until after commit.
         """
-        sessionmaker = getattr(self.employee, "_sessionmaker", None)
+        sessionmaker = self._sessionmaker
         if sessionmaker is None:
+            logger.debug(
+                "Cycle metrics skipped: no sessionmaker configured",
+                extra={"employee_id": str(self.employee.id)},
+            )
             return
         try:
             # Deferred import: empla.services.metrics imports empla.models which

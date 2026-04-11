@@ -6,6 +6,61 @@
 
 ---
 
+## 2026-04-11 - Phase 5 Foundation: Cost Metrics Hotfix + A11y + DESIGN.md (PR #77)
+
+**Phase:** Phase 5 — Platform Completeness (PR 1 of 10)
+
+### Fixed (critical — pre-existing Phase 4 bug)
+
+- **Cost metrics pipeline silently no-op'ing in production.**
+  `empla/core/loop/execution.py:886` read `getattr(self.employee, "_sessionmaker", None)`
+  where `self.employee` is the SQLAlchemy `Employee` ORM row, not the
+  `DigitalEmployee` instance that holds `_sessionmaker`. The getattr always
+  returned None and metrics writes were dropped silently. The cost panel
+  (PR #76) displayed zero cost for any real employee.
+  Fix: pass `sessionmaker` explicitly into `ProactiveExecutionLoop.__init__`
+  and read from `self._sessionmaker`. 3 regression tests added to
+  `tests/unit/test_proactive_loop.py` that would have caught this when
+  PR #71 shipped.
+
+- **16 pre-existing unit test failures.** After the LLM routing refactor,
+  `LLMRouter._cycle_cost` became `dict[str, float]` (keyed by owner_id) but
+  8 tests in `test_llm_router.py` and 8 tests in `test_llm_service_coverage.py`
+  still assigned raw floats or referenced removed methods (`_track_cost` →
+  `_track_cost_for_model`). Fixed all 16. **CI was missing or red-ignored
+  on main.** 1625 passing → 1644 passing.
+
+### Added
+
+- **DESIGN.md** at repo root. Formalized the existing Neo-Industrial Control
+  Center design system: palette (HSL tokens), typography (Outfit/Plus Jakarta
+  Sans/JetBrains Mono), component patterns (Card shell, Tabs, Dialog, stats
+  cards), empty state rules, anti-slop blacklist. Single source of truth for
+  Phase 5 UI work.
+
+### Fixed (a11y)
+
+- **Button touch targets at WCAG 2.5.5 minimum (44×44px).** Default size
+  raised from `h-10` to `h-11`, `lg` from `h-11` to `h-12`, icon from `h-10 w-10`
+  to `h-11 w-11`. `sm` stays `h-9` for dense non-touch contexts.
+  Affects `apps/dashboard/src/components/ui/button.tsx`.
+- **`prefers-reduced-motion` support.** Added global media query to
+  `apps/dashboard/src/index.css` that disables all animation durations
+  and transitions when the OS preference is set. Honors vestibular
+  accessibility.
+
+### Changed (docs)
+
+- `TODO.md` rewritten: Phase 4 marked complete with all 4 PRs listed, Phase 5
+  section added with all 10 PRs, test count corrected to 1644 passing.
+- `ARCHITECTURE.md` updated: Phase 4 subsystems (playbooks, events, webhooks,
+  LLM routing) moved from "NOT BUILT" to "Shipped" section, test count
+  corrected, loop module count updated.
+- `~/.gstack/projects/EmplaAI-empla/ceo-plans/2026-03-25-efficiency-intelligence.md`
+  marked COMPLETED.
+
+---
+
 ## 2026-04-10 - Dashboard: Cost Panel + Playbook Viewer
 
 **Phase:** Phase 4 — Efficiency + Intelligence (PR 4 of 4)

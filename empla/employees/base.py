@@ -838,6 +838,11 @@ class DigitalEmployee(ABC):
             hooks=self._hooks,
             tool_router=self._tool_router,
             identity=identity,
+            # Pass sessionmaker explicitly so cycle metrics can persist.
+            # Previously read via ``getattr(self.employee, "_sessionmaker", None)``
+            # which silently no-op'd because ``self.employee`` is the ORM row,
+            # not the DigitalEmployee instance.
+            sessionmaker=self._sessionmaker,
         )
 
         # Wire up activity recorder for dashboard feed
