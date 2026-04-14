@@ -14,6 +14,7 @@ from empla.api.v1.endpoints import (
     employees,
     integrations,
     mcp_servers,
+    memory,
     metrics,
     playbooks,
     roles,
@@ -34,3 +35,4 @@ api_router.include_router(bdi.router, prefix="/employees", tags=["bdi"])
 api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 api_router.include_router(playbooks.router, prefix="/employees", tags=["playbooks"])
+api_router.include_router(memory.router, prefix="/employees", tags=["memory"])

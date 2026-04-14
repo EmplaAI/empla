@@ -98,6 +98,80 @@ export interface PaginatedResponse<T> {
 }
 
 /**
+ * Memory types (episodic, semantic, procedural, working).
+ */
+export interface EpisodicMemoryItem {
+  id: string;
+  employeeId: string;
+  episodeType: string;
+  description: string;
+  content: Record<string, unknown>;
+  participants: string[];
+  location: string | null;
+  importance: number;
+  recallCount: number;
+  lastRecalledAt: string | null;
+  occurredAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SemanticMemoryItem {
+  id: string;
+  employeeId: string;
+  factType: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence: number;
+  source: string | null;
+  verified: boolean;
+  accessCount: number;
+  lastAccessedAt: string | null;
+  context: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProceduralMemoryItem {
+  id: string;
+  employeeId: string;
+  name: string;
+  description: string;
+  procedureType: string;
+  steps: Array<Record<string, unknown>>;
+  triggerConditions: Record<string, unknown>;
+  successRate: number;
+  executionCount: number;
+  successCount: number;
+  avgExecutionTime: number | null;
+  lastExecutedAt: string | null;
+  isPlaybook: boolean;
+  promotedAt: string | null;
+  learnedFrom: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkingMemoryItem {
+  id: string;
+  employeeId: string;
+  itemType: string;
+  content: Record<string, unknown>;
+  importance: number;
+  expiresAt: number | null;
+  accessCount: number;
+  lastAccessedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkingMemoryListResponse {
+  items: WorkingMemoryItem[];
+  total: number;
+}
+
+/**
  * Activity event from API.
  */
 export interface Activity {

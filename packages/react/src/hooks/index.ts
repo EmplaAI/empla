@@ -53,6 +53,14 @@ export {
 } from './usePlaybooks';
 
 export {
+  memoryKeys,
+  useEpisodicMemory,
+  useProceduralMemory,
+  useSemanticMemory,
+  useWorkingMemory,
+} from './useMemory';
+
+export {
   mcpServerKeys,
   useCreateMCPServer,
   useDeleteMCPServer,

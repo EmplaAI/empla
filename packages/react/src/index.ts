@@ -110,6 +110,12 @@ export {
   playbookKeys,
   usePlaybooks,
   usePlaybookStats,
+  // Memory
+  memoryKeys,
+  useEpisodicMemory,
+  useProceduralMemory,
+  useSemanticMemory,
+  useWorkingMemory,
   // MCP Servers
   mcpServerKeys,
   useCreateMCPServer,
@@ -190,6 +196,11 @@ export type {
   PaginatedResponse,
   ProviderInfo,
   RoleDefinition,
+  EpisodicMemoryItem,
+  SemanticMemoryItem,
+  ProceduralMemoryItem,
+  WorkingMemoryItem,
+  WorkingMemoryListResponse,
 } from './types';
 
 // API Client (for advanced usage)

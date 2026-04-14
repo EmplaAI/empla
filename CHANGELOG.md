@@ -6,6 +6,64 @@
 
 ---
 
+## 2026-04-14 - Phase 5A: Memory Browsing API + 4-Group Tab Layout (PR #79)
+
+**Phase:** Phase 5A — Core Completeness (PR 3 of 10)
+
+### Added
+
+- **Memory browsing API.** Four new GET endpoints under
+  `/api/v1/employees/{id}/memory/{type}` for episodic, semantic,
+  procedural, and working memory. Paginated with explicit filter sets
+  per type. Tenant-scoped 404s on cross-tenant access. The first
+  three accept `page` / `page_size` (max 50) plus type-specific
+  filters; working memory has no pagination but is hard-capped at
+  200 items defensively.
+
+- **4-group tab restructure on the employee detail page.** Tabs now
+  group as: ACTIVITY (Timeline + the 3 paginated memory views),
+  MIND (Goals + Intentions + Beliefs), BUSINESS (Costs + Playbooks).
+  Sub-tab strips scroll horizontally on phone widths so the dashboard
+  remains usable from a phone. OPERATIONS group lands in PR #80
+  (Tools) and PR #82 (Scheduler).
+
+- **`@empla/react` memory hooks.** `useEpisodicMemory`,
+  `useSemanticMemory`, `useProceduralMemory`, `useWorkingMemory` —
+  the same React Query ergonomics as `usePlaybooks` with type-safe
+  filter parameters and a 30-second `staleTime`.
+
+- **Composite index on `memory_semantic`** for the pagination ORDER BY.
+  Migration `h3c4d5e6f7g8` creates `idx_semantic_employee_confidence`
+  CONCURRENTLY so it doesn't lock writes.
+
+### Changed
+
+- Lowered the max `page_size` on the three paginated memory endpoints
+  from 200 to 50 (default 25). Worst-case JSONB blob × 200 was a 20MB
+  response; the new cap keeps responses under 5MB even for memory
+  rows with large `content` fields.
+
+- Memory panels follow the DESIGN.md empty-state pattern (icon at
+  60% opacity, `font-display text-lg` heading, body wrapped in
+  `max-w-sm`) instead of the decorative-circle style. Card titles
+  bumped to `font-display text-lg font-semibold`. Status tokens
+  (`status-active`) replace raw `emerald-500` on the playbook badge
+  and procedural success-rate bar.
+
+### Tests
+
+- **+40 unit tests** in `test_memory_endpoints.py`. 1721 → 1761
+  passing.
+- New coverage areas: `_pages` math, `_verify_employee` 404,
+  per-endpoint happy/filter/invalid-enum, pagination math, an N+1
+  schema guard, cross-tenant isolation across all four endpoints,
+  ordering invariants verified by query-compile inspection,
+  boundary values (`page_size=50`, `min_importance=0`,
+  `min_confidence=1`), combined-filter regressions, and the working
+  memory cap constant.
+
+---
+
 ## 2026-04-14 - Phase 5A: CatalogBackedEmployee + PM/SDR/Recruiter (PR #78)
 
 **Phase:** Phase 5A — Core Completeness (PR 2 of 10)
