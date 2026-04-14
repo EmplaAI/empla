@@ -6,6 +6,97 @@
 
 ---
 
+## 2026-04-14 - Phase 5B: Webhook UI + Event Feed + Setup Wizards (PR #81)
+
+**Phase:** Phase 5B — User Power + Visibility (PR 5 of 10, opens Phase 5B)
+
+### Added
+
+- **Per-tenant webhook token management.** Four new endpoints under
+  `/api/v1/webhooks/tokens` let users generate, rotate, delete, and
+  list tokens for each integration. Tokens live in the existing
+  `Integration.oauth_config` JSONB blob, so no new storage table.
+  The full token value is returned exactly once on create/rotate;
+  the list endpoint only exposes existence + rotation state.
+
+- **5-minute grace-window rotation.** `POST /webhooks/tokens/{id}/rotate`
+  moves the existing token to `oauth_config["webhook_token_prev"]` with
+  a `rotated_at` timestamp. The receiver accepts both tokens for 300
+  seconds so in-flight provider retries don't 401 mid-rotation. A
+  freezegun-powered test proves the cutoff.
+
+- **Webhook event feed.** `GET /api/v1/webhooks/events` streams the
+  tenant's received webhooks from `AuditLog` (no new table). The
+  webhook receiver writes one `actor_type='webhook'` row per delivery
+  with provider + event type + summary + employees notified.
+
+- **Dashboard `/events` route.** Sidebar gets an **Events** nav entry
+  with a new page that bundles: token manager (generate / rotate /
+  delete / copy Target URL inline), live event stream (15s
+  auto-refresh, pagination), once-only token dialog with
+  copy-to-clipboard + target URL + header name + beforeunload
+  warning, and setup wizards for HubSpot, Google Calendar, and Gmail
+  (the 3 providers empla currently parses).
+
+- **`@empla/react` webhook hooks.** `useWebhookTokens`,
+  `useCreateWebhookToken`, `useRotateWebhookToken`,
+  `useDeleteWebhookToken`, `useWebhookEvents` with standard React
+  Query key conventions. Mutations invalidate the tokens list on
+  success.
+
+### Changed
+
+- **`audit_log.actor_type` CHECK constraint widened** to include
+  `'webhook'` (migration `i4d5e6f7g8h9`). The prior constraint would
+  have rejected the first webhook INSERT.
+
+- **Partial expression index** `idx_audit_webhook_provider ON
+  audit_log((details->>'provider'), occurred_at DESC) WHERE
+  actor_type = 'webhook'` lets the events-feed provider filter probe
+  the index instead of row-scanning webhook rows per tenant.
+
+- **Downgrade path is fail-loud.** If webhook audit rows exist, the
+  downgrade raises rather than silently DELETE-ing compliance data.
+
+- **PII scrub on the audit row.** Gmail / HubSpot / Calendar payloads
+  carry email bodies, contact addresses, and attendee lists. The
+  receiver stores metadata only (provider, event type, summary,
+  counts). Matches CLAUDE.md's PII-safe-logging convention.
+
+- **Concurrency hardening.** `create_webhook_token`,
+  `rotate_webhook_token`, and `delete_webhook_token` all take a
+  row-level lock (`SELECT ... FOR UPDATE`). Prevents two parallel
+  rotations from racing (second write wins, first-issued token is
+  silently dead) and the create path returns 409 if a token already
+  exists instead of overwriting.
+
+- **Receiver header is bounded.** `X-Webhook-Token` has
+  `min_length=16, max_length=128`, rejecting obvious junk at the
+  FastAPI edge before the tenant-scan DB lookup.
+
+- **Events-feed provider filter fixed.** The filter was
+  `action_type LIKE 'webhook_<provider>_%'` where `_` is a LIKE
+  wildcard. `provider=hub` over-matched `webhook_hubspot_*`. Now
+  filters on `details['provider']` equality — correct semantics,
+  probes the new expression index.
+
+### Dependencies
+
+- Added `freezegun>=1.5.0` to dev dependencies (used for the rotation
+  grace-window test's deterministic clock).
+- Promoted `pyjwt[crypto]>=2.11.0` from a transitive dependency to a
+  direct one (`empla/api/deps.py` uses it directly).
+
+### Tests
+
+19 new unit tests in `tests/unit/test_webhook_management.py` covering
+token lifecycle, tenant isolation, grace-window semantics, pagination,
+and schema redaction. Existing receiver tests updated for the new
+tuple return shape and tightened token fixtures (>= 16 chars to match
+the header `min_length`). Full unit suite: 1834 passing.
+
+---
+
 ## 2026-04-14 - Phase 5A: Tool Catalog + Trust Boundary View (PR #80)
 
 **Phase:** Phase 5A — Core Completeness (PR 4 of 10, completes Phase 5A)
