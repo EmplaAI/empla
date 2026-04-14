@@ -18,6 +18,7 @@ from empla.api.v1.endpoints import (
     metrics,
     playbooks,
     roles,
+    tools,
     webhooks,
 )
 
@@ -36,3 +37,4 @@ api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 api_router.include_router(playbooks.router, prefix="/employees", tags=["playbooks"])
 api_router.include_router(memory.router, prefix="/employees", tags=["memory"])
+api_router.include_router(tools.router, prefix="/employees", tags=["tools"])

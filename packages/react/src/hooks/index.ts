@@ -61,6 +61,13 @@ export {
 } from './useMemory';
 
 export {
+  toolKeys,
+  useBlockedTools,
+  useToolHealth,
+  useTools,
+} from './useTools';
+
+export {
   mcpServerKeys,
   useCreateMCPServer,
   useDeleteMCPServer,

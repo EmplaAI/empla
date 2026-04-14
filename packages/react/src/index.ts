@@ -116,6 +116,11 @@ export {
   useProceduralMemory,
   useSemanticMemory,
   useWorkingMemory,
+  // Tools
+  toolKeys,
+  useBlockedTools,
+  useToolHealth,
+  useTools,
   // MCP Servers
   mcpServerKeys,
   useCreateMCPServer,
@@ -201,6 +206,12 @@ export type {
   ProceduralMemoryItem,
   WorkingMemoryItem,
   WorkingMemoryListResponse,
+  BlockedToolEntry,
+  BlockedToolsResponse,
+  IntegrationHealth,
+  ToolCatalogItem,
+  ToolCatalogResponse,
+  TrustCycleStats,
 } from './types';
 
 // API Client (for advanced usage)

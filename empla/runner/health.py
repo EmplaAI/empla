@@ -38,6 +38,7 @@ class HealthServer:
         employee_id: UUID,
         port: int,
         wake_callback: Callable[[], None] | None = None,
+        tool_router: Any = None,
     ) -> None:
         self.employee_id = employee_id
         self.port = port
@@ -46,6 +47,11 @@ class HealthServer:
         self.cycle_count = 0  # TODO: wire to ProactiveExecutionLoop.cycle_count
         self._wake_callback = wake_callback
         self._pending_events: deque[dict[str, Any]] = deque(maxlen=_MAX_PENDING_EVENTS)
+        # Optional: ToolRouter reference for /tools introspection (PR #80).
+        # When None, the /tools endpoints return 503 (employee runner not
+        # wired to expose tools). Avoids a hard import dependency on the
+        # core.tools module so this file stays tiny and easy to reason about.
+        self._tool_router = tool_router
 
     async def start(self) -> None:
         """Start the health server."""
@@ -107,6 +113,13 @@ class HealthServer:
                 response_body, status_code = self._handle_health(), 200
             elif request_str.startswith("POST /wake"):
                 response_body, status_code = await self._handle_wake(reader, content_length)
+            elif request_str.startswith("GET /tools/blocked"):
+                response_body, status_code = self._handle_tools_blocked()
+            elif request_str.startswith("GET /tools/"):
+                # GET /tools/{name}/health
+                response_body, status_code = self._handle_tool_health(request_str)
+            elif request_str.startswith("GET /tools"):
+                response_body, status_code = self._handle_tools_list()
             else:
                 response_body, status_code = '{"error": "not found"}', 404
 
@@ -214,3 +227,98 @@ class HealthServer:
         )
 
         return json.dumps({"status": "accepted", "pending_events": len(self._pending_events)}), 200
+
+    # =========================================================================
+    # /tools, /tools/{name}/health, /tools/blocked  (PR #80)
+    # =========================================================================
+
+    def _handle_tools_list(self) -> tuple[str, int]:
+        """Return the merged tool catalog this employee can execute."""
+        if self._tool_router is None:
+            return '{"error": "tools introspection not enabled for this runner"}', 503
+        try:
+            schemas = self._tool_router.get_all_tool_schemas(self.employee_id)
+            integrations = self._tool_router.get_enabled_capabilities(self.employee_id)
+            tools = [
+                {
+                    "name": s.get("name"),
+                    "description": s.get("description"),
+                    "integration": (
+                        s.get("name", "").split(".", 1)[0] if "." in s.get("name", "") else None
+                    ),
+                }
+                for s in schemas
+            ]
+            return (
+                json.dumps({"items": tools, "total": len(tools), "integrations": integrations}),
+                200,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to read tool catalog from tool_router",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id)},
+            )
+            return '{"error": "internal"}', 503
+
+    def _handle_tool_health(self, request_str: str) -> tuple[str, int]:
+        """Parse `GET /tools/{name}/health` and return integration health."""
+        if self._tool_router is None:
+            return '{"error": "tools introspection not enabled for this runner"}', 503
+        # Extract path: split on whitespace → request line is "GET /path HTTP/1.1"
+        parts = request_str.split(" ", 2)
+        if len(parts) < 2:
+            return '{"error": "bad request"}', 400
+        path = parts[1]
+        # Strip the /tools/ prefix and any /health suffix
+        if not path.endswith("/health"):
+            return '{"error": "expected /tools/{name}/health"}', 400
+        name = path[len("/tools/") : -len("/health")]
+        if not name:
+            return '{"error": "missing tool name"}', 400
+        # Tool names are namespaced as "integration.tool" — health is per-integration
+        integration = name.split(".", 1)[0] if "." in name else name
+        try:
+            return json.dumps(self._tool_router.get_integration_health(integration)), 200
+        except Exception:
+            logger.warning(
+                "Failed to read integration health",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id), "integration": integration},
+            )
+            return '{"error": "internal"}', 503
+
+    def _handle_tools_blocked(self) -> tuple[str, int]:
+        """
+        Return the trust-boundary blocks observed in the current cycle.
+
+        Reads the trust audit log via ToolRouter._trust (private but stable
+        within the runner process). Each entry is a TrustDecision with
+        ``allowed=False``. The endpoint returns the most recent N entries.
+        """
+        if self._tool_router is None:
+            return '{"error": "tools introspection not enabled for this runner"}', 503
+        try:
+            trust = getattr(self._tool_router, "_trust", None)
+            if trust is None:
+                return '{"items": [], "total": 0, "note": "trust boundary not active"}', 200
+            audit = trust.get_audit_log()
+            blocks = [
+                {
+                    "tool_name": d.tool_name,
+                    "reason": d.reason,
+                    "employee_role": d.employee_role,
+                    "timestamp": d.timestamp,
+                }
+                for d in audit
+                if not d.allowed
+            ]
+            stats = trust.get_cycle_stats()
+            return json.dumps({"items": blocks, "total": len(blocks), "stats": stats}), 200
+        except Exception:
+            logger.warning(
+                "Failed to read trust boundary audit log",
+                exc_info=True,
+                extra={"employee_id": str(self.employee_id)},
+            )
+            return '{"error": "internal"}', 503

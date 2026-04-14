@@ -31,6 +31,7 @@ import {
   SemanticMemoryPanel,
   WorkingMemoryPanel,
 } from '@/components/memory/memory-panels';
+import { BlockedToolsPanel, ToolsPanel } from '@/components/tools/tools-panel';
 // Note: ProceduralMemoryPanel is exported from memory-panels.tsx but not
 // wired into the 4-group tab layout per the Phase 5A plan (procedural
 // memory is surfaced via the curated Playbooks view under BUSINESS). It
@@ -260,16 +261,17 @@ export function EmployeeDetailPage() {
           </Card>
 
           {/*
-           * 4-group tab layout (Phase 5A PR #79):
-           *   ACTIVITY  — Timeline | Episodic | Semantic | Working (memory sub-tabs)
-           *   MIND      — Goals | Intentions | Beliefs
-           *   OPERATIONS — (Tools + Scheduler land here in PR #80/#82)
-           *   BUSINESS  — Costs | Playbooks
+           * 4-group tab layout:
+           *   ACTIVITY    — Timeline | Episodic | Semantic | Working (PR #79)
+           *   MIND        — Goals | Intentions | Beliefs
+           *   OPERATIONS  — Tools | Trust (PR #80) — Scheduler lands in PR #82
+           *   BUSINESS    — Costs | Playbooks
            */}
           <Tabs defaultValue="activity">
             <TabsList>
               <TabsTrigger value="activity">Activity</TabsTrigger>
               <TabsTrigger value="mind">Mind</TabsTrigger>
+              <TabsTrigger value="operations">Operations</TabsTrigger>
               <TabsTrigger value="business">Business</TabsTrigger>
             </TabsList>
 
@@ -311,6 +313,21 @@ export function EmployeeDetailPage() {
                 </TabsContent>
                 <TabsContent value="beliefs">
                   <BeliefsPanel employeeId={employee.id} />
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+
+            <TabsContent value="operations">
+              <Tabs defaultValue="tools">
+                <TabsList className="w-full justify-start overflow-x-auto">
+                  <TabsTrigger value="tools">Tools</TabsTrigger>
+                  <TabsTrigger value="trust">Trust</TabsTrigger>
+                </TabsList>
+                <TabsContent value="tools">
+                  <ToolsPanel employeeId={employee.id} />
+                </TabsContent>
+                <TabsContent value="trust">
+                  <BlockedToolsPanel employeeId={employee.id} />
                 </TabsContent>
               </Tabs>
             </TabsContent>

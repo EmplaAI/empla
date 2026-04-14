@@ -172,6 +172,55 @@ export interface WorkingMemoryListResponse {
 }
 
 /**
+ * Per-employee tool catalog + health (proxied from the runner).
+ */
+export interface ToolCatalogItem {
+  name: string;
+  description: string | null;
+  integration: string | null;
+}
+
+export interface ToolCatalogResponse {
+  items: ToolCatalogItem[];
+  total: number;
+  integrations: string[];
+}
+
+export interface IntegrationHealth {
+  name: string;
+  status: string;
+  successCount: number;
+  failureCount: number;
+  timeoutCount: number;
+  totalCalls: number;
+  avgLatencyMs: number;
+  errorRate: number;
+  lastError: string | null;
+}
+
+export interface BlockedToolEntry {
+  toolName: string;
+  reason: string;
+  employeeRole: string | null;
+  timestamp: number;
+}
+
+export interface TrustCycleStats {
+  totalDecisions: number;
+  allowed: number;
+  denied: number;
+  tainted: boolean;
+  cycleCalls: number;
+  maxCallsPerCycle: number;
+}
+
+export interface BlockedToolsResponse {
+  items: BlockedToolEntry[];
+  total: number;
+  stats: TrustCycleStats;
+}
+
+/**
  * Activity event from API.
  */
 export interface Activity {
