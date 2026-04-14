@@ -410,7 +410,13 @@ class HealthServer:
         try:
             trust = getattr(self._tool_router, "_trust", None)
             if trust is None:
-                return '{"items": [], "total": 0, "note": "trust boundary not active"}', 200
+                # `stats` is required by the API's BlockedToolsResponse schema.
+                # All TrustCycleStats fields have defaults, so an empty object
+                # validates cleanly into a zeroed-out stats block.
+                return (
+                    '{"items": [], "total": 0, "stats": {}, "note": "trust boundary not active"}',
+                    200,
+                )
             audit = trust.get_audit_log()
             blocks = [
                 {

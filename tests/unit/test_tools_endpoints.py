@@ -426,6 +426,31 @@ class TestHealthServerToolHandlers:
         assert data["items"][0]["tool_name"] == "admin.delete_tenant"
         assert data["stats"]["denied"] == 1
 
+    def test_tools_blocked_no_trust_includes_stats(self):
+        """
+        When tool_router has no _trust attribute, the fallback must still
+        include `stats` so the API's BlockedToolsResponse.model_validate
+        doesn't 500 with a missing-required-field error.
+        """
+        from empla.api.v1.schemas.tools import BlockedToolsResponse
+
+        no_trust = SimpleNamespace(
+            get_all_tool_schemas=Mock(return_value=[]),
+            get_enabled_capabilities=Mock(return_value=[]),
+            get_integration_health=Mock(return_value={}),
+            _trust=None,
+        )
+        srv = self._server(tool_router=no_trust)
+        body, code = srv._handle_tools_blocked()
+        assert code == 200
+        data = json.loads(body)
+        # Schema-level proof: must validate without raising
+        validated = BlockedToolsResponse.model_validate(data)
+        assert validated.total == 0
+        assert validated.items == []
+        assert validated.stats.denied == 0
+        assert validated.stats.allowed == 0
+
     def test_tools_list_embeds_health_map(self):
         """N+1 fix: the catalog response includes per-integration health."""
         srv = self._server(tool_router=_stub_tool_router())
