@@ -116,9 +116,20 @@ class LLMService:
                 provider_pool=self._provider_pool,
             )
 
-        # Cost tracking
+        # Cost + token tracking.
+        # total_* are cumulative across all cycles (since service startup).
+        # _cycle_* reset each BDI cycle via reset_cycle_budget() and are read
+        # by the loop's _record_cycle_metrics to persist per-cycle numbers.
+        # These fields work regardless of whether routing is enabled — the
+        # router has its own per-owner budget tracking for routing decisions,
+        # but production cost-panel data comes from these service-level fields.
         self.total_cost = 0.0
         self.requests_count = 0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self._cycle_cost_usd = 0.0
+        self._cycle_input_tokens = 0
+        self._cycle_output_tokens = 0
 
     # =========================================================================
     # Provider management
@@ -240,9 +251,7 @@ class LLMService:
             if provider is not None:
                 return provider, decision.model_key
             # Router returned a model not in pool (shouldn't happen) — fall through
-            logger.warning(
-                f"Router selected {decision.model_key} but it's not in provider pool"
-            )
+            logger.warning(f"Router selected {decision.model_key} but it's not in provider pool")
         return self.primary, self.config.primary_model
 
     def _get_fallback_provider(
@@ -565,7 +574,10 @@ class LLMService:
 
     def _track_cost_for_model(self, response: LLMResponse, model_key: str) -> None:
         """
-        Track cost of LLM call for a specific model key.
+        Track cost and token usage for a specific model key.
+
+        Updates both cumulative totals (since service startup) and per-cycle
+        counters (reset each BDI cycle via ``reset_cycle_budget``).
 
         Args:
             response: LLM response
@@ -579,29 +591,62 @@ class LLMService:
             cost = response.usage.calculate_cost(model_config)
             self.total_cost += cost
             self.requests_count += 1
+            self._cycle_cost_usd += cost
+
+            # Token tracking — populates the dashboard Tokens card. Falls back
+            # to 0 when usage fields are missing (some provider responses
+            # don't include both input + output token counts).
+            input_tokens = getattr(response.usage, "input_tokens", 0) or 0
+            output_tokens = getattr(response.usage, "output_tokens", 0) or 0
+            self.total_input_tokens += input_tokens
+            self.total_output_tokens += output_tokens
+            self._cycle_input_tokens += input_tokens
+            self._cycle_output_tokens += output_tokens
 
             logger.debug(
                 f"LLM call cost: ${cost:.4f} "
                 f"(model: {model_key}, total: ${self.total_cost:.2f}, "
-                f"requests: {self.requests_count})"
+                f"requests: {self.requests_count}, "
+                f"tokens: {input_tokens}in/{output_tokens}out)"
             )
 
     def reset_cycle_budget(self) -> None:
-        """Reset the per-cycle cost counter for this service's owner.
+        """Reset the per-cycle cost + token counters for this service's owner.
 
-        Call at the start of each BDI cycle. Uses the ``owner_id`` set at
-        construction time so that concurrent loops for different employees
-        do not interfere with each other's budget tracking.
+        Call at the start of each BDI cycle. Resets both the service-level
+        per-cycle counters (always) AND the router's per-owner budget (only
+        when routing is enabled). Cumulative totals (``total_cost``,
+        ``total_input_tokens``, ``total_output_tokens``, ``requests_count``)
+        are NOT reset — they accumulate across the service's lifetime.
         """
+        # Always reset service-level per-cycle counters, regardless of
+        # routing. These are what feed the cost panel's per-cycle metrics.
+        self._cycle_cost_usd = 0.0
+        self._cycle_input_tokens = 0
+        self._cycle_output_tokens = 0
+
         if self._router:
             self._router.reset_cycle_budget(self._owner_id)
 
     def get_cost_summary(self) -> dict[str, Any]:
         """
-        Get cost summary.
+        Get cost + token summary.
+
+        Returns a dict with both cumulative and per-cycle numbers. The
+        ``cycle_*`` fields are what feed the dashboard cost panel — they
+        work regardless of whether routing is enabled. The ``routing`` key
+        is only present when routing is active and exposes the router's
+        internal budget state (used for routing decisions, not cost UI).
 
         Returns:
-            Dictionary with cost statistics
+            Dictionary with cost + token statistics:
+            - total_cost: cumulative USD since service startup
+            - total_input_tokens, total_output_tokens: cumulative tokens
+            - requests_count: cumulative request count
+            - average_cost_per_request: total_cost / requests_count
+            - cycle_cost_usd: cost this BDI cycle (reset by reset_cycle_budget)
+            - cycle_input_tokens, cycle_output_tokens: tokens this cycle
+            - routing (optional): router budget state if routing enabled
         """
         summary: dict[str, Any] = {
             "total_cost": self.total_cost,
@@ -609,6 +654,11 @@ class LLMService:
             "average_cost_per_request": (
                 self.total_cost / self.requests_count if self.requests_count > 0 else 0.0
             ),
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "cycle_cost_usd": self._cycle_cost_usd,
+            "cycle_input_tokens": self._cycle_input_tokens,
+            "cycle_output_tokens": self._cycle_output_tokens,
         }
         if self._router:
             summary["routing"] = self._router.get_budget_state(self._owner_id)

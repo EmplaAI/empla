@@ -139,7 +139,7 @@ export function MCPServerCard({ server, onEdit, onViewTools }: MCPServerCardProp
           </Button>
           <DropdownMenu onOpenChange={(open) => { if (!open) setConfirmDelete(false); }}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label="More actions">
+              <Button variant="ghost" size="icon" aria-label="More actions">
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>

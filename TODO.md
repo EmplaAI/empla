@@ -98,6 +98,48 @@ Alternative directions also in the backlog:
 - Custom webhook setup wizards for providers beyond HubSpot/Calendar/Gmail
 - Developer experience docs — guides for creating custom employees
 
+### Testing gaps surfaced in PR #77 review (deferred)
+
+Specialist reviewers flagged these coverage improvements. Each is a small,
+self-contained addition — bundle them into a follow-up "test hardening" PR:
+
+- Per-owner LLM budget isolation test — `tests/unit/test_llm_router.py` has
+  no test that `record_cost("gemini-2.0-flash", usage, owner_id="emp-A")`
+  updates `_cycle_cost["emp-A"]` without affecting `_cycle_cost["emp-B"]`.
+  If owner_id is silently ignored in a future refactor (always writes
+  "default"), concurrent employees' budgets would cross-contaminate in
+  production. Related: `reset_cycle_budget("emp-A")` should NOT reset "emp-B".
+- Exception-swallowing branch test — `execution.py:946` `except Exception`
+  in `_record_cycle_metrics` swallows errors silently at `logger.debug` level.
+  No test covers this branch. If `record_cycle_metrics` starts raising
+  (schema mismatch, constraint violation), metrics silently stop persisting
+  again. Add test that patches `record_cycle_metrics` to raise, asserts
+  `_record_cycle_metrics` does not propagate and `_previous_tool_stats`
+  cache is NOT advanced.
+- Restore no-fallback cost tracking test case — `test_llm_service_coverage.py`
+  had a `test_no_fallback_model_config` test that was dropped during the
+  `_track_cost → _track_cost_for_model` rename. The "fallback not configured,
+  cost tracking still works for primary model" path is no longer covered.
+- `_previous_tool_stats` autouse fixture — module-global dict in
+  `empla/services/metrics.py` is not cleared between tests outside
+  `test_metrics_service.py`. Add an `autouse=True` fixture that clears
+  the dict to prevent future cross-test state leaks.
+- Stricter regression test locks for sessionmaker — the current
+  `test_record_cycle_metrics_ignores_sessionmaker_on_employee_row` test
+  covers the exact `getattr(self.employee, "_sessionmaker")` regression.
+  If a future refactor pulls sessionmaker from a third location (e.g.
+  `self.employee.owner._sessionmaker`), the test wouldn't catch it. Add a
+  positive assertion that `self._sessionmaker` is the SOLE source read.
+- goal_type edge case tests for `find_procedures_for_situation` —
+  `planning.py:723` uses `getattr(goal, "goal_type", "")`. No test verifies
+  the empty-string fallback or unicode goal_types, which are valid per the
+  "strings over enums for agent-facing interfaces" convention.
+- `size="sm"` usage audit — DESIGN.md says `sm` is for "dense non-touch
+  contexts" but `size="sm"` is used in non-dense primary actions
+  (`routes/integrations.tsx:87` "Add Server" CTA, stats-cards retry buttons,
+  settings.tsx "Manage Integrations" link). Either bump these to default
+  size OR relax the DESIGN.md language to match actual usage.
+
 ---
 
 ## Completed

@@ -581,6 +581,16 @@ class TestInitLoop:
         employee._memory = Mock()
         employee._llm = Mock()
         employee._session = AsyncMock()
+        # Sentinel sessionmaker — must be forwarded to ProactiveExecutionLoop.
+        # This test guards against the class of bug PR #77 fixed: the loop used
+        # to read sessionmaker via ``getattr(self.employee, "_sessionmaker", None)``
+        # where ``self.employee`` was the ORM row (not the DigitalEmployee),
+        # so the getattr always returned None and metrics silently no-op'd.
+        # If a future refactor drops the ``sessionmaker=`` kwarg from base.py,
+        # this assertion fails — production metrics would silently break again
+        # otherwise.
+        sentinel_sessionmaker = Mock(name="sentinel_sessionmaker")
+        employee._sessionmaker = sentinel_sessionmaker
 
         with (
             patch("empla.employees.base.ToolRegistry") as tr_cls,
@@ -594,6 +604,12 @@ class TestInitLoop:
             tr_cls.assert_called_once()
             router_cls.assert_called_once_with(tr_cls.return_value)
             loop_cls.assert_called_once()
+            # Verify sessionmaker was explicitly forwarded (regression guard for #77).
+            assert loop_cls.call_args.kwargs.get("sessionmaker") is sentinel_sessionmaker, (
+                "ProactiveExecutionLoop must receive sessionmaker via the explicit "
+                "sessionmaker= kwarg. If this fails, cycle metrics will silently "
+                "no-op in production. See PR #77."
+            )
             ar_cls.assert_called_once()
             assert employee._tool_registry == tr_cls.return_value
             assert employee._tool_router == router_cls.return_value

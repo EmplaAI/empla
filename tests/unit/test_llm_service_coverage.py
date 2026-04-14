@@ -5,7 +5,7 @@ Focuses on:
 - generate (primary success, fallback, no fallback raises)
 - generate_structured (primary success, fallback, no fallback raises)
 - generate_with_tools (primary success, fallback, NotImplementedError propagated, no fallback raises)
-- _track_cost
+- _track_cost_for_model
 - get_cost_summary
 - close
 - _validate_api_key
@@ -62,11 +62,16 @@ def _make_service(
     service.config = config
     service.total_cost = 0.0
     service.requests_count = 0
+    service.total_input_tokens = 0
+    service.total_output_tokens = 0
     # Attributes that would otherwise be set by __init__. We set them to
     # empty/None so internal methods that reference them don't AttributeError.
     service._router = None
     service._provider_pool = {}
     service._owner_id = "default"
+    service._cycle_cost_usd = 0.0
+    service._cycle_input_tokens = 0
+    service._cycle_output_tokens = 0
 
     # Mock primary
     service.primary = Mock()
@@ -226,7 +231,7 @@ class TestGenerateWithTools:
 
 
 # ============================================================================
-# _track_cost
+# _track_cost_for_model
 # ============================================================================
 
 

@@ -152,17 +152,31 @@ Modal dialogs for focused actions. Max width `max-w-2xl` for forms, `max-w-md` f
 
 ### Stats cards
 
-Use for top-of-page quantitative summaries. See `apps/dashboard/src/components/dashboard/stats-cards.tsx`.
+Use for top-of-page quantitative summaries. See `apps/dashboard/src/components/dashboard/stats-cards.tsx` for the production implementation.
+
+The real pattern uses `<Card>` with a monospace uppercase label, a display-font value, and a **status-tinted icon box** (`h-12 w-12 rounded-lg border`) anchored to the right. A `h-0.5` gradient decorative line runs along the bottom, colored to match the status.
 
 ```tsx
-<div className="rounded-lg border border-border/50 bg-card/80 p-4 backdrop-blur-sm">
-  <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-    LABEL
-  </p>
-  <p className="font-display text-3xl font-bold text-foreground">
-    {value}
-  </p>
-</div>
+<Card className="relative overflow-hidden border-border/50 bg-card/80 backdrop-blur-sm">
+  <CardContent className="p-4">
+    <div className="flex items-start justify-between">
+      <div className="space-y-1">
+        <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        <p className="font-display text-3xl font-bold tracking-tight">{value}</p>
+        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      </div>
+      {/* Status-tinted icon box — the color carries status meaning (running/active/paused/stopped).
+          This is the ONE sanctioned exception to anti-slop rule #3 below. */}
+      <div className="flex h-12 w-12 items-center justify-center rounded-lg border bg-status-running/10 border-status-running/30">
+        {icon}
+      </div>
+    </div>
+    {/* Decorative bottom line, gradient colored to match status */}
+    <div className="absolute bottom-0 left-0 h-0.5 w-full opacity-50 bg-gradient-to-r from-transparent via-status-running to-transparent" />
+  </CardContent>
+</Card>
 ```
 
 ### Empty states
@@ -229,7 +243,14 @@ Desktop-first is correct for an operator dashboard. Mobile and tablet must work 
 
 ## Accessibility
 
-**Touch targets:** Minimum 44×44px per WCAG 2.5.5. Enforced via `<Button>` primitive: `default` size is `h-11` (44px), `lg` is `h-12` (48px), `sm` is `h-9` (36px — use only in dense non-touch contexts).
+**Touch targets:** Minimum 44×44px per WCAG 2.5.5. Enforced across all interactive primitives AND call sites:
+- `<Button>`: `default` is `h-11` (44px), `lg` is `h-12` (48px), `icon` is `h-11 w-11`, `sm` is `h-9` (36px).
+- `<Input>`, `<SelectTrigger>`: `h-11` (44px).
+- `<Textarea>`: `min-h-[80px]` (effectively unbounded vertically).
+
+**`size="sm"` is reserved for inline tertiary controls only** — never for primary actions, pagination, destructive actions, or dropdown triggers that are the only way to access a menu. Every `sm` button should be reachable via another 44px+ control too. If you find yourself wanting `h-8 w-8` on an interactive button, that's a WCAG 2.5.5 violation — use `size="icon"` instead.
+
+**Non-interactive 32px elements are fine** (Avatar components, decorative icon boxes inside panels, Skeleton loading placeholders, status dots). WCAG 2.5.5 applies only to interactive controls.
 
 **Keyboard navigation:**
 - All interactive elements reachable via Tab in logical order
@@ -247,6 +268,8 @@ Desktop-first is correct for an operator dashboard. Mobile and tablet must work 
 
 **Motion sensitivity:** `prefers-reduced-motion` is honored via a global media query in `apps/dashboard/src/index.css` that disables all animation durations and transitions. See the bottom of `apps/dashboard/src/index.css`.
 
+This is the **one sanctioned exception** to the project's no-`!important` rule. The universal selector + `!important` combination is the canonical MDN/WebAIM pattern for overriding component-level animations when a user opts into reduced motion at the OS level. Do NOT use `!important` anywhere else.
+
 **Never rely on color alone.** Status always pairs color with text or icon.
 
 ---
@@ -257,7 +280,7 @@ Patterns that scream "AI-generated" and must be avoided:
 
 1. **Purple/violet/indigo gradient backgrounds.** empla is cyan.
 2. **3-column feature grids** with icon-in-colored-circle + bold title + 2-line description. This is the most recognizable AI layout. Never ship it.
-3. **Icons in colored circles as section decoration.** Use icons for function, not decoration.
+3. **Icons in colored circles as section decoration.** Use icons for function, not decoration. **Exception:** the status-tinted icon box pattern in `stats-cards.tsx` (`h-12 w-12 rounded-lg border bg-status-X/10`) is intentional — the color encodes *status meaning* (running/active/paused/stopped), not decoration. When the color carries semantic state, the pattern is allowed.
 4. **Centered everything.** Left-align text. Grid-align layouts.
 5. **Uniform bubbly border-radius on every element.** empla uses `0.5rem` consistently. No "fun" bloat.
 6. **Decorative blobs, floating circles, wavy SVG dividers.** If a section feels empty, add better content. Not decoration.

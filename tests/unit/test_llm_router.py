@@ -314,8 +314,8 @@ def test_record_cost_accumulates_cycle_budget():
     usage.input_tokens = 10_000
     usage.output_tokens = 500
     usage.total_tokens = 10_500
-    # Use real calculate_cost — pass the actual LLMModel
-
+    # Stub TokenUsage.calculate_cost to match its real formula. The router's
+    # record_cost() resolves the actual LLMModel internally via MODELS.get(model_key).
     usage.calculate_cost = lambda model: (
         (usage.input_tokens / 1_000_000) * model.input_cost_per_1m
         + (usage.output_tokens / 1_000_000) * model.output_cost_per_1m

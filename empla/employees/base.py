@@ -505,6 +505,27 @@ class DigitalEmployee(ABC):
         self._tool_registry = None
         self._tool_router = None
 
+        # Clear tool-stats cache so start→stop→start in the same process
+        # doesn't silently underreport tool deltas. The module-level
+        # _previous_tool_stats dict holds the last-seen cumulative counters
+        # per employee_id. On restart, fresh IntegrationHealthMonitor counters
+        # start at 0 — without this clear, the delta computation
+        # (max(0, current - prev)) would be clamped to 0 until new counters
+        # exceed the stale cached ones. Introduced alongside PR #77's
+        # sessionmaker fix: pre-PR the cache was never populated (silent
+        # no-op), but now that metrics persist, the stale-cache exposure is
+        # real.
+        try:
+            from empla.services.metrics import _previous_tool_stats
+
+            if self._employee_id is not None:
+                _previous_tool_stats.pop(self._employee_id, None)
+        except Exception as e:
+            logger.warning(
+                f"Failed to clear tool stats cache for {self.name}: {e}",
+                exc_info=True,
+            )
+
         # Mark as stopped
         self._is_running = False
 
@@ -838,10 +859,7 @@ class DigitalEmployee(ABC):
             hooks=self._hooks,
             tool_router=self._tool_router,
             identity=identity,
-            # Pass sessionmaker explicitly so cycle metrics can persist.
-            # Previously read via ``getattr(self.employee, "_sessionmaker", None)``
-            # which silently no-op'd because ``self.employee`` is the ORM row,
-            # not the DigitalEmployee instance.
+            # See ProactiveExecutionLoop.__init__ docstring for why this is explicit.
             sessionmaker=self._sessionmaker,
         )
 
