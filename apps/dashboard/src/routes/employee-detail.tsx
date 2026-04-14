@@ -321,7 +321,7 @@ export function EmployeeDetailPage() {
               <Tabs defaultValue="tools">
                 <TabsList className="w-full justify-start overflow-x-auto">
                   <TabsTrigger value="tools">Tools</TabsTrigger>
-                  <TabsTrigger value="trust">Trust</TabsTrigger>
+                  <TabsTrigger value="trust">Trust boundary</TabsTrigger>
                 </TabsList>
                 <TabsContent value="tools">
                   <ToolsPanel employeeId={employee.id} />

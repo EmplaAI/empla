@@ -1430,7 +1430,46 @@ export function createApiClient(config: ApiClientConfig) {
   // =========================================================================
 
   async function listTools(params: { employeeId: string }): Promise<ToolCatalogResponse> {
-    return await request<ToolCatalogResponse>(`/v1/employees/${params.employeeId}/tools`);
+    const response = await request<{
+      items: Array<{ name: string; description: string | null; integration: string | null }>;
+      total: number;
+      integrations: string[];
+      health?: Record<
+        string,
+        {
+          name: string;
+          status: string;
+          success_count: number;
+          failure_count: number;
+          timeout_count: number;
+          total_calls: number;
+          avg_latency_ms: number;
+          error_rate: number;
+          last_error: string | null;
+        }
+      >;
+    }>(`/v1/employees/${params.employeeId}/tools`);
+
+    const health: Record<string, IntegrationHealth> = {};
+    for (const [k, h] of Object.entries(response.health ?? {})) {
+      health[k] = {
+        name: h.name,
+        status: h.status,
+        successCount: h.success_count,
+        failureCount: h.failure_count,
+        timeoutCount: h.timeout_count,
+        totalCalls: h.total_calls,
+        avgLatencyMs: h.avg_latency_ms,
+        errorRate: h.error_rate,
+        lastError: h.last_error,
+      };
+    }
+    return {
+      items: response.items,
+      total: response.total,
+      integrations: response.integrations,
+      health,
+    };
   }
 
   async function getToolHealth(params: {

@@ -21,6 +21,10 @@ class ToolCatalogResponse(BaseModel):
     items: list[ToolCatalogItem]
     total: int
     integrations: list[str]
+    # Per-integration health embedded in the catalog response so the
+    # dashboard renders Tools without N+1 fan-out. Keyed by integration
+    # namespace (e.g. {"email": {...}, "crm": {...}}).
+    health: dict[str, "IntegrationHealthResponse"] = {}
 
 
 class IntegrationHealthResponse(BaseModel):
@@ -55,3 +59,7 @@ class BlockedToolsResponse(BaseModel):
     items: list[BlockedToolEntry]
     total: int
     stats: TrustCycleStats
+
+
+# Forward-ref resolution for the embedded health map.
+ToolCatalogResponse.model_rebuild()

@@ -11,6 +11,8 @@ employee subprocess reads it each cycle (pause-via-DB pattern).
 
 import asyncio
 import logging
+import os
+import secrets
 import signal
 import subprocess
 import sys
@@ -70,6 +72,11 @@ class EmployeeManager:
         # Subprocess tracking
         self._processes: dict[UUID, subprocess.Popen[bytes]] = {}
         self._health_ports: dict[UUID, int] = {}
+        # Per-employee shared secret used as the X-Runner-Token header on
+        # all non-/health requests to the runner subprocess. Generated at
+        # spawn time and passed via env var to the runner. /health stays
+        # unauthenticated so liveness probes work without a token.
+        self._health_tokens: dict[UUID, str] = {}
         self._tenant_ids: dict[UUID, UUID] = {}
         self._next_health_port: int = _HEALTH_PORT_BASE
 
@@ -114,6 +121,7 @@ class EmployeeManager:
                 # Process exited — clean up stale entry
                 self._processes.pop(employee_id, None)
                 self._health_ports.pop(employee_id, None)
+                self._health_tokens.pop(employee_id, None)
                 self._tenant_ids.pop(employee_id, None)
 
             # Fetch employee from database with tenant isolation
@@ -141,7 +149,13 @@ class EmployeeManager:
             health_port = self._next_health_port
             self._next_health_port += 1
 
-            # Spawn subprocess
+            # Generate per-runner shared secret for the X-Runner-Token header.
+            # 256 bits of entropy via secrets.token_urlsafe(32).
+            health_token = secrets.token_urlsafe(32)
+
+            # Spawn subprocess. Pass the token via env (not argv) so it
+            # doesn't show up in `ps`. Pass health port via argv so it's
+            # easy to grep.
             cmd = [
                 sys.executable,
                 "-m",
@@ -159,14 +173,17 @@ class EmployeeManager:
                 extra={"employee_id": str(employee_id), "health_port": health_port},
             )
 
+            spawn_env = {**os.environ, "EMPLA_RUNNER_TOKEN": health_token}
             proc = subprocess.Popen(  # noqa: ASYNC220 — intentionally blocking; Popen returns immediately
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=spawn_env,
             )
 
             self._processes[employee_id] = proc
             self._health_ports[employee_id] = health_port
+            self._health_tokens[employee_id] = health_token
             self._tenant_ids[employee_id] = tenant_id
             self._error_states.pop(employee_id, None)
 
@@ -194,6 +211,7 @@ class EmployeeManager:
                     pass  # Already exited
                 self._processes.pop(employee_id, None)
                 self._health_ports.pop(employee_id, None)
+                self._health_tokens.pop(employee_id, None)
                 self._tenant_ids.pop(employee_id, None)
                 raise
 
@@ -266,6 +284,7 @@ class EmployeeManager:
             # Clean up
             self._processes.pop(employee_id, None)
             self._health_ports.pop(employee_id, None)
+            self._health_tokens.pop(employee_id, None)
             self._tenant_ids.pop(employee_id, None)
             self._error_states.pop(employee_id, None)
 
@@ -382,6 +401,7 @@ class EmployeeManager:
             self._error_states[employee_id] = f"Process exited with code {returncode}"
         self._processes.pop(employee_id, None)
         self._health_ports.pop(employee_id, None)
+        self._health_tokens.pop(employee_id, None)
         self._tenant_ids.pop(employee_id, None)
 
     def get_status(self, employee_id: UUID) -> dict[str, Any]:
@@ -482,11 +502,14 @@ class EmployeeManager:
             )
             return False
 
+        token = self._health_tokens.get(employee_id)
+        headers = {"X-Runner-Token": token} if token else {}
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
                     f"http://127.0.0.1:{port}/wake",
                     json=event,
+                    headers=headers,
                     timeout=5.0,
                 )
                 if resp.status_code == 200:
@@ -538,6 +561,15 @@ class EmployeeManager:
     def get_health_port(self, employee_id: UUID) -> int | None:
         """Get the health check port for a running employee."""
         return self._health_ports.get(employee_id)
+
+    def get_health_token(self, employee_id: UUID) -> str | None:
+        """Get the X-Runner-Token shared secret for a running employee.
+
+        Returned to API proxies that need to call non-/health endpoints on
+        the runner subprocess. Returns None if the employee is not tracked
+        (process never spawned, already cleaned up).
+        """
+        return self._health_tokens.get(employee_id)
 
     async def stop_all(self, session: AsyncSession | None = None) -> dict[str, list[UUID]]:
         """

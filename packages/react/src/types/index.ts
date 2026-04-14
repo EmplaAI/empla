@@ -184,6 +184,12 @@ export interface ToolCatalogResponse {
   items: ToolCatalogItem[];
   total: number;
   integrations: string[];
+  /**
+   * Per-integration health embedded in the catalog response so the dashboard
+   * renders Tools without firing N additional health requests. Keyed by
+   * integration namespace ("email", "crm", etc.).
+   */
+  health: Record<string, IntegrationHealth>;
 }
 
 export interface IntegrationHealth {

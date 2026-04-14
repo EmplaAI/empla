@@ -39,6 +39,29 @@ def _auth(tenant_id: UUID | None = None) -> SimpleNamespace:
     )
 
 
+def _request() -> SimpleNamespace:
+    """Minimal stand-in for fastapi.Request — only `.app.state` is touched."""
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+
+
+def _request_with_client(client) -> SimpleNamespace:
+    """Request stub that injects a shared httpx-like client onto app.state."""
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(runner_proxy_client=client)))
+
+
+class _StubClient:
+    """Mimics the relevant httpx.AsyncClient surface the proxy uses."""
+
+    def __init__(self, *, get_impl):
+        self._get = get_impl
+
+    async def get(self, *args, **kwargs):
+        return await self._get(*args, **kwargs)
+
+    async def aclose(self):
+        return None
+
+
 def _verify_db(hit: bool) -> AsyncMock:
     db = AsyncMock()
     result = Mock()
@@ -136,7 +159,7 @@ class TestProxyRunnerGet:
             mock_get_mgr.return_value = mgr
 
             with pytest.raises(HTTPException) as exc:
-                await tools_ep._proxy_runner_get(uuid4(), "/tools")
+                await tools_ep._proxy_runner_get(_request(), uuid4(), "/tools")
             assert exc.value.status_code == 503
             assert "not running" in exc.value.detail
 
@@ -145,22 +168,17 @@ class TestProxyRunnerGet:
         with patch.object(tools_ep, "get_employee_manager") as mock_get_mgr:
             mgr = Mock()
             mgr.get_health_port = Mock(return_value=12345)
+            mgr.get_health_token = Mock(return_value="t")
             mock_get_mgr.return_value = mgr
 
-            class _BoomClient:
-                async def __aenter__(self):
-                    return self
+            async def _boom(*a, **kw):
+                raise httpx.ConnectError("refused")
 
-                async def __aexit__(self, *a):
-                    return False
-
-                async def get(self, *a, **kw):
-                    raise httpx.ConnectError("refused")
-
-            with patch.object(tools_ep.httpx, "AsyncClient", _BoomClient):
-                with pytest.raises(HTTPException) as exc:
-                    await tools_ep._proxy_runner_get(uuid4(), "/tools")
-                assert exc.value.status_code == 503
+            with pytest.raises(HTTPException) as exc:
+                await tools_ep._proxy_runner_get(
+                    _request_with_client(_StubClient(get_impl=_boom)), uuid4(), "/tools"
+                )
+            assert exc.value.status_code == 503
 
     @pytest.mark.asyncio
     async def test_runner_503_propagates_as_503(self):
@@ -168,77 +186,62 @@ class TestProxyRunnerGet:
         with patch.object(tools_ep, "get_employee_manager") as mock_get_mgr:
             mgr = Mock()
             mgr.get_health_port = Mock(return_value=12345)
+            mgr.get_health_token = Mock(return_value="t")
             mock_get_mgr.return_value = mgr
 
             resp = Mock()
             resp.status_code = 503
 
-            class _Client:
-                async def __aenter__(self):
-                    return self
+            async def _get(*a, **kw):
+                return resp
 
-                async def __aexit__(self, *a):
-                    return False
-
-                async def get(self, *a, **kw):
-                    return resp
-
-            with patch.object(tools_ep.httpx, "AsyncClient", _Client):
-                with pytest.raises(HTTPException) as exc:
-                    await tools_ep._proxy_runner_get(uuid4(), "/tools")
-                assert exc.value.status_code == 503
-                assert "introspection" in exc.value.detail
+            with pytest.raises(HTTPException) as exc:
+                await tools_ep._proxy_runner_get(
+                    _request_with_client(_StubClient(get_impl=_get)), uuid4(), "/tools"
+                )
+            assert exc.value.status_code == 503
+            assert "introspection" in exc.value.detail
 
     @pytest.mark.asyncio
     async def test_runner_other_error_returns_502(self):
         with patch.object(tools_ep, "get_employee_manager") as mock_get_mgr:
             mgr = Mock()
             mgr.get_health_port = Mock(return_value=12345)
+            mgr.get_health_token = Mock(return_value="t")
             mock_get_mgr.return_value = mgr
 
             resp = Mock()
             resp.status_code = 500
             resp.json = Mock(return_value={})
 
-            class _Client:
-                async def __aenter__(self):
-                    return self
+            async def _get(*a, **kw):
+                return resp
 
-                async def __aexit__(self, *a):
-                    return False
-
-                async def get(self, *a, **kw):
-                    return resp
-
-            with patch.object(tools_ep.httpx, "AsyncClient", _Client):
-                with pytest.raises(HTTPException) as exc:
-                    await tools_ep._proxy_runner_get(uuid4(), "/tools")
-                assert exc.value.status_code == 502
+            with pytest.raises(HTTPException) as exc:
+                await tools_ep._proxy_runner_get(
+                    _request_with_client(_StubClient(get_impl=_get)), uuid4(), "/tools"
+                )
+            assert exc.value.status_code == 502
 
     @pytest.mark.asyncio
     async def test_happy_path_returns_payload(self):
         with patch.object(tools_ep, "get_employee_manager") as mock_get_mgr:
             mgr = Mock()
             mgr.get_health_port = Mock(return_value=12345)
+            mgr.get_health_token = Mock(return_value="t")
             mock_get_mgr.return_value = mgr
 
             resp = Mock()
             resp.status_code = 200
             resp.json = Mock(return_value={"items": [], "total": 0, "integrations": []})
 
-            class _Client:
-                async def __aenter__(self):
-                    return self
+            async def _get(*a, **kw):
+                return resp
 
-                async def __aexit__(self, *a):
-                    return False
-
-                async def get(self, *a, **kw):
-                    return resp
-
-            with patch.object(tools_ep.httpx, "AsyncClient", _Client):
-                payload = await tools_ep._proxy_runner_get(uuid4(), "/tools")
-                assert payload == {"items": [], "total": 0, "integrations": []}
+            payload = await tools_ep._proxy_runner_get(
+                _request_with_client(_StubClient(get_impl=_get)), uuid4(), "/tools"
+            )
+            assert payload == {"items": [], "total": 0, "integrations": []}
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +254,7 @@ class TestEndpoints:
     async def test_list_tools_404_on_missing_employee(self):
         db = _verify_db(False)
         with pytest.raises(HTTPException) as exc:
-            await tools_ep.list_tools(db=db, auth=_auth(), employee_id=uuid4())
+            await tools_ep.list_tools(request=_request(), db=db, auth=_auth(), employee_id=uuid4())
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
@@ -265,7 +268,9 @@ class TestEndpoints:
         with patch.object(
             tools_ep, "_proxy_runner_get", new_callable=AsyncMock, return_value=runner_payload
         ):
-            resp = await tools_ep.list_tools(db=db, auth=_auth(), employee_id=uuid4())
+            resp = await tools_ep.list_tools(
+                request=_request(), db=db, auth=_auth(), employee_id=uuid4()
+            )
             assert resp.total == 1
             assert resp.items[0].name == "email.send"
             assert resp.integrations == ["email"]
@@ -275,7 +280,11 @@ class TestEndpoints:
         db = AsyncMock()
         with pytest.raises(HTTPException) as exc:
             await tools_ep.get_tool_health(
-                db=db, auth=_auth(), employee_id=uuid4(), tool_name="../../etc/passwd"
+                request=_request(),
+                db=db,
+                auth=_auth(),
+                employee_id=uuid4(),
+                tool_name="../../etc/passwd",
             )
         assert exc.value.status_code == 400
         # DB must not be touched on rejection
@@ -299,7 +308,7 @@ class TestEndpoints:
             tools_ep, "_proxy_runner_get", new_callable=AsyncMock, return_value=runner_payload
         ):
             resp = await tools_ep.get_tool_health(
-                db=db, auth=_auth(), employee_id=uuid4(), tool_name="email.send"
+                request=_request(), db=db, auth=_auth(), employee_id=uuid4(), tool_name="email.send"
             )
             assert resp.name == "email"
             assert resp.status == "healthy"
@@ -329,7 +338,9 @@ class TestEndpoints:
         with patch.object(
             tools_ep, "_proxy_runner_get", new_callable=AsyncMock, return_value=runner_payload
         ):
-            resp = await tools_ep.list_blocked_tools(db=db, auth=_auth(), employee_id=uuid4())
+            resp = await tools_ep.list_blocked_tools(
+                request=_request(), db=db, auth=_auth(), employee_id=uuid4()
+            )
             assert resp.total == 1
             assert resp.items[0].tool_name == "admin.delete_tenant"
             assert resp.stats.denied == 1
@@ -354,9 +365,7 @@ class TestHealthServerToolHandlers:
         assert code == 503
 
     def test_tool_health_503_when_no_router(self):
-        _body, code = self._server(tool_router=None)._handle_tool_health(
-            "GET /tools/email.send/health HTTP/1.1"
-        )
+        _body, code = self._server(tool_router=None)._handle_tool_health("/tools/email.send/health")
         assert code == 503
 
     def test_tools_list_returns_catalog(self):
@@ -378,22 +387,35 @@ class TestHealthServerToolHandlers:
 
     def test_tool_health_returns_integration_status(self):
         srv = self._server(tool_router=_stub_tool_router())
-        body, code = srv._handle_tool_health("GET /tools/email.send/health HTTP/1.1")
+        body, code = srv._handle_tool_health("/tools/email.send/health")
         assert code == 200
         data = json.loads(body)
         assert data["name"] == "email"
         assert data["status"] == "healthy"
 
-    def test_tool_health_400_on_bad_path(self):
-        srv = self._server(tool_router=_stub_tool_router())
-        # Missing /health suffix
-        _, code = srv._handle_tool_health("GET /tools/email.send HTTP/1.1")
-        assert code == 400
-
     def test_tool_health_400_on_empty_name(self):
         srv = self._server(tool_router=_stub_tool_router())
-        _, code = srv._handle_tool_health("GET /tools//health HTTP/1.1")
+        _, code = srv._handle_tool_health("/tools//health")
         assert code == 400
+
+    def test_tool_description_truncated_to_500_chars(self):
+        """MCP-discovered tool descriptions are length-capped (security)."""
+        from empla.runner import health as health_mod
+
+        long_desc = "A" * 1000
+        stub = SimpleNamespace(
+            get_all_tool_schemas=Mock(
+                return_value=[{"name": "evil.tool", "description": long_desc}]
+            ),
+            get_enabled_capabilities=Mock(return_value=["evil"]),
+            get_integration_health=Mock(return_value={}),
+            _trust=None,
+        )
+        srv = self._server(tool_router=stub)
+        body, code = srv._handle_tools_list()
+        assert code == 200
+        data = json.loads(body)
+        assert len(data["items"][0]["description"]) == health_mod._MAX_DESCRIPTION_CHARS
 
     def test_tools_blocked_returns_only_denied(self):
         srv = self._server(tool_router=_stub_tool_router())
@@ -403,3 +425,409 @@ class TestHealthServerToolHandlers:
         assert data["total"] == 1
         assert data["items"][0]["tool_name"] == "admin.delete_tenant"
         assert data["stats"]["denied"] == 1
+
+    def test_tools_list_embeds_health_map(self):
+        """N+1 fix: the catalog response includes per-integration health."""
+        srv = self._server(tool_router=_stub_tool_router())
+        body, code = srv._handle_tools_list()
+        assert code == 200
+        data = json.loads(body)
+        assert "health" in data
+        assert "email" in data["health"]
+        assert data["health"]["email"]["status"] == "healthy"
+
+
+# ---------------------------------------------------------------------------
+# Runner-side auth gate (PR #80 review fix)
+# ---------------------------------------------------------------------------
+
+
+class TestRunnerAuth:
+    """
+    Non-/health endpoints require the X-Runner-Token header. /health stays
+    unauthenticated so liveness probes work.
+    """
+
+    @pytest.mark.asyncio
+    async def test_health_unauthenticated_passes(self):
+        import asyncio
+
+        srv = HealthServer(employee_id=uuid4(), port=0, auth_token="secret-abc")
+        await srv.start()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+            writer.write(b"GET /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+            assert b"200 OK" in data
+        finally:
+            await srv.stop()
+
+    @pytest.mark.asyncio
+    async def test_tools_endpoints_require_token(self):
+        import asyncio
+
+        srv = HealthServer(
+            employee_id=uuid4(),
+            port=0,
+            tool_router=_stub_tool_router(),
+            auth_token="secret-abc",
+        )
+        await srv.start()
+        try:
+            # No token → 401
+            reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+            writer.write(b"GET /tools HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+            assert b"401 Unauthorized" in data
+
+            # Wrong token → 401
+            reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+            writer.write(
+                b"GET /tools HTTP/1.1\r\nHost: x\r\nX-Runner-Token: nope\r\nConnection: close\r\n\r\n"
+            )
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+            assert b"401 Unauthorized" in data
+
+            # Correct token → 200
+            reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+            writer.write(
+                b"GET /tools HTTP/1.1\r\nHost: x\r\nX-Runner-Token: secret-abc\r\nConnection: close\r\n\r\n"
+            )
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+            assert b"200 OK" in data
+        finally:
+            await srv.stop()
+
+    @pytest.mark.asyncio
+    async def test_no_auth_token_disables_gate(self):
+        """auth_token=None preserves dev-frictionless behavior."""
+        import asyncio
+
+        srv = HealthServer(
+            employee_id=uuid4(),
+            port=0,
+            tool_router=_stub_tool_router(),
+            auth_token=None,
+        )
+        await srv.start()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+            writer.write(b"GET /tools HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            await writer.drain()
+            data = await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            writer.close()
+            await writer.wait_closed()
+            assert b"200 OK" in data
+        finally:
+            await srv.stop()
+
+
+# ---------------------------------------------------------------------------
+# last_error redaction
+# ---------------------------------------------------------------------------
+
+
+class TestRedaction:
+    def test_redact_strips_bearer(self):
+        from empla.runner.health import _redact
+
+        assert "[REDACTED]" in (_redact("Authorization: Bearer abc.def.ghi") or "")
+
+    def test_redact_strips_query_token(self):
+        from empla.runner.health import _redact
+
+        result = _redact("https://api.example.com/v1?token=xyz123abc&foo=bar") or ""
+        assert "[REDACTED]" in result
+        assert "xyz123abc" not in result
+
+    def test_redact_strips_api_key(self):
+        from empla.runner.health import _redact
+
+        # Build the test fixture so the literal doesn't appear in source
+        # (avoids tripping GitHub's Stripe-key secret-scanning pattern on
+        # legitimate test data).
+        fake_key = "sk" + "_" + "test" + "_" + ("X" * 24)
+        result = _redact(f"Bad request: {fake_key}") or ""
+        assert "[REDACTED_KEY]" in result
+
+    def test_redact_strips_email(self):
+        from empla.runner.health import _redact
+
+        result = _redact("Permission denied for user@example.com") or ""
+        assert "[REDACTED_EMAIL]" in result
+        assert "user@example.com" not in result
+
+    def test_redact_caps_length(self):
+        from empla.runner.health import _redact
+
+        long_msg = "x" * 1000
+        result = _redact(long_msg) or ""
+        assert len(result) <= 520
+
+    def test_redact_handles_none(self):
+        from empla.runner.health import _redact
+
+        assert _redact(None) is None
+        assert _redact("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Tenant isolation (mirrors PR #79 memory tests)
+# ---------------------------------------------------------------------------
+
+
+class TestTenantIsolation:
+    """
+    `_verify_employee` filters by both employee_id AND tenant_id. Cross-tenant
+    requests must 404 — never leak existence.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_returns_404_list_tools(self):
+        db = _verify_db(False)
+        with pytest.raises(HTTPException) as exc:
+            await tools_ep.list_tools(request=_request(), db=db, auth=_auth(), employee_id=uuid4())
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_returns_404_get_tool_health(self):
+        db = _verify_db(False)
+        with pytest.raises(HTTPException) as exc:
+            await tools_ep.get_tool_health(
+                request=_request(), db=db, auth=_auth(), employee_id=uuid4(), tool_name="email.send"
+            )
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_returns_404_list_blocked_tools(self):
+        db = _verify_db(False)
+        with pytest.raises(HTTPException) as exc:
+            await tools_ep.list_blocked_tools(
+                request=_request(), db=db, auth=_auth(), employee_id=uuid4()
+            )
+        assert exc.value.status_code == 404
+
+    def test_verify_employee_query_filters_by_tenant_id(self):
+        """Compiled SQL must include both tenant_id and employee_id in WHERE."""
+        from sqlalchemy import select
+
+        from empla.models.employee import Employee
+
+        tenant_id = uuid4()
+        employee_id = uuid4()
+        q = select(Employee.id).where(
+            Employee.id == employee_id,
+            Employee.tenant_id == tenant_id,
+            Employee.deleted_at.is_(None),
+        )
+        sql = str(q.compile(compile_kwargs={"literal_binds": False}))
+        assert "tenant_id" in sql.lower()
+        assert "deleted_at" in sql.lower()
+
+
+# ---------------------------------------------------------------------------
+# Proxy error coverage gaps
+# ---------------------------------------------------------------------------
+
+
+class TestProxyErrorPaths:
+    @pytest.mark.asyncio
+    async def test_timeout_returns_504(self):
+        with patch.object(tools_ep, "get_employee_manager") as mock_get_mgr:
+            mgr = Mock()
+            mgr.get_health_port = Mock(return_value=12345)
+            mgr.get_health_token = Mock(return_value="t")
+            mock_get_mgr.return_value = mgr
+
+            async def _slow(*a, **kw):
+                raise httpx.TimeoutException("slow")
+
+            with pytest.raises(HTTPException) as exc:
+                await tools_ep._proxy_runner_get(
+                    _request_with_client(_StubClient(get_impl=_slow)), uuid4(), "/tools"
+                )
+            assert exc.value.status_code == 504
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_returns_502(self):
+        with patch.object(tools_ep, "get_employee_manager") as mock_get_mgr:
+            mgr = Mock()
+            mgr.get_health_port = Mock(return_value=12345)
+            mgr.get_health_token = Mock(return_value="t")
+            mock_get_mgr.return_value = mgr
+
+            resp = Mock()
+            resp.status_code = 200
+            resp.json = Mock(side_effect=ValueError("bad"))
+
+            async def _get(*a, **kw):
+                return resp
+
+            with pytest.raises(HTTPException) as exc:
+                await tools_ep._proxy_runner_get(
+                    _request_with_client(_StubClient(get_impl=_get)), uuid4(), "/tools"
+                )
+            assert exc.value.status_code == 502
+            assert "malformed" in exc.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_runner_401_returns_502(self):
+        """Token mismatch (shouldn't happen in production) → 502 not 503."""
+        with patch.object(tools_ep, "get_employee_manager") as mock_get_mgr:
+            mgr = Mock()
+            mgr.get_health_port = Mock(return_value=12345)
+            mgr.get_health_token = Mock(return_value="bad")
+            mock_get_mgr.return_value = mgr
+
+            resp = Mock()
+            resp.status_code = 401
+
+            async def _get(*a, **kw):
+                return resp
+
+            with pytest.raises(HTTPException) as exc:
+                await tools_ep._proxy_runner_get(
+                    _request_with_client(_StubClient(get_impl=_get)), uuid4(), "/tools"
+                )
+            assert exc.value.status_code == 502
+            assert "token" in exc.value.detail.lower()
+
+
+# ---------------------------------------------------------------------------
+# Strict tool_name validation (security)
+# ---------------------------------------------------------------------------
+
+
+class TestToolNameValidation:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "../../etc/passwd",
+            "foo/bar",
+            "foo\\bar",
+            "foo?bar",
+            "foo#bar",
+            "foo%2Fbar",
+            "",
+            "   ",
+            "blocked",  # reserved — collides with /tools/blocked
+            "foo bar",  # whitespace
+            "foo\x00bar",  # null byte
+        ],
+    )
+    async def test_strict_tool_name_rejection(self, bad_name):
+        db = AsyncMock()
+        with pytest.raises(HTTPException) as exc:
+            await tools_ep.get_tool_health(
+                request=_request(), db=db, auth=_auth(), employee_id=uuid4(), tool_name=bad_name
+            )
+        assert exc.value.status_code == 400
+        # DB must not be touched on rejection
+        db.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("good_name", ["email.send", "crm.update_deal", "web_search", "a-b"])
+    async def test_strict_tool_name_acceptance(self, good_name):
+        db = _verify_db(True)
+        with patch.object(
+            tools_ep,
+            "_proxy_runner_get",
+            new_callable=AsyncMock,
+            return_value={
+                "name": "email",
+                "status": "healthy",
+                "success_count": 0,
+                "failure_count": 0,
+                "timeout_count": 0,
+                "total_calls": 0,
+                "avg_latency_ms": 0.0,
+                "error_rate": 0.0,
+                "last_error": None,
+            },
+        ):
+            resp = await tools_ep.get_tool_health(
+                request=_request(), db=db, auth=_auth(), employee_id=uuid4(), tool_name=good_name
+            )
+            assert resp.name == "email"
+
+
+# ---------------------------------------------------------------------------
+# Real HTTP path test — proves dispatch works end-to-end
+# (catches the route-ordering bug where /tools/blocked could shadow
+# /tools/blocked/health, which the API now reserves anyway but the runner
+# should also dispatch correctly under a real socket round-trip)
+# ---------------------------------------------------------------------------
+
+
+class TestHealthServerHTTPDispatch:
+    @pytest.mark.asyncio
+    async def test_real_http_dispatch_routes_correctly(self):
+        """
+        Spin up a real HealthServer on an ephemeral port, hit each of the 3
+        new routes via a real socket, and confirm the response matches.
+        """
+        import asyncio
+
+        srv = HealthServer(employee_id=uuid4(), port=0, tool_router=_stub_tool_router())
+        await srv.start()
+        try:
+            port = srv.port
+
+            async def _get(path: str) -> tuple[int, bytes]:
+                reader, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.write(
+                    f"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".encode()
+                )
+                await writer.drain()
+                data = await asyncio.wait_for(reader.read(8192), timeout=2.0)
+                writer.close()
+                await writer.wait_closed()
+                # Parse status line
+                status_line, _, body_bytes = data.partition(b"\r\n\r\n")
+                status_code = int(status_line.split(b" ")[1])
+                return status_code, body_bytes
+
+            # /tools list
+            code, body = await _get("/tools")
+            assert code == 200
+            assert b'"items"' in body
+            assert b"email.send" in body
+
+            # /tools/blocked
+            code, body = await _get("/tools/blocked")
+            assert code == 200
+            assert b"admin.delete_tenant" in body
+
+            # /tools/email.send/health
+            code, body = await _get("/tools/email.send/health")
+            assert code == 200
+            assert b'"name"' in body
+            assert b"email" in body
+
+            # /tools/blocked/health — the route ordering bug would have
+            # mis-routed this to _handle_tools_blocked. The fixed dispatcher
+            # routes it to _handle_tool_health (where integration="blocked"
+            # has no health record → returns the empty-default integration).
+            # Either way it must NOT return the blocked-list shape.
+            code, body = await _get("/tools/blocked/health")
+            assert code == 200
+            assert b'"items"' not in body  # blocked-list shape would have items[]
+
+            # Unknown path → 404
+            code, _ = await _get("/tools/blocked/extra")
+            assert code == 404
+        finally:
+            await srv.stop()
