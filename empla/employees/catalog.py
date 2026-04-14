@@ -42,6 +42,15 @@ class RoleDefinition(BaseModel):
     title: str = Field(..., min_length=1, description="Human-readable title")
     description: str = Field(..., min_length=1, description="LLM-facing role description")
     short_description: str = Field(..., min_length=1, description="Brief UI label")
+    focus_keyword: str = Field(
+        default="",
+        description=(
+            "Short keyword describing what this role focuses on, e.g. "
+            "'pipeline_building' for sales_ae, 'customer_success' for csm. "
+            "Used in the initial 'role' belief on employee start. If empty, "
+            "the role code is used as the focus."
+        ),
+    )
     personality: Personality = Field(
         default_factory=Personality, description="Default personality profile"
     )
@@ -61,6 +70,7 @@ ROLE_CATALOG: dict[str, RoleDefinition] = {
         title="Sales Account Executive",
         description="You build and manage sales pipeline, prospect new accounts, and close revenue.",
         short_description="Account Executive for sales",
+        focus_keyword="pipeline_building",
         personality=Personality(
             openness=0.7,
             conscientiousness=0.8,
@@ -109,6 +119,7 @@ ROLE_CATALOG: dict[str, RoleDefinition] = {
         title="Customer Success Manager",
         description="You ensure customer success through onboarding, health monitoring, and retention.",
         short_description="Customer relationship manager",
+        focus_keyword="customer_success",
         personality=Personality(
             openness=0.6,
             conscientiousness=0.9,
@@ -157,6 +168,7 @@ ROLE_CATALOG: dict[str, RoleDefinition] = {
         title="Product Manager",
         description="You drive product strategy, prioritize features, and ship high-impact releases.",
         short_description="Product development lead",
+        focus_keyword="product_delivery",
         personality=Personality(
             openness=0.8,
             conscientiousness=0.8,
@@ -199,18 +211,98 @@ ROLE_CATALOG: dict[str, RoleDefinition] = {
         title="Sales Development Representative",
         description="You generate qualified leads through outbound prospecting and inbound qualification.",
         short_description="Lead generation specialist",
-        personality=Personality(),
-        default_goals=[],
-        default_capabilities=["email"],
+        focus_keyword="lead_qualification",
+        personality=Personality(
+            openness=0.7,
+            conscientiousness=0.75,
+            extraversion=0.85,
+            agreeableness=0.6,
+            neuroticism=0.25,
+            communication=CommunicationStyle(
+                tone=Tone.ENTHUSIASTIC,
+                formality=Formality.PROFESSIONAL_CASUAL,
+                verbosity=Verbosity.CONCISE,
+            ),
+            decision_style=DecisionStyle(
+                risk_tolerance=0.6,
+                decision_speed=0.8,
+                data_vs_intuition=0.5,
+                collaborative=0.4,
+            ),
+            proactivity=0.95,
+            persistence=0.9,
+            attention_to_detail=0.6,
+        ),
+        default_goals=[
+            GoalConfig(
+                description="Book 10 qualified meetings per week",
+                goal_type="achievement",
+                priority=9,
+                target={"metric": "qualified_meetings", "value": 10, "period": "week"},
+            ),
+            GoalConfig(
+                description="Maintain 100+ outbound touches per week",
+                goal_type="maintenance",
+                priority=8,
+                target={"metric": "outbound_touches", "value": 100, "period": "week"},
+            ),
+            GoalConfig(
+                description="Respond to inbound leads within 2 hours",
+                goal_type="maintenance",
+                priority=8,
+                target={"metric": "inbound_response_hours", "value": 2},
+            ),
+        ],
+        default_capabilities=["email", "calendar", "crm"],
     ),
     "recruiter": RoleDefinition(
         code="recruiter",
         title="Recruiter",
         description="You source, screen, and hire top talent to build high-performing teams.",
         short_description="Talent acquisition",
-        personality=Personality(),
-        default_goals=[],
-        default_capabilities=["email"],
+        focus_keyword="talent_acquisition",
+        personality=Personality(
+            openness=0.8,
+            conscientiousness=0.85,
+            extraversion=0.75,
+            agreeableness=0.85,
+            neuroticism=0.3,
+            communication=CommunicationStyle(
+                tone=Tone.SUPPORTIVE,
+                formality=Formality.PROFESSIONAL,
+                verbosity=Verbosity.BALANCED,
+            ),
+            decision_style=DecisionStyle(
+                risk_tolerance=0.5,
+                decision_speed=0.5,
+                data_vs_intuition=0.6,
+                collaborative=0.8,
+            ),
+            proactivity=0.85,
+            persistence=0.85,
+            attention_to_detail=0.85,
+        ),
+        default_goals=[
+            GoalConfig(
+                description="Fill open requisitions within 30 days",
+                goal_type="achievement",
+                priority=9,
+                target={"metric": "time_to_fill_days", "value": 30},
+            ),
+            GoalConfig(
+                description="Maintain pipeline of 15+ qualified candidates per role",
+                goal_type="maintenance",
+                priority=8,
+                target={"metric": "candidates_per_role", "value": 15},
+            ),
+            GoalConfig(
+                description="Achieve 60% candidate satisfaction score",
+                goal_type="achievement",
+                priority=7,
+                target={"metric": "candidate_satisfaction", "value": 0.60},
+            ),
+        ],
+        default_capabilities=["email", "calendar"],
     ),
 }
 

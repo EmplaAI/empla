@@ -5,35 +5,27 @@ A proactive customer success professional focused on retention and growth.
 
 Example:
     >>> from empla.employees import CustomerSuccessManager
-    >>> from empla.employees.config import EmployeeConfig, EmployeeRole
+    >>> from empla.employees.config import EmployeeConfig
     >>>
     >>> config = EmployeeConfig(
     ...     name="Sarah Mitchell",
-    ...     role=EmployeeRole.CSM,
+    ...     role="csm",
     ...     email="sarah@company.com"
     ... )
     >>> employee = CustomerSuccessManager(config)
     >>> await employee.start()
 """
 
-import copy
 import logging
 from typing import Any
 
-from empla.employees.base import DigitalEmployee
-from empla.employees.catalog import get_role
-from empla.employees.config import GoalConfig
-from empla.employees.exceptions import EmployeeStartupError, LLMGenerationError
-from empla.employees.personality import Personality
-
-_ROLE = get_role("csm")
-if _ROLE is None:
-    raise RuntimeError("csm role missing from ROLE_CATALOG")
+from empla.employees.catalog_backed import CatalogBackedEmployee
+from empla.employees.exceptions import LLMGenerationError
 
 logger = logging.getLogger(__name__)
 
 
-class CustomerSuccessManager(DigitalEmployee):
+class CustomerSuccessManager(CatalogBackedEmployee):
     """
     Customer Success Manager Digital Employee.
 
@@ -44,103 +36,18 @@ class CustomerSuccessManager(DigitalEmployee):
     - **Retention**: Prevents churn through proactive intervention
     - **Expansion**: Identifies upsell opportunities
 
-    Personality:
-    - Highly agreeable and supportive
-    - Detail-oriented and organized
-    - Calm under pressure
-    - Data-driven decision maker
-
-    Default Goals:
-    - Maintain 95% customer retention (priority 10)
-    - Achieve NPS score above 50 (priority 8)
-    - Complete onboarding within 5 days (priority 7)
-
-    Default Capabilities:
-    - Email (customer communication)
-    - Calendar (QBR scheduling, check-ins)
-    - CRM (health tracking, activity logging)
+    Personality, goals, and capabilities come from ``ROLE_CATALOG['csm']``.
 
     Example:
         >>> employee = CustomerSuccessManager(EmployeeConfig(
         ...     name="Sarah Mitchell",
-        ...     role=EmployeeRole.CSM,
+        ...     role="csm",
         ...     email="sarah@acme.com"
         ... ))
         >>> await employee.start()
     """
 
-    @property
-    def default_personality(self) -> Personality:
-        """CSM personality profile."""
-        return copy.deepcopy(_ROLE.personality)
-
-    @property
-    def default_goals(self) -> list[GoalConfig]:
-        """Default goals for CSM."""
-        return list(_ROLE.default_goals)
-
-    @property
-    def default_capabilities(self) -> list[str]:
-        """Default capabilities for CSM."""
-        return list(_ROLE.default_capabilities)
-
-    async def on_start(self) -> None:
-        """
-        Custom initialization for CSM.
-
-        Sets up initial beliefs about the role and records start in episodic memory.
-
-        Raises:
-            EmployeeStartupError: If initialization fails
-        """
-        logger.info(f"CSM {self.name} initializing...")
-
-        # Add initial beliefs about the role
-        try:
-            await self.beliefs.update_belief(
-                subject="self",
-                predicate="role",
-                belief_object={"type": "csm", "focus": "customer_success"},
-                confidence=1.0,
-                source="prior",  # Prior knowledge about role identity
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize beliefs for {self.name}: {e}", exc_info=True)
-            raise EmployeeStartupError(f"Belief initialization failed: {e}") from e
-
-        # Record start in episodic memory
-        try:
-            await self.memory.episodic.record_episode(
-                episode_type="event",
-                description=f"CSM {self.name} started and ready for autonomous operation",
-                content={
-                    "event": "employee_started",
-                    "role": "csm",
-                    "capabilities": self.default_capabilities,
-                },
-                importance=0.5,
-            )
-        except Exception as e:
-            # Non-fatal: log warning but don't fail startup
-            logger.warning(f"Failed to record start episode for {self.name}: {e}")
-
-        logger.info(f"CSM {self.name} ready for autonomous operation")
-
-    async def on_stop(self) -> None:
-        """Custom cleanup for CSM."""
-        logger.info(f"CSM {self.name} shutting down...")
-
-        # Record stop in episodic memory (non-fatal if fails)
-        if self._memory:
-            try:
-                await self.memory.episodic.record_episode(
-                    episode_type="event",
-                    description=f"CSM {self.name} stopped",
-                    content={"event": "employee_stopped"},
-                    importance=0.3,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to record stop episode for {self.name}: {e}")
+    role_code = "csm"
 
     # =========================================================================
     # CSM-Specific Methods
@@ -148,11 +55,10 @@ class CustomerSuccessManager(DigitalEmployee):
 
     async def get_at_risk_customers(self) -> list[dict[str, Any]]:
         """
-        Get list of at-risk customers.
+        Get list of at-risk customers, sorted by churn risk (highest first).
 
         Returns:
-            List of customer dictionaries with risk factors, sorted by
-            churn risk (highest risk first). Each dict contains:
+            List of customer dictionaries with risk factors. Each dict contains:
             - customer: Customer name
             - health_status: Health status (at_risk, critical)
             - churn_risk: Churn probability (0.0-1.0)
@@ -178,8 +84,6 @@ class CustomerSuccessManager(DigitalEmployee):
                         }
                     )
 
-        # Sort by churn risk descending (highest risk first)
-        # This ensures CSM addresses most critical customers first
         return sorted(at_risk, key=lambda x: x.get("churn_risk", 0), reverse=True)
 
     async def check_customer_health(self, customer_name: str) -> dict[str, Any]:
@@ -249,7 +153,6 @@ class CustomerSuccessManager(DigitalEmployee):
             ValueError: If customer_name or contact_name is empty/invalid
             LLMGenerationError: If email generation fails
         """
-        # Validate inputs
         if not customer_name or not customer_name.strip():
             raise ValueError("customer_name cannot be empty")
         if not contact_name or not contact_name.strip():
@@ -259,7 +162,6 @@ class CustomerSuccessManager(DigitalEmployee):
         if len(contact_name) > 100:
             raise ValueError("contact_name too long (max 100 chars)")
 
-        # Normalize inputs
         customer_name = customer_name.strip()
         contact_name = contact_name.strip()
 

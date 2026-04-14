@@ -220,3 +220,4 @@ packages/*/package-lock.json
 # Build outputs (JS/TS)
 *.tsbuildinfo
 .claude/skills/gstack/
+.gstack/

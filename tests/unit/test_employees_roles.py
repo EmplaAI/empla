@@ -1,21 +1,29 @@
 """
 Tests for empla.employees role implementations.
 
-Tests SalesAE and CustomerSuccessManager employees.
+Tests SalesAE, CustomerSuccessManager, ProductManager, SDR, and Recruiter
+employees.
 """
 
 from empla.employees import (
     CSM,
+    PM,
+    SDR,
     CustomerSuccessManager,
     EmployeeConfig,
+    ProductManager,
+    Recruiter,
     SalesAE,
 )
+from empla.employees.catalog import get_role
 from empla.employees.config import CSM_DEFAULT_GOALS, SALES_AE_DEFAULT_GOALS, GoalConfig
 from empla.employees.personality import (
     CSM_PERSONALITY,
     SALES_AE_PERSONALITY,
+    Formality,
     Personality,
     Tone,
+    Verbosity,
 )
 
 
@@ -351,3 +359,272 @@ class TestRoleGoalDifferences:
         assert sales_descriptions != csm_descriptions
         # No overlap
         assert len(sales_descriptions & csm_descriptions) == 0
+
+
+# ---------------------------------------------------------------------------
+# ProductManager
+# ---------------------------------------------------------------------------
+
+
+class TestProductManager:
+    """Tests for ProductManager employee."""
+
+    def test_creates_with_config(self):
+        config = EmployeeConfig(name="Morgan Park", role="pm", email="morgan@co.com")
+        employee = ProductManager(config)
+        assert employee.name == "Morgan Park"
+        assert employee.role == "pm"
+
+    def test_default_personality_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com")
+        employee = ProductManager(config)
+        expected = get_role("pm").personality
+        assert employee.default_personality == expected
+        assert employee.default_personality.communication.tone == Tone.PROFESSIONAL
+        assert employee.default_personality.communication.formality == Formality.PROFESSIONAL
+
+    def test_default_goals_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com")
+        employee = ProductManager(config)
+        goals = employee.default_goals
+        assert len(goals) >= 1
+        text = " ".join(g.description.lower() for g in goals)
+        assert any(k in text for k in ["feature", "ship", "release", "satisfaction"])
+
+    def test_default_capabilities_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com")
+        employee = ProductManager(config)
+        caps = employee.default_capabilities
+        assert "email" in caps
+        assert "calendar" in caps
+
+    def test_personality_override(self):
+        custom = Personality(extraversion=0.1, openness=0.2)
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com", personality=custom)
+        employee = ProductManager(config)
+        assert employee.personality.extraversion == 0.1
+        assert employee.personality.openness == 0.2
+
+    def test_goals_override(self):
+        custom = [GoalConfig(description="Custom PM goal", priority=10)]
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com", goals=custom)
+        employee = ProductManager(config)
+        assert config.goals == custom
+
+    def test_capabilities_override(self):
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com", capabilities=["email"])
+        employee = ProductManager(config)
+        assert config.capabilities == ["email"]
+
+    def test_is_subclass_of_digital_employee(self):
+        from empla.employees.base import DigitalEmployee
+
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com")
+        employee = ProductManager(config)
+        assert isinstance(employee, DigitalEmployee)
+
+    def test_is_catalog_backed(self):
+        from empla.employees.catalog_backed import CatalogBackedEmployee
+
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com")
+        employee = ProductManager(config)
+        assert isinstance(employee, CatalogBackedEmployee)
+
+    def test_repr(self):
+        config = EmployeeConfig(name="Morgan Park", role="pm", email="m@t.com")
+        employee = ProductManager(config)
+        repr_str = repr(employee)
+        assert "ProductManager" in repr_str
+        assert "Morgan Park" in repr_str
+
+
+class TestPMAlias:
+    def test_pm_alias_is_product_manager(self):
+        assert PM is ProductManager
+
+    def test_pm_alias_creates_same_type(self):
+        config = EmployeeConfig(name="Test", role="pm", email="t@t.com")
+        employee = PM(config)
+        assert isinstance(employee, ProductManager)
+
+
+# ---------------------------------------------------------------------------
+# SDR
+# ---------------------------------------------------------------------------
+
+
+class TestSDR:
+    """Tests for SDR employee."""
+
+    def test_creates_with_config(self):
+        config = EmployeeConfig(name="Taylor Reyes", role="sdr", email="taylor@co.com")
+        employee = SDR(config)
+        assert employee.name == "Taylor Reyes"
+        assert employee.role == "sdr"
+
+    def test_default_personality_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="sdr", email="t@t.com")
+        employee = SDR(config)
+        expected = get_role("sdr").personality
+        assert employee.default_personality == expected
+        assert employee.default_personality.communication.tone == Tone.ENTHUSIASTIC
+        assert employee.default_personality.communication.verbosity == Verbosity.CONCISE
+        # SDRs should be highly proactive
+        assert employee.default_personality.proactivity >= 0.9
+
+    def test_default_goals_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="sdr", email="t@t.com")
+        employee = SDR(config)
+        goals = employee.default_goals
+        assert len(goals) >= 1
+        text = " ".join(g.description.lower() for g in goals)
+        assert any(k in text for k in ["meeting", "lead", "outbound", "inbound"])
+
+    def test_default_capabilities_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="sdr", email="t@t.com")
+        employee = SDR(config)
+        caps = employee.default_capabilities
+        assert "email" in caps
+        assert "calendar" in caps
+        assert "crm" in caps
+
+    def test_personality_override(self):
+        custom = Personality(extraversion=0.2)
+        config = EmployeeConfig(name="Test", role="sdr", email="t@t.com", personality=custom)
+        employee = SDR(config)
+        assert employee.personality.extraversion == 0.2
+
+    def test_goals_override(self):
+        custom = [GoalConfig(description="Custom SDR goal", priority=10)]
+        config = EmployeeConfig(name="Test", role="sdr", email="t@t.com", goals=custom)
+        employee = SDR(config)
+        assert config.goals == custom
+
+    def test_capabilities_override(self):
+        config = EmployeeConfig(name="Test", role="sdr", email="t@t.com", capabilities=["email"])
+        employee = SDR(config)
+        assert config.capabilities == ["email"]
+
+    def test_is_subclass_of_digital_employee(self):
+        from empla.employees.base import DigitalEmployee
+
+        config = EmployeeConfig(name="Test", role="sdr", email="t@t.com")
+        employee = SDR(config)
+        assert isinstance(employee, DigitalEmployee)
+
+    def test_repr(self):
+        config = EmployeeConfig(name="Taylor Reyes", role="sdr", email="t@t.com")
+        employee = SDR(config)
+        repr_str = repr(employee)
+        assert "SDR" in repr_str
+        assert "Taylor Reyes" in repr_str
+
+
+# ---------------------------------------------------------------------------
+# Recruiter
+# ---------------------------------------------------------------------------
+
+
+class TestRecruiter:
+    """Tests for Recruiter employee."""
+
+    def test_creates_with_config(self):
+        config = EmployeeConfig(name="Alex Kim", role="recruiter", email="alex@co.com")
+        employee = Recruiter(config)
+        assert employee.name == "Alex Kim"
+        assert employee.role == "recruiter"
+
+    def test_default_personality_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="recruiter", email="t@t.com")
+        employee = Recruiter(config)
+        expected = get_role("recruiter").personality
+        assert employee.default_personality == expected
+        assert employee.default_personality.communication.tone == Tone.SUPPORTIVE
+        # Recruiters need high agreeableness
+        assert employee.default_personality.agreeableness >= 0.8
+
+    def test_default_goals_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="recruiter", email="t@t.com")
+        employee = Recruiter(config)
+        goals = employee.default_goals
+        assert len(goals) >= 1
+        text = " ".join(g.description.lower() for g in goals)
+        assert any(k in text for k in ["candidate", "requisition", "hire", "fill"])
+
+    def test_default_capabilities_from_catalog(self):
+        config = EmployeeConfig(name="Test", role="recruiter", email="t@t.com")
+        employee = Recruiter(config)
+        caps = employee.default_capabilities
+        assert "email" in caps
+        assert "calendar" in caps
+
+    def test_personality_override(self):
+        custom = Personality(agreeableness=0.1)
+        config = EmployeeConfig(name="Test", role="recruiter", email="t@t.com", personality=custom)
+        employee = Recruiter(config)
+        assert employee.personality.agreeableness == 0.1
+
+    def test_goals_override(self):
+        custom = [GoalConfig(description="Custom recruiting goal", priority=10)]
+        config = EmployeeConfig(name="Test", role="recruiter", email="t@t.com", goals=custom)
+        employee = Recruiter(config)
+        assert config.goals == custom
+
+    def test_capabilities_override(self):
+        config = EmployeeConfig(
+            name="Test", role="recruiter", email="t@t.com", capabilities=["email"]
+        )
+        employee = Recruiter(config)
+        assert config.capabilities == ["email"]
+
+    def test_is_subclass_of_digital_employee(self):
+        from empla.employees.base import DigitalEmployee
+
+        config = EmployeeConfig(name="Test", role="recruiter", email="t@t.com")
+        employee = Recruiter(config)
+        assert isinstance(employee, DigitalEmployee)
+
+    def test_repr(self):
+        config = EmployeeConfig(name="Alex Kim", role="recruiter", email="a@t.com")
+        employee = Recruiter(config)
+        repr_str = repr(employee)
+        assert "Recruiter" in repr_str
+        assert "Alex Kim" in repr_str
+
+
+# ---------------------------------------------------------------------------
+# Cross-role differentiation (5 roles)
+# ---------------------------------------------------------------------------
+
+
+class TestAllRolesDifferentiated:
+    """Cross-role sanity checks to catch catalog mis-copies."""
+
+    def _make_all(self) -> dict[str, object]:
+        return {
+            "sales_ae": SalesAE(EmployeeConfig(name="S", role="sales_ae", email="s@t.com")),
+            "csm": CustomerSuccessManager(EmployeeConfig(name="C", role="csm", email="c@t.com")),
+            "pm": ProductManager(EmployeeConfig(name="P", role="pm", email="p@t.com")),
+            "sdr": SDR(EmployeeConfig(name="D", role="sdr", email="d@t.com")),
+            "recruiter": Recruiter(EmployeeConfig(name="R", role="recruiter", email="r@t.com")),
+        }
+
+    def test_each_role_has_non_empty_goals(self):
+        for code, emp in self._make_all().items():
+            assert len(emp.default_goals) > 0, f"{code} has no default goals"
+
+    def test_each_role_has_email_capability(self):
+        for code, emp in self._make_all().items():
+            assert "email" in emp.default_capabilities, f"{code} missing email capability"
+
+    def test_goal_descriptions_unique_per_role(self):
+        all_emps = self._make_all()
+        descs_by_role = {
+            code: {g.description for g in emp.default_goals} for code, emp in all_emps.items()
+        }
+        # No two roles should share any goal description
+        codes = list(descs_by_role.keys())
+        for i, a in enumerate(codes):
+            for b in codes[i + 1 :]:
+                overlap = descs_by_role[a] & descs_by_role[b]
+                assert not overlap, f"{a} and {b} share goals: {overlap}"

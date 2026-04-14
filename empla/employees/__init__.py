@@ -52,6 +52,7 @@ from empla.employees.base import DigitalEmployee, MemorySystem
 
 # Catalog (single source of truth for roles)
 from empla.employees.catalog import ROLE_CATALOG, RoleDefinition, get_role, list_roles
+from empla.employees.catalog_backed import CatalogBackedEmployee
 
 # Configuration
 from empla.employees.config import (
@@ -93,19 +94,24 @@ from empla.employees.personality import (
     Verbosity,
 )
 
+# Pre-built employees
+from empla.employees.pm import ProductManager
+from empla.employees.recruiter import Recruiter
+
 # Registry
 from empla.employees.registry import get_employee_class, get_supported_roles
-
-# Pre-built employees
 from empla.employees.sales_ae import SalesAE
+from empla.employees.sdr import SDR
 
 # Convenience alias
 CSM = CustomerSuccessManager
+PM = ProductManager
 
 __all__ = [
     "CSM",
     "CSM_DEFAULT_GOALS",
     "CSM_PERSONALITY",
+    "PM",
     "PM_DEFAULT_GOALS",
     "PM_PERSONALITY",
     "ROLE_CATALOG",
@@ -113,6 +119,8 @@ __all__ = [
     "ROLE_TITLES",
     "SALES_AE_DEFAULT_GOALS",
     "SALES_AE_PERSONALITY",
+    "SDR",
+    "CatalogBackedEmployee",
     "CommunicationStyle",
     "CustomerSuccessManager",
     "DecisionStyle",
@@ -131,6 +139,8 @@ __all__ = [
     "LoopSettings",
     "MemorySystem",
     "Personality",
+    "ProductManager",
+    "Recruiter",
     "RoleDefinition",
     "SalesAE",
     "Tone",

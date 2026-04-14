@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 _EMPLOYEE_ROLE_MAP: dict[str, str] = {
     "sales_ae": "empla.employees.sales_ae:SalesAE",
     "csm": "empla.employees.csm:CustomerSuccessManager",
+    "pm": "empla.employees.pm:ProductManager",
+    "sdr": "empla.employees.sdr:SDR",
+    "recruiter": "empla.employees.recruiter:Recruiter",
 }
 
 
