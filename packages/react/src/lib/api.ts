@@ -24,7 +24,6 @@ import type {
   IntegrationCredential,
   IntegrationHealth,
   IntegrationProvider,
-  ToolCatalogResponse,
   LoginResponse,
   MCPServer,
   MCPServerCreate,
@@ -36,6 +35,10 @@ import type {
   ProviderInfo,
   RoleDefinition,
   SemanticMemoryItem,
+  ToolCatalogResponse,
+  WebhookAuditEvent,
+  WebhookTokenInfo,
+  WebhookTokenIssued,
   WorkingMemoryItem,
   WorkingMemoryListResponse,
 } from '../types';
@@ -1540,6 +1543,114 @@ export function createApiClient(config: ApiClientConfig) {
     };
   }
 
+  // =========================================================================
+  // Webhook Token Management + Events (PR #81)
+  // =========================================================================
+
+  async function listWebhookTokens(): Promise<WebhookTokenInfo[]> {
+    const response = await request<
+      Array<{
+        integration_id: string;
+        provider: string;
+        has_token: boolean;
+        rotated_at: string | null;
+        grace_window_active: boolean;
+      }>
+    >(`/v1/webhooks/tokens`);
+    return response.map((t) => ({
+      integrationId: t.integration_id,
+      provider: t.provider,
+      hasToken: t.has_token,
+      rotatedAt: t.rotated_at,
+      graceWindowActive: t.grace_window_active,
+    }));
+  }
+
+  async function createWebhookToken(params: {
+    integrationId: string;
+  }): Promise<WebhookTokenIssued> {
+    const response = await request<{
+      integration_id: string;
+      provider: string;
+      token: string;
+      rotated_at: string | null;
+    }>(`/v1/webhooks/tokens`, {
+      method: 'POST',
+      body: JSON.stringify({ integration_id: params.integrationId }),
+    });
+    return {
+      integrationId: response.integration_id,
+      provider: response.provider,
+      token: response.token,
+      rotatedAt: response.rotated_at,
+    };
+  }
+
+  async function rotateWebhookToken(params: {
+    integrationId: string;
+  }): Promise<WebhookTokenIssued> {
+    const response = await request<{
+      integration_id: string;
+      provider: string;
+      token: string;
+      rotated_at: string | null;
+    }>(`/v1/webhooks/tokens/${params.integrationId}/rotate`, { method: 'POST' });
+    return {
+      integrationId: response.integration_id,
+      provider: response.provider,
+      token: response.token,
+      rotatedAt: response.rotated_at,
+    };
+  }
+
+  async function deleteWebhookToken(params: { integrationId: string }): Promise<void> {
+    await request<void>(`/v1/webhooks/tokens/${params.integrationId}`, { method: 'DELETE' });
+  }
+
+  async function listWebhookEvents(params: {
+    page?: number;
+    pageSize?: number;
+    provider?: string;
+  }): Promise<PaginatedResponse<WebhookAuditEvent>> {
+    const searchParams = new URLSearchParams();
+    if (params.page !== undefined) searchParams.set('page', params.page.toString());
+    if (params.pageSize !== undefined) searchParams.set('page_size', params.pageSize.toString());
+    if (params.provider) searchParams.set('provider', params.provider);
+    const query = searchParams.toString();
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        integration_id: string;
+        provider: string;
+        event_type: string;
+        summary: string;
+        employees_notified: number;
+        occurred_at: string;
+      }>;
+      total: number;
+      page: number;
+      page_size: number;
+      pages: number;
+    }>(`/v1/webhooks/events${query ? `?${query}` : ''}`);
+
+    return {
+      items: response.items.map((e) => ({
+        id: e.id,
+        integrationId: e.integration_id,
+        provider: e.provider,
+        eventType: e.event_type,
+        summary: e.summary,
+        employeesNotified: e.employees_notified,
+        occurredAt: e.occurred_at,
+      })),
+      total: response.total,
+      page: response.page,
+      pageSize: response.page_size,
+      pages: response.pages,
+    };
+  }
+
   return {
     setAuthToken,
     login,
@@ -1582,6 +1693,11 @@ export function createApiClient(config: ApiClientConfig) {
     listTools,
     getToolHealth,
     listBlockedTools,
+    listWebhookTokens,
+    createWebhookToken,
+    rotateWebhookToken,
+    deleteWebhookToken,
+    listWebhookEvents,
   };
 }
 

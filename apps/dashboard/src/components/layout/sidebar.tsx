@@ -5,6 +5,7 @@ import {
   Plus,
   Activity,
   Plug,
+  Radio,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -34,6 +35,11 @@ const navItems = [
     label: 'Integrations',
     href: '/integrations',
     icon: Plug,
+  },
+  {
+    label: 'Events',
+    href: '/events',
+    icon: Radio,
   },
   {
     label: 'Activity',

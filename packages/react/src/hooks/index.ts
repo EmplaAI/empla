@@ -68,6 +68,15 @@ export {
 } from './useTools';
 
 export {
+  webhookKeys,
+  useCreateWebhookToken,
+  useDeleteWebhookToken,
+  useRotateWebhookToken,
+  useWebhookEvents,
+  useWebhookTokens,
+} from './useWebhooks';
+
+export {
   mcpServerKeys,
   useCreateMCPServer,
   useDeleteMCPServer,

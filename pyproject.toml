@@ -59,6 +59,9 @@ dependencies = [
     "greenlet>=3.2.4",
     "email-validator>=2.3.0",
     "cryptography>=46.0.3",
+    # JWT auth — used directly in empla/api/deps.py; previously satisfied
+    # transitively but fell out of the resolve when dev-groups were touched.
+    "pyjwt[crypto]>=2.11.0",
 ]
 
 [project.optional-dependencies]
@@ -71,6 +74,7 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "pytest-mock>=3.14.0",
+    "freezegun>=1.5.0",  # time-travel for rotation grace-window tests
 
     # Type Checking
     "mypy>=1.11.0",
@@ -278,4 +282,5 @@ exclude_lines = [
 dev = [
     "pytest-asyncio>=1.2.0",
     "pytest-cov>=7.0.0",
+    "freezegun>=1.5.0",
 ]

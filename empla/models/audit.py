@@ -44,13 +44,17 @@ class AuditLog(TenantScopedModel):
     actor_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="Type of actor (employee, user, system)",
+        comment="Type of actor (employee, user, system, webhook)",
     )
 
     actor_id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         nullable=False,
-        comment="Actor UUID (employee/user/system)",
+        comment=(
+            "Actor UUID. For actor_type='webhook' this is the Integration row "
+            "whose token authenticated the request (so events are traceable to "
+            "the credential that received them)."
+        ),
     )
 
     # Action
@@ -99,7 +103,7 @@ class AuditLog(TenantScopedModel):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "actor_type IN ('employee', 'user', 'system')",
+            "actor_type IN ('employee', 'user', 'system', 'webhook')",
             name="ck_audit_log_actor_type",
         ),
         Index("idx_audit_tenant", "tenant_id", "occurred_at"),

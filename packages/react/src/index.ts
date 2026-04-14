@@ -121,6 +121,13 @@ export {
   useBlockedTools,
   useToolHealth,
   useTools,
+  // Webhooks
+  webhookKeys,
+  useCreateWebhookToken,
+  useDeleteWebhookToken,
+  useRotateWebhookToken,
+  useWebhookEvents,
+  useWebhookTokens,
   // MCP Servers
   mcpServerKeys,
   useCreateMCPServer,
@@ -212,6 +219,9 @@ export type {
   ToolCatalogItem,
   ToolCatalogResponse,
   TrustCycleStats,
+  WebhookAuditEvent,
+  WebhookTokenInfo,
+  WebhookTokenIssued,
 } from './types';
 
 // API Client (for advanced usage)

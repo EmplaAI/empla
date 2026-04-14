@@ -227,6 +227,36 @@ export interface BlockedToolsResponse {
 }
 
 /**
+ * Webhook token management (PR #81).
+ * The token VALUE is returned exactly once on create/rotate — all other
+ * reads show only existence + rotation state.
+ */
+export interface WebhookTokenInfo {
+  integrationId: string;
+  provider: string;
+  hasToken: boolean;
+  rotatedAt: string | null;
+  graceWindowActive: boolean;
+}
+
+export interface WebhookTokenIssued {
+  integrationId: string;
+  provider: string;
+  token: string;
+  rotatedAt: string | null;
+}
+
+export interface WebhookAuditEvent {
+  id: string;
+  integrationId: string;
+  provider: string;
+  eventType: string;
+  summary: string;
+  employeesNotified: number;
+  occurredAt: string;
+}
+
+/**
  * Activity event from API.
  */
 export interface Activity {
