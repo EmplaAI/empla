@@ -51,11 +51,12 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
 - **PR #86** — Inbox (employee→human messaging with structured content blocks)
 
 **Total:** 10 PRs, ~7-9 days CC time. Phase 5 adds ~200 new tests across the
-per-PR budgets (#77=5, #78=60, #79=25, #80=10, #81=15, #82=12, #83=15, #84=20,
-#85=20, #86=18), bringing the target to ~1840 unit tests passing from the
-current 1644 unit-test-only baseline. (Earlier 2091 target from the CEO plan
-was computed against a 1896 total-collection baseline that mixed unit +
-integration + e2e; the honest unit-only delta is ~200.)
+per-PR budgets (`#77=5`, `#78=60`, `#79=25`, `#80=10`, `#81=15`, `#82=12`,
+`#83=15`, `#84=20`, `#85=20`, `#86=18`), bringing the target to ~1840 unit
+tests passing from the current 1644 unit-test-only baseline. (Earlier 2091
+target from the CEO plan was computed against a 1896 total-collection
+baseline that mixed unit + integration + e2e; the honest unit-only delta is
+~200.)
 
 ---
 
