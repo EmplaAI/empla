@@ -44,7 +44,7 @@ const WIZARD_PROVIDERS: Array<{
       'Open HubSpot Settings → Integrations → Private Apps → your app.',
       'Under "Webhooks," subscribe to the events you care about.',
       'Paste the Target URL (shown above after you generate a token).',
-      'Paste the token as the Authorization header value.',
+      'Send the token in the X-Webhook-Token header (not Authorization).',
     ],
   },
   {
@@ -53,7 +53,8 @@ const WIZARD_PROVIDERS: Array<{
     steps: [
       'In Google Cloud Console, enable the Calendar API for your project.',
       'Create a push notification channel via Calendar API: events.watch.',
-      'Set the address to the Target URL above and the token to the value below.',
+      'Set the address to the Target URL above.',
+      'Forward the token in the X-Webhook-Token header on each delivery.',
     ],
   },
   {
@@ -63,7 +64,7 @@ const WIZARD_PROVIDERS: Array<{
       'Create a Pub/Sub topic in Google Cloud. Grant Gmail API the Pub/Sub Publisher role on it.',
       'Call gmail.users.watch with the topic name and label filter.',
       'Add a Pub/Sub push subscription pointing at the Target URL.',
-      'Include the token in the Authorization header.',
+      'Send the token in the X-Webhook-Token header (not Authorization).',
     ],
   },
 ];

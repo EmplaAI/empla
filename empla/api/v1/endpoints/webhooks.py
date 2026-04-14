@@ -82,6 +82,11 @@ async def _find_tenant_by_webhook_token(
         ).where(
             Integration.provider == provider,
             Integration.status == "active",
+            # Match the soft-delete filter used by _get_integration and
+            # list_webhook_tokens. Without it, a soft-deleted integration
+            # whose oauth_config still carries a webhook_token would keep
+            # authenticating inbound webhooks — defense-in-depth gap.
+            Integration.deleted_at.is_(None),
             Integration.oauth_config["webhook_token"].astext.is_not(None),
         )
     )
