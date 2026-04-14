@@ -1,17 +1,17 @@
 # empla - Roadmap
 
 > **Updated:** 2026-04-14
-> **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5 (Platform
-> Completeness + Employee Polish) in progress. PR #77 foundation, PR #78
-> CatalogBackedEmployee + PM/SDR/Recruiter, and PR #79 memory browsing API +
-> 4-group tab restructure shipped. 7 more PRs remain.
+> **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5A complete:
+> PR #77 (foundation), PR #78 (PM/SDR/Recruiter), PR #79 (memory API + 4-group
+> tabs), PR #80 (tool catalog + trust boundary view + runner auth) shipped.
+> Phase 5B kicks off with PR #81 — 6 more PRs remain.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
 
 ## Current State
 
-Tests: **1761 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Tests: **1814 unit tests passing** (0 failing), ~70% coverage on unit test scope |
 Employees: SalesAE, CSM, ProductManager, SDR, Recruiter (all 5 catalog roles implemented) |
 Core features: Complete BDI loop, playbook system with autonomous discovery,
 event-driven wake + scheduled actions, webhooks with credential-based routing,
@@ -45,7 +45,11 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
   targets (pre-existing 28px pattern across all panels), validation enum-set
   duplication from model CHECK constraints, ProceduralMemoryPanel wiring
   (lands in PR #84 playbook editor).
-- **PR #80** — Tool catalog + per-employee tool health
+- **PR #80** ✓ SHIPPED 2026-04-14: Tool catalog + per-employee tool health +
+  trust boundary view + runner shared-secret auth (closes pre-existing /wake
+  trust gap from PR #74). +53 unit tests. New OPERATIONS tab group completes
+  the 4-group employee detail layout. Boil-the-lake review: 14 fixes applied
+  including N+1 elimination, last_error redaction, generic DataPanel.
 
 ### Phase 5B — User Power + Visibility (6 PRs)
 

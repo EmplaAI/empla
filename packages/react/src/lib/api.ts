@@ -19,9 +19,12 @@ import type {
   EmployeeIntention,
   EmployeeRuntimeStatus,
   EmployeeUpdate,
+  BlockedToolsResponse,
   EpisodicMemoryItem,
   IntegrationCredential,
+  IntegrationHealth,
   IntegrationProvider,
+  ToolCatalogResponse,
   LoginResponse,
   MCPServer,
   MCPServerCreate,
@@ -1422,6 +1425,121 @@ export function createApiClient(config: ApiClientConfig) {
     };
   }
 
+  // =========================================================================
+  // Tool Catalog Endpoints (PR #80) — proxied from runner, can return 503
+  // =========================================================================
+
+  async function listTools(params: { employeeId: string }): Promise<ToolCatalogResponse> {
+    const response = await request<{
+      items: Array<{ name: string; description: string | null; integration: string | null }>;
+      total: number;
+      integrations: string[];
+      health?: Record<
+        string,
+        {
+          name: string;
+          status: string;
+          success_count: number;
+          failure_count: number;
+          timeout_count: number;
+          total_calls: number;
+          avg_latency_ms: number;
+          error_rate: number;
+          last_error: string | null;
+        }
+      >;
+    }>(`/v1/employees/${params.employeeId}/tools`);
+
+    const health: Record<string, IntegrationHealth> = {};
+    for (const [k, h] of Object.entries(response.health ?? {})) {
+      health[k] = {
+        name: h.name,
+        status: h.status,
+        successCount: h.success_count,
+        failureCount: h.failure_count,
+        timeoutCount: h.timeout_count,
+        totalCalls: h.total_calls,
+        avgLatencyMs: h.avg_latency_ms,
+        errorRate: h.error_rate,
+        lastError: h.last_error,
+      };
+    }
+    return {
+      items: response.items,
+      total: response.total,
+      integrations: response.integrations,
+      health,
+    };
+  }
+
+  async function getToolHealth(params: {
+    employeeId: string;
+    toolName: string;
+  }): Promise<IntegrationHealth> {
+    const encoded = encodeURIComponent(params.toolName);
+    const response = await request<{
+      name: string;
+      status: string;
+      success_count: number;
+      failure_count: number;
+      timeout_count: number;
+      total_calls: number;
+      avg_latency_ms: number;
+      error_rate: number;
+      last_error: string | null;
+    }>(`/v1/employees/${params.employeeId}/tools/${encoded}/health`);
+    return {
+      name: response.name,
+      status: response.status,
+      successCount: response.success_count,
+      failureCount: response.failure_count,
+      timeoutCount: response.timeout_count,
+      totalCalls: response.total_calls,
+      avgLatencyMs: response.avg_latency_ms,
+      errorRate: response.error_rate,
+      lastError: response.last_error,
+    };
+  }
+
+  async function listBlockedTools(params: {
+    employeeId: string;
+  }): Promise<BlockedToolsResponse> {
+    const response = await request<{
+      items: Array<{
+        tool_name: string;
+        reason: string;
+        employee_role: string | null;
+        timestamp: number;
+      }>;
+      total: number;
+      stats: {
+        total_decisions: number;
+        allowed: number;
+        denied: number;
+        tainted: boolean;
+        cycle_calls: number;
+        max_calls_per_cycle: number;
+      };
+    }>(`/v1/employees/${params.employeeId}/tools/blocked`);
+    return {
+      items: response.items.map((b) => ({
+        toolName: b.tool_name,
+        reason: b.reason,
+        employeeRole: b.employee_role,
+        timestamp: b.timestamp,
+      })),
+      total: response.total,
+      stats: {
+        totalDecisions: response.stats.total_decisions,
+        allowed: response.stats.allowed,
+        denied: response.stats.denied,
+        tainted: response.stats.tainted,
+        cycleCalls: response.stats.cycle_calls,
+        maxCallsPerCycle: response.stats.max_calls_per_cycle,
+      },
+    };
+  }
+
   return {
     setAuthToken,
     login,
@@ -1461,6 +1579,9 @@ export function createApiClient(config: ApiClientConfig) {
     listSemanticMemory,
     listProceduralMemory,
     listWorkingMemory,
+    listTools,
+    getToolHealth,
+    listBlockedTools,
   };
 }
 

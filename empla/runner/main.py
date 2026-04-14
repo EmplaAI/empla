@@ -342,6 +342,10 @@ async def run_employee(
             if employee._loop is not None:
                 employee._loop._health_server = health
                 health._wake_callback = employee._loop.wake
+            # Wire tool router for read-only /tools introspection (PR #80).
+            # Without this the /tools endpoints return 503.
+            if employee._tool_router is not None:
+                health._tool_router = employee._tool_router
 
             await employee._run_loop()
 

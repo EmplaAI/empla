@@ -53,10 +53,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info("Database connection pool initialized")
 
+    # Long-lived httpx client for runner-proxy endpoints (PR #80 follow-up).
+    # Bounded connection pool so a misbehaving runner can't exhaust sockets.
+    import httpx as _httpx
+
+    app.state.runner_proxy_client = _httpx.AsyncClient(
+        timeout=_httpx.Timeout(5.0, connect=2.0),
+        limits=_httpx.Limits(max_keepalive_connections=20, max_connections=100),
+    )
+
     yield
 
     # Shutdown
     logger.info("Shutting down empla API server...")
+    await app.state.runner_proxy_client.aclose()
     await engine.dispose()
     logger.info("Database connections closed")
 

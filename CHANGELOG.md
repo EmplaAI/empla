@@ -6,6 +6,87 @@
 
 ---
 
+## 2026-04-14 - Phase 5A: Tool Catalog + Trust Boundary View (PR #80)
+
+**Phase:** Phase 5A — Core Completeness (PR 4 of 10, completes Phase 5A)
+
+### Added
+
+- **Per-employee tool catalog API.** Three new GET endpoints under
+  `/api/v1/employees/{id}/tools/...` show which tools an employee can
+  call, integration health for each, and the trust-boundary blocks
+  observed in the runner's current cycle. The dashboard exposes them
+  through a new **OPERATIONS** top-level tab group on the employee
+  detail page (Tools | Trust boundary), completing the 4-group layout
+  Phase 5A planned (ACTIVITY | MIND | OPERATIONS | BUSINESS).
+
+- **Cross-process bridge.** The runner subprocess hosts the live
+  ToolRouter / IntegrationHealthMonitor / TrustBoundary state. The API
+  process can't reach them directly, so we extend the per-runner
+  HealthServer (the same one PR #74 used for `/wake`) with read-only
+  `GET /tools`, `GET /tools/{name}/health`, and `GET /tools/blocked`
+  handlers. The API proxies via `EmployeeManager.get_health_port()`.
+
+- **Per-runner shared-secret auth on `/wake` and `/tools/*`.** Closes
+  the long-standing same-UID-process trust gap on the runner endpoints.
+  EmployeeManager generates a 256-bit token at spawn time, passes it
+  via the `EMPLA_RUNNER_TOKEN` env var (not argv → not in `ps`), and
+  HealthServer enforces it with constant-time comparison. `/health`
+  stays unauthenticated so liveness probes work.
+
+- **`@empla/react` tool hooks.** `useTools` / `useToolHealth` /
+  `useBlockedTools` with `retry: false` so 503-from-offline-runner
+  surfaces as an immediate "Employee not running" empty state instead
+  of a delayed retry.
+
+- **Generic `<DataPanel>` shell** in
+  `apps/dashboard/src/components/tools/tools-panel.tsx`. Future panels
+  (Scheduler, PR #82) get loading / offline / error / empty states for
+  free.
+
+### Changed
+
+- **N+1 fan-out eliminated on the Tools tab.** The `/tools` catalog
+  response now embeds per-integration health, so opening the tab makes
+  ONE round trip instead of N+1. The dashboard reads health straight
+  from the catalog payload.
+
+- **Long-lived shared `httpx.AsyncClient`** created in the FastAPI
+  lifespan (bounded pool: 20 keepalive, 100 max). Endpoints receive
+  it via `Request.app.state` and stop paying TCP+transport setup per
+  call.
+
+- **Defense-in-depth on tool data leaving the runner.** Tool
+  descriptions are length-capped at 500 chars (MCP-discovered tools
+  are attacker-influenceable). `last_error` strings are scrubbed for
+  bearer tokens, query-string secrets, common API-key prefixes, and
+  email addresses before serialization.
+
+### Fixed
+
+- **Runner route-ordering bug.** Old prefix dispatcher would have
+  mis-routed `GET /tools/blocked/health` to the blocked-list handler
+  if a tool happened to be named `blocked`. Replaced with explicit
+  (method, path) matching. A real-HTTP integration test exercises
+  the dispatch end-to-end so any future regression fails loudly.
+
+- **Strict `tool_name` allowlist** on the API path
+  (`^[A-Za-z0-9_.\-]+$` + reserved-name list including `blocked`).
+  Old check only blocked the literal `/`.
+
+### Tests
+
+- **+53 unit tests** in `test_tools_endpoints.py`. 1761 → 1814 unit
+  tests passing. Includes cross-tenant isolation across all 3
+  endpoints, real-HTTP dispatch verification, runner auth gate
+  (missing/wrong/correct token), `last_error` redaction (6 cases),
+  parametrized `tool_name` validation (11 bad inputs + 4 valid),
+  N+1-fix assertion that the catalog embeds health, MCP description
+  truncation, and full proxy error coverage (504 timeout, 502
+  malformed JSON, 502 token-rejection).
+
+---
+
 ## 2026-04-14 - Phase 5A: Memory Browsing API + 4-Group Tab Layout (PR #79)
 
 **Phase:** Phase 5A — Core Completeness (PR 3 of 10)
