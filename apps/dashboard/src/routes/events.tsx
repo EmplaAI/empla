@@ -13,12 +13,10 @@ import { toast } from 'sonner';
 import {
   useCreateWebhookToken,
   useDeleteWebhookToken,
-  useProviders,
   useRotateWebhookToken,
   useWebhookEvents,
   useWebhookTokens,
   type WebhookTokenInfo,
-  type ProviderInfo,
 } from '@empla/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -179,9 +177,19 @@ function TokenRow({
 
   const targetUrl = `${window.location.origin}/api/v1/webhooks/${token.provider}`;
 
+  // The API client (ApiError) already unpacks FastAPI's `detail` into
+  // .message, so surfacing err.message gives users the real reason
+  // ("Webhook token already exists…") instead of a generic failure toast.
+  const errorMessage = (err: unknown, fallback: string) =>
+    err instanceof Error && err.message ? err.message : fallback;
+
   const handleGenerate = async () => {
-    const result = await create.mutateAsync({ integrationId: token.integrationId });
-    onGenerated(result.token, token.provider);
+    try {
+      const result = await create.mutateAsync({ integrationId: token.integrationId });
+      onGenerated(result.token, token.provider);
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to generate token'));
+    }
   };
 
   const handleRotate = async () => {
@@ -192,8 +200,12 @@ function TokenRow({
     ) {
       return;
     }
-    const result = await rotate.mutateAsync({ integrationId: token.integrationId });
-    onGenerated(result.token, token.provider);
+    try {
+      const result = await rotate.mutateAsync({ integrationId: token.integrationId });
+      onGenerated(result.token, token.provider);
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to rotate token'));
+    }
   };
 
   const handleCopyUrl = async () => {
@@ -209,8 +221,12 @@ function TokenRow({
     if (!window.confirm('Delete this token? Webhooks will start returning 401 immediately.')) {
       return;
     }
-    await del.mutateAsync({ integrationId: token.integrationId });
-    toast.success('Token deleted');
+    try {
+      await del.mutateAsync({ integrationId: token.integrationId });
+      toast.success('Token deleted');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to delete token'));
+    }
   };
 
   return (
@@ -279,10 +295,8 @@ function TokenRow({
 }
 
 function TokenManager({
-  providers,
   onGenerated,
 }: {
-  providers: ProviderInfo[] | undefined;
   onGenerated: (value: string, provider: string) => void;
 }) {
   const { data, isLoading, error, refetch } = useWebhookTokens();
@@ -331,13 +345,10 @@ function TokenManager({
             ))}
           </div>
         )}
-        {providers && providers.length > 0 ? (
-          <p className="mt-4 text-xs text-muted-foreground">
-            Wizards available for:{' '}
-            {WIZARD_PROVIDERS.map((w) => w.label).join(', ')}. See setup steps below after you
-            generate a token.
-          </p>
-        ) : null}
+        <p className="mt-4 text-xs text-muted-foreground">
+          Wizards available for: {WIZARD_PROVIDERS.map((w) => w.label).join(', ')}. See setup
+          steps below after you generate a token.
+        </p>
       </CardContent>
     </Card>
   );
@@ -466,7 +477,6 @@ function SetupWizards() {
 
 export function EventsPage() {
   const [issued, setIssued] = useState<{ token: string; provider: string } | null>(null);
-  const providersQuery = useProviders();
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -477,10 +487,7 @@ export function EventsPage() {
         </p>
       </div>
 
-      <TokenManager
-        providers={providersQuery.data}
-        onGenerated={(token, provider) => setIssued({ token, provider })}
-      />
+      <TokenManager onGenerated={(token, provider) => setIssued({ token, provider })} />
       <EventFeed />
       <SetupWizards />
 
