@@ -26,6 +26,15 @@ import { IntentionsPanel } from '@/components/bdi/intentions-panel';
 import { BeliefsPanel } from '@/components/bdi/beliefs-panel';
 import { CostPanel } from '@/components/costs/cost-panel';
 import { PlaybookPanel } from '@/components/playbooks/playbook-panel';
+import {
+  EpisodicMemoryPanel,
+  SemanticMemoryPanel,
+  WorkingMemoryPanel,
+} from '@/components/memory/memory-panels';
+// Note: ProceduralMemoryPanel is exported from memory-panels.tsx but not
+// wired into the 4-group tab layout per the Phase 5A plan (procedural
+// memory is surfaced via the curated Playbooks view under BUSINESS). It
+// will likely land on the playbook editor (PR #84) or a drilldown.
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EmployeeEditDialog } from '@/components/employees/employee-edit-dialog';
 import { getInitials, cn } from '@/lib/utils';
@@ -250,33 +259,75 @@ export function EmployeeDetailPage() {
             </CardContent>
           </Card>
 
-          {/* BDI State Tabs */}
+          {/*
+           * 4-group tab layout (Phase 5A PR #79):
+           *   ACTIVITY  — Timeline | Episodic | Semantic | Working (memory sub-tabs)
+           *   MIND      — Goals | Intentions | Beliefs
+           *   OPERATIONS — (Tools + Scheduler land here in PR #80/#82)
+           *   BUSINESS  — Costs | Playbooks
+           */}
           <Tabs defaultValue="activity">
             <TabsList>
               <TabsTrigger value="activity">Activity</TabsTrigger>
-              <TabsTrigger value="goals">Goals</TabsTrigger>
-              <TabsTrigger value="intentions">Intentions</TabsTrigger>
-              <TabsTrigger value="beliefs">Beliefs</TabsTrigger>
-              <TabsTrigger value="costs">Costs</TabsTrigger>
-              <TabsTrigger value="playbooks">Playbooks</TabsTrigger>
+              <TabsTrigger value="mind">Mind</TabsTrigger>
+              <TabsTrigger value="business">Business</TabsTrigger>
             </TabsList>
+
             <TabsContent value="activity">
-              <ActivityFeed employeeId={employee.id} />
+              <Tabs defaultValue="timeline">
+                <TabsList>
+                  <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                  <TabsTrigger value="episodic">Episodic</TabsTrigger>
+                  <TabsTrigger value="semantic">Semantic</TabsTrigger>
+                  <TabsTrigger value="working">Working</TabsTrigger>
+                </TabsList>
+                <TabsContent value="timeline">
+                  <ActivityFeed employeeId={employee.id} />
+                </TabsContent>
+                <TabsContent value="episodic">
+                  <EpisodicMemoryPanel employeeId={employee.id} />
+                </TabsContent>
+                <TabsContent value="semantic">
+                  <SemanticMemoryPanel employeeId={employee.id} />
+                </TabsContent>
+                <TabsContent value="working">
+                  <WorkingMemoryPanel employeeId={employee.id} />
+                </TabsContent>
+              </Tabs>
             </TabsContent>
-            <TabsContent value="goals">
-              <GoalsPanel employeeId={employee.id} />
+
+            <TabsContent value="mind">
+              <Tabs defaultValue="goals">
+                <TabsList>
+                  <TabsTrigger value="goals">Goals</TabsTrigger>
+                  <TabsTrigger value="intentions">Intentions</TabsTrigger>
+                  <TabsTrigger value="beliefs">Beliefs</TabsTrigger>
+                </TabsList>
+                <TabsContent value="goals">
+                  <GoalsPanel employeeId={employee.id} />
+                </TabsContent>
+                <TabsContent value="intentions">
+                  <IntentionsPanel employeeId={employee.id} />
+                </TabsContent>
+                <TabsContent value="beliefs">
+                  <BeliefsPanel employeeId={employee.id} />
+                </TabsContent>
+              </Tabs>
             </TabsContent>
-            <TabsContent value="intentions">
-              <IntentionsPanel employeeId={employee.id} />
-            </TabsContent>
-            <TabsContent value="beliefs">
-              <BeliefsPanel employeeId={employee.id} />
-            </TabsContent>
-            <TabsContent value="costs">
-              <CostPanel employeeId={employee.id} />
-            </TabsContent>
-            <TabsContent value="playbooks">
-              <PlaybookPanel employeeId={employee.id} />
+
+            <TabsContent value="business">
+              <Tabs defaultValue="costs">
+                <TabsList>
+                  <TabsTrigger value="costs">Costs</TabsTrigger>
+                  <TabsTrigger value="playbooks">Playbooks</TabsTrigger>
+                </TabsList>
+                <TabsContent value="costs">
+                  <CostPanel employeeId={employee.id} />
+                </TabsContent>
+                <TabsContent value="playbooks">
+                  <PlaybookPanel employeeId={employee.id} />
+                </TabsContent>
+              </Tabs>
             </TabsContent>
           </Tabs>
         </div>

@@ -19,6 +19,7 @@ import type {
   EmployeeIntention,
   EmployeeRuntimeStatus,
   EmployeeUpdate,
+  EpisodicMemoryItem,
   IntegrationCredential,
   IntegrationProvider,
   LoginResponse,
@@ -28,8 +29,12 @@ import type {
   MCPServerTestResult,
   MCPServerUpdate,
   PaginatedResponse,
+  ProceduralMemoryItem,
   ProviderInfo,
   RoleDefinition,
+  SemanticMemoryItem,
+  WorkingMemoryItem,
+  WorkingMemoryListResponse,
 } from '../types';
 
 /**
@@ -1175,6 +1180,248 @@ export function createApiClient(config: ApiClientConfig) {
     };
   }
 
+  // =========================================================================
+  // Memory Endpoints
+  // =========================================================================
+
+  async function listEpisodicMemory(params: {
+    employeeId: string;
+    page?: number;
+    pageSize?: number;
+    episodeType?: string;
+    minImportance?: number;
+  }): Promise<PaginatedResponse<EpisodicMemoryItem>> {
+    const searchParams = new URLSearchParams();
+    if (params.page !== undefined) searchParams.set('page', params.page.toString());
+    if (params.pageSize !== undefined) searchParams.set('page_size', params.pageSize.toString());
+    if (params.episodeType) searchParams.set('episode_type', params.episodeType);
+    if (params.minImportance !== undefined)
+      searchParams.set('min_importance', params.minImportance.toString());
+    const query = searchParams.toString();
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        employee_id: string;
+        episode_type: string;
+        description: string;
+        content: Record<string, unknown>;
+        participants: string[];
+        location: string | null;
+        importance: number;
+        recall_count: number;
+        last_recalled_at: string | null;
+        occurred_at: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+      total: number;
+      page: number;
+      page_size: number;
+      pages: number;
+    }>(`/v1/employees/${params.employeeId}/memory/episodic${query ? `?${query}` : ''}`);
+
+    return {
+      items: response.items.map((e) => ({
+        id: e.id,
+        employeeId: e.employee_id,
+        episodeType: e.episode_type,
+        description: e.description,
+        content: e.content,
+        participants: e.participants,
+        location: e.location,
+        importance: e.importance,
+        recallCount: e.recall_count,
+        lastRecalledAt: e.last_recalled_at,
+        occurredAt: e.occurred_at,
+        createdAt: e.created_at,
+        updatedAt: e.updated_at,
+      })),
+      total: response.total,
+      page: response.page,
+      pageSize: response.page_size,
+      pages: response.pages,
+    };
+  }
+
+  async function listSemanticMemory(params: {
+    employeeId: string;
+    page?: number;
+    pageSize?: number;
+    factType?: string;
+    subject?: string;
+    predicate?: string;
+    minConfidence?: number;
+  }): Promise<PaginatedResponse<SemanticMemoryItem>> {
+    const searchParams = new URLSearchParams();
+    if (params.page !== undefined) searchParams.set('page', params.page.toString());
+    if (params.pageSize !== undefined) searchParams.set('page_size', params.pageSize.toString());
+    if (params.factType) searchParams.set('fact_type', params.factType);
+    if (params.subject) searchParams.set('subject', params.subject);
+    if (params.predicate) searchParams.set('predicate', params.predicate);
+    if (params.minConfidence !== undefined)
+      searchParams.set('min_confidence', params.minConfidence.toString());
+    const query = searchParams.toString();
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        employee_id: string;
+        fact_type: string;
+        subject: string;
+        predicate: string;
+        object: string;
+        confidence: number;
+        source: string | null;
+        verified: boolean;
+        access_count: number;
+        last_accessed_at: string | null;
+        context: Record<string, unknown>;
+        created_at: string;
+        updated_at: string;
+      }>;
+      total: number;
+      page: number;
+      page_size: number;
+      pages: number;
+    }>(`/v1/employees/${params.employeeId}/memory/semantic${query ? `?${query}` : ''}`);
+
+    return {
+      items: response.items.map((s) => ({
+        id: s.id,
+        employeeId: s.employee_id,
+        factType: s.fact_type,
+        subject: s.subject,
+        predicate: s.predicate,
+        object: s.object,
+        confidence: s.confidence,
+        source: s.source,
+        verified: s.verified,
+        accessCount: s.access_count,
+        lastAccessedAt: s.last_accessed_at,
+        context: s.context,
+        createdAt: s.created_at,
+        updatedAt: s.updated_at,
+      })),
+      total: response.total,
+      page: response.page,
+      pageSize: response.page_size,
+      pages: response.pages,
+    };
+  }
+
+  async function listProceduralMemory(params: {
+    employeeId: string;
+    page?: number;
+    pageSize?: number;
+    procedureType?: string;
+    minSuccessRate?: number;
+    isPlaybook?: boolean;
+  }): Promise<PaginatedResponse<ProceduralMemoryItem>> {
+    const searchParams = new URLSearchParams();
+    if (params.page !== undefined) searchParams.set('page', params.page.toString());
+    if (params.pageSize !== undefined) searchParams.set('page_size', params.pageSize.toString());
+    if (params.procedureType) searchParams.set('procedure_type', params.procedureType);
+    if (params.minSuccessRate !== undefined)
+      searchParams.set('min_success_rate', params.minSuccessRate.toString());
+    if (params.isPlaybook !== undefined)
+      searchParams.set('is_playbook', params.isPlaybook.toString());
+    const query = searchParams.toString();
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        employee_id: string;
+        name: string;
+        description: string;
+        procedure_type: string;
+        steps: Array<Record<string, unknown>>;
+        trigger_conditions: Record<string, unknown>;
+        success_rate: number;
+        execution_count: number;
+        success_count: number;
+        avg_execution_time: number | null;
+        last_executed_at: string | null;
+        is_playbook: boolean;
+        promoted_at: string | null;
+        learned_from: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      total: number;
+      page: number;
+      page_size: number;
+      pages: number;
+    }>(`/v1/employees/${params.employeeId}/memory/procedural${query ? `?${query}` : ''}`);
+
+    return {
+      items: response.items.map((p) => ({
+        id: p.id,
+        employeeId: p.employee_id,
+        name: p.name,
+        description: p.description,
+        procedureType: p.procedure_type,
+        steps: p.steps,
+        triggerConditions: p.trigger_conditions,
+        successRate: p.success_rate,
+        executionCount: p.execution_count,
+        successCount: p.success_count,
+        avgExecutionTime: p.avg_execution_time,
+        lastExecutedAt: p.last_executed_at,
+        isPlaybook: p.is_playbook,
+        promotedAt: p.promoted_at,
+        learnedFrom: p.learned_from,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+      })),
+      total: response.total,
+      page: response.page,
+      pageSize: response.page_size,
+      pages: response.pages,
+    };
+  }
+
+  async function listWorkingMemory(params: {
+    employeeId: string;
+    itemType?: string;
+  }): Promise<WorkingMemoryListResponse> {
+    const searchParams = new URLSearchParams();
+    if (params.itemType) searchParams.set('item_type', params.itemType);
+    const query = searchParams.toString();
+
+    const response = await request<{
+      items: Array<{
+        id: string;
+        employee_id: string;
+        item_type: string;
+        content: Record<string, unknown>;
+        importance: number;
+        expires_at: number | null;
+        access_count: number;
+        last_accessed_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      total: number;
+    }>(`/v1/employees/${params.employeeId}/memory/working${query ? `?${query}` : ''}`);
+
+    return {
+      items: response.items.map((w): WorkingMemoryItem => ({
+        id: w.id,
+        employeeId: w.employee_id,
+        itemType: w.item_type,
+        content: w.content,
+        importance: w.importance,
+        expiresAt: w.expires_at,
+        accessCount: w.access_count,
+        lastAccessedAt: w.last_accessed_at,
+        createdAt: w.created_at,
+        updatedAt: w.updated_at,
+      })),
+      total: response.total,
+    };
+  }
+
   return {
     setAuthToken,
     login,
@@ -1210,6 +1457,10 @@ export function createApiClient(config: ApiClientConfig) {
     getCostHistory,
     listPlaybooks,
     getPlaybookStats,
+    listEpisodicMemory,
+    listSemanticMemory,
+    listProceduralMemory,
+    listWorkingMemory,
   };
 }
 
