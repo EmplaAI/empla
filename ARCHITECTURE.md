@@ -131,6 +131,7 @@ The core of empla. Each cycle:
 - `goal_management.py` — Progress evaluation, achievement
 - `intention_execution.py` — Agentic tool calling
 - `reflection.py` — Learning, procedural memory, deep reflection
+- `events.py` — `EventMonitoringSystem` for threshold / time-based / external triggers (used by the orchestrator, not a mixin)
 - `protocols.py` — Protocol interfaces for BDI components
 - `models.py` — Pydantic data models
 
@@ -316,7 +317,7 @@ Key items still deferred:
 1. **BDI over task queues** — Employees reason about goals, not execute task lists
 2. **Direct connectors over adapters** — HubSpot/Calendar call APIs directly via httpx. No premature abstraction.
 3. **Taint-based trust boundary** — Structured data (CRM) passes freely. Role restrictions activate only after processing untrusted content (email).
-4. **Mixin pattern for loop** — Execution loop split into modules via Python mixins (`perception.py`, `planning.py`, `goal_management.py`, `intention_execution.py`, `reflection.py`, `events.py`). Orchestrator (`execution.py`) is ~960 lines.
+4. **Mixin pattern for loop** — Execution loop split into modules via Python mixins (`perception.py`, `planning.py`, `goal_management.py`, `intention_execution.py`, `reflection.py`). Orchestrator (`execution.py`) is ~960 lines. `events.py` is a separate subsystem consumed by the orchestrator, not a mixin.
 5. **Single tenant per process** — Runner spawns one process per employee. Module-level state is safe.
 6. **PostgreSQL for everything** — Relational + JSONB + pgvector. No separate vector DB, graph DB, or cache until proven necessary.
 

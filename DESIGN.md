@@ -22,7 +22,7 @@ empla is an **operator dashboard** for autonomous digital employees. The aesthet
 
 ## Palette
 
-Dark theme. HSL values in CSS variables. Defined in `src/index.css`.
+Dark theme. HSL values in CSS variables. Defined in `apps/dashboard/src/index.css`.
 
 | Token | HSL | Purpose |
 |---|---|---|
@@ -43,7 +43,7 @@ Dark theme. HSL values in CSS variables. Defined in `src/index.css`.
 | `--ring` | `190 100% 50%` | Focus ring (same as primary) |
 | `--radius` | `0.5rem` | Base border radius |
 
-**Status colors** (in `tailwind.config.ts`):
+**Status colors** (in `apps/dashboard/tailwind.config.ts`):
 
 | Token | Hex | Use |
 |---|---|---|
@@ -62,7 +62,7 @@ Dark theme. HSL values in CSS variables. Defined in `src/index.css`.
 
 ## Typography
 
-Three families, each with a purpose. Defined in `tailwind.config.ts`:
+Three families, each with a purpose. Defined in `apps/dashboard/tailwind.config.ts`:
 
 ```ts
 fontFamily: {
@@ -245,7 +245,7 @@ Desktop-first is correct for an operator dashboard. Mobile and tablet must work 
 
 **Color contrast:** All text on `bg-background` must hit 4.5:1 minimum. Already verified for existing `foreground` and `muted-foreground` tokens.
 
-**Motion sensitivity:** `prefers-reduced-motion` is honored via a global media query in `index.css` that disables all animation durations and transitions. See the bottom of `src/index.css`.
+**Motion sensitivity:** `prefers-reduced-motion` is honored via a global media query in `apps/dashboard/src/index.css` that disables all animation durations and transitions. See the bottom of `apps/dashboard/src/index.css`.
 
 **Never rely on color alone.** Status always pairs color with text or icon.
 
@@ -272,7 +272,7 @@ Patterns that scream "AI-generated" and must be avoided:
 
 This document is extracted from working code. When you change the design system:
 
-1. Update `apps/dashboard/tailwind.config.ts` or `src/index.css` first.
+1. Update `apps/dashboard/tailwind.config.ts` or `apps/dashboard/src/index.css` first.
 2. Update this document to match.
 3. Both changes ship in the same PR.
 

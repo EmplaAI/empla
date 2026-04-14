@@ -56,8 +56,6 @@
 - `ARCHITECTURE.md` updated: Phase 4 subsystems (playbooks, events, webhooks,
   LLM routing) moved from "NOT BUILT" to "Shipped" section, test count
   corrected, loop module count updated.
-- `~/.gstack/projects/EmplaAI-empla/ceo-plans/2026-03-25-efficiency-intelligence.md`
-  marked COMPLETED.
 
 ---
 

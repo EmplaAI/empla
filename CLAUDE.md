@@ -325,7 +325,9 @@ If gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to bu
 - `/design-review` — Design review
 - `/setup-browser-cookies` — Set up browser cookies
 - `/retro` — Retrospective
-- `/debug` — Debug
+- `/investigate` — Systematic debugging with root-cause analysis
+- `/checkpoint` — Save and resume working state
+- `/health` — Code quality dashboard and health score
 - `/document-release` — Document a release
 
 ---

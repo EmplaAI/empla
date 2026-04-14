@@ -259,10 +259,11 @@ class TestProcedureInfluencesPlanning:
 
         memory.procedural.find_procedures_for_situation.assert_called_once()
         call_kwargs = memory.procedural.find_procedures_for_situation.call_args[1]
-        assert call_kwargs["situation"]["goal_type"] == "achievement"
-        # Note: ``goal_description`` was removed from the situation dict in a
-        # Phase 4 refactor (planning.py:740-742). The situation is now just
-        # ``{"goal_type": ...}``. Test updated to reflect current behavior.
+        # Explicit equality on the full situation dict — guards against
+        # reintroducing keys (e.g., ``goal_description`` was present pre-Phase 4,
+        # removed in planning.py:740-742). If a refactor adds new keys, this
+        # assertion fails loudly rather than silently passing.
+        assert call_kwargs["situation"] == {"goal_type": "achievement"}
         assert call_kwargs["procedure_type"] == "intention_execution"
 
         # Verify generate_plan_for_goal was actually called (success path)
