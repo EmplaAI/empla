@@ -185,8 +185,14 @@ ToolRouter
 |------|------|--------|
 | **SalesAE** | Pipeline building, prospecting, deal progression | Implemented |
 | **CSM** | Customer success, health monitoring, onboarding | Implemented |
+| **ProductManager** | Backlog prioritization, release notes | Implemented |
+| **SDR** | Lead qualification, outbound prospecting | Implemented |
+| **Recruiter** | Sourcing, screening, outreach | Implemented |
 
-Both inherit from `DigitalEmployee` base class. Employee behavior is defined by:
+All inherit from `CatalogBackedEmployee` (a `DigitalEmployee` subclass) that
+reads defaults from `ROLE_CATALOG` via a `role_code` class attribute and
+templatizes startup/shutdown belief + episode recording. Employee behavior is
+defined by:
 - **Personality** (from role catalog)
 - **Default goals** (from role catalog)
 - **Identity** (name, role, personality → LLM system prompt)
@@ -222,7 +228,7 @@ FastAPI at `/api/v1/`:
 | HTTP client | httpx (for HubSpot, Google Calendar) |
 | MCP | Model Context Protocol (stdio + HTTP) |
 | Frontend | React + TypeScript |
-| Testing | pytest (1644 unit tests, ~70% unit coverage) |
+| Testing | pytest (1721 unit tests, ~70% unit coverage) |
 | Linting | ruff |
 | Type checking | mypy |
 | Package manager | uv |
@@ -243,8 +249,9 @@ empla/
 │   ├── memory/             # 4 memory systems
 │   ├── telemetry/          # BDI trajectory telemetry
 │   └── tools/              # ToolRouter, trust boundary, health, MCP bridge
-├── employees/              # Employee types (SalesAE, CSM)
-│   ├── base.py             # DigitalEmployee base class
+├── employees/              # Employee types (SalesAE, CSM, PM, SDR, Recruiter)
+│   ├── base.py             # DigitalEmployee abstract base class
+│   ├── catalog_backed.py   # CatalogBackedEmployee (shared startup template)
 │   ├── catalog.py          # Role catalog (single source of truth)
 │   └── identity.py         # LLM prompt identity
 ├── integrations/           # External service connectors
