@@ -59,6 +59,12 @@ _VALID_PROCEDURE_TYPES = {
 }
 _VALID_WORKING_ITEM_TYPES = {"task", "goal", "observation", "conversation", "context"}
 
+# Belt-and-suspenders cap on the working-memory endpoint. Working memory is
+# "always small (tens of items at most)" by design, but this invariant is not
+# enforced upstream. Without a LIMIT, a bug or runaway producer could surface
+# thousands of items in one response.
+_MAX_WORKING_MEMORY_ITEMS = 200
+
 
 async def _verify_employee(db: DBSession, employee_id: UUID, tenant_id: UUID) -> None:
     """Verify employee exists and belongs to tenant."""
@@ -91,7 +97,7 @@ async def list_episodic_memory(
     auth: CurrentUser,
     employee_id: UUID,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    page_size: Annotated[int, Query(ge=1, le=50)] = 25,
     episode_type: Annotated[str | None, Query()] = None,
     min_importance: Annotated[float | None, Query(ge=0, le=1)] = None,
 ) -> EpisodicMemoryListResponse:
@@ -146,7 +152,7 @@ async def list_semantic_memory(
     auth: CurrentUser,
     employee_id: UUID,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    page_size: Annotated[int, Query(ge=1, le=50)] = 25,
     fact_type: Annotated[str | None, Query()] = None,
     subject: Annotated[str | None, Query()] = None,
     predicate: Annotated[str | None, Query()] = None,
@@ -207,7 +213,7 @@ async def list_procedural_memory(
     auth: CurrentUser,
     employee_id: UUID,
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    page_size: Annotated[int, Query(ge=1, le=50)] = 25,
     procedure_type: Annotated[str | None, Query()] = None,
     min_success_rate: Annotated[float | None, Query(ge=0, le=1)] = None,
     is_playbook: Annotated[bool | None, Query()] = None,
@@ -290,12 +296,21 @@ async def list_working_memory(
             WorkingMemory.deleted_at.is_(None),
         )
         .order_by(WorkingMemory.importance.desc(), WorkingMemory.updated_at.desc())
+        .limit(_MAX_WORKING_MEMORY_ITEMS)
     )
     if item_type:
         query = query.where(WorkingMemory.item_type == item_type)
 
     result = await db.execute(query)
     items = list(result.scalars().all())
+    if len(items) >= _MAX_WORKING_MEMORY_ITEMS:
+        logger.warning(
+            "working memory hit cap for employee=%s tenant=%s (cap=%d) — "
+            "expected tens of items; check for runaway producer",
+            employee_id,
+            auth.tenant_id,
+            _MAX_WORKING_MEMORY_ITEMS,
+        )
 
     return WorkingMemoryListResponse(
         items=[WorkingMemoryResponse.model_validate(w) for w in items],

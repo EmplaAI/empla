@@ -64,12 +64,10 @@ function EmptyState({
   description: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-8 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-muted/50">
-        <Icon className="h-5 w-5 text-muted-foreground" />
-      </div>
-      <p className="mt-3 text-sm font-medium text-muted-foreground">{title}</p>
-      <p className="text-xs text-muted-foreground">{description}</p>
+    <div className="flex flex-col items-center justify-center py-10 text-center">
+      <Icon className="mb-4 h-10 w-10 text-muted-foreground/60" />
+      <h3 className="font-display text-lg">{title}</h3>
+      <p className="mt-2 max-w-sm text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -166,7 +164,7 @@ export function EpisodicMemoryPanel({ employeeId }: { employeeId: string }) {
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="font-display text-base">
+        <CardTitle className="font-display text-lg font-semibold">
           Episodic {data ? `(${data.total})` : ''}
         </CardTitle>
         <Pager page={page} totalPages={totalPages} onChange={setPage} />
@@ -235,7 +233,7 @@ export function SemanticMemoryPanel({ employeeId }: { employeeId: string }) {
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="font-display text-base">
+        <CardTitle className="font-display text-lg font-semibold">
           Semantic {data ? `(${data.total})` : ''}
         </CardTitle>
         <Pager page={page} totalPages={totalPages} onChange={setPage} />
@@ -276,7 +274,7 @@ function ProceduralItem({ item }: { item: ProceduralMemoryItem }) {
           <p className="flex items-center gap-2 text-sm font-medium">
             {item.name}
             {item.isPlaybook ? (
-              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0 text-[10px] font-medium text-emerald-500">
+              <span className="rounded-full border border-status-active/20 bg-status-active/10 px-1.5 py-0 text-[10px] font-medium text-status-active">
                 playbook
               </span>
             ) : null}
@@ -292,7 +290,7 @@ function ProceduralItem({ item }: { item: ProceduralMemoryItem }) {
       <div className="mt-2">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-emerald-500/60 transition-all"
+            className="h-full rounded-full bg-status-active/60 transition-all"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -314,7 +312,7 @@ export function ProceduralMemoryPanel({ employeeId }: { employeeId: string }) {
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="font-display text-base">
+        <CardTitle className="font-display text-lg font-semibold">
           Procedural {data ? `(${data.total})` : ''}
         </CardTitle>
         <Pager page={page} totalPages={totalPages} onChange={setPage} />
@@ -386,7 +384,7 @@ export function WorkingMemoryPanel({ employeeId }: { employeeId: string }) {
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="font-display text-base">
+        <CardTitle className="font-display text-lg font-semibold">
           Working {data ? `(${data.total})` : ''}
         </CardTitle>
       </CardHeader>

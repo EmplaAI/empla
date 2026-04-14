@@ -314,6 +314,15 @@ class SemanticMemory(TenantScopedModel):
             "tenant_id",
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        # Pagination index for the memory browsing API (PR #79).
+        # ORDER BY confidence DESC, updated_at DESC needs a composite to avoid filesort.
+        Index(
+            "idx_semantic_employee_confidence",
+            "employee_id",
+            text("confidence DESC"),
+            text("updated_at DESC"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         # Full-text search
         Index(
             "idx_semantic_fts",

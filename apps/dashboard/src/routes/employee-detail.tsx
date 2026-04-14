@@ -275,7 +275,7 @@ export function EmployeeDetailPage() {
 
             <TabsContent value="activity">
               <Tabs defaultValue="timeline">
-                <TabsList>
+                <TabsList className="w-full justify-start overflow-x-auto">
                   <TabsTrigger value="timeline">Timeline</TabsTrigger>
                   <TabsTrigger value="episodic">Episodic</TabsTrigger>
                   <TabsTrigger value="semantic">Semantic</TabsTrigger>

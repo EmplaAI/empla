@@ -41,6 +41,7 @@ export function useEpisodicMemory(
     queryFn: () =>
       api.listEpisodicMemory({ employeeId, page, pageSize, episodeType, minImportance }),
     enabled: enabled && !!employeeId,
+    staleTime: 30_000,
   });
 }
 
@@ -90,6 +91,7 @@ export function useSemanticMemory(
         minConfidence,
       }),
     enabled: enabled && !!employeeId,
+    staleTime: 30_000,
   });
 }
 
@@ -135,6 +137,7 @@ export function useProceduralMemory(
         isPlaybook,
       }),
     enabled: enabled && !!employeeId,
+    staleTime: 30_000,
   });
 }
 
@@ -157,6 +160,7 @@ export function useWorkingMemory(
     queryKey: memoryKeys.working(employeeId, { itemType }),
     queryFn: () => api.listWorkingMemory({ employeeId, itemType }),
     enabled: enabled && !!employeeId,
+    staleTime: 30_000,
     refetchInterval: autoRefresh ? interval * 1000 : false,
   });
 }
