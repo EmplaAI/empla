@@ -1214,3 +1214,189 @@ async def test_check_goal_achievement_db_error_handled(proactive_loop, mock_goal
 
     # Should not raise
     await proactive_loop._check_goal_achievement(goal, {"deals_closed": 15})
+
+
+# ============================================================================
+# Test: _record_cycle_metrics sessionmaker wiring (regression for silent bug)
+# ============================================================================
+#
+# Context: PR #71/#76 shipped cycle metrics + cost panel, but execution.py:886
+# read `getattr(self.employee, "_sessionmaker", None)`. ``self.employee`` is
+# the SQLAlchemy Employee ORM row, not the DigitalEmployee instance where
+# ``_sessionmaker`` lives. Result: the getattr always returned None and
+# metrics silently no-op'd in production. The cost panel in #76 displayed
+# zero cost for real employees. Zero tests covered the real path.
+#
+# Fix: Pass ``sessionmaker`` explicitly to ProactiveExecutionLoop.__init__
+# and read from ``self._sessionmaker``. These tests assert the wiring works.
+
+
+@pytest.mark.asyncio
+async def test_record_cycle_metrics_uses_injected_sessionmaker(
+    mock_employee, mock_beliefs, mock_goals, mock_intentions, mock_memory, loop_config
+):
+    """_record_cycle_metrics uses the sessionmaker passed into __init__
+    AND forwards the correct payload to record_cycle_metrics.
+
+    Regression for a bug where the loop read _sessionmaker off the ORM row
+    and silently no-op'd. This test guards two failure modes:
+
+    1. sessionmaker not invoked at all (original bug — getattr returned None)
+    2. sessionmaker invoked but payload dropped/mangled (richer silent failure
+       where metrics write runs but writes wrong data — just as invisible
+       to users as a no-op)
+    """
+    from contextlib import asynccontextmanager
+    from unittest.mock import patch as _patch
+
+    # Track session lifecycle calls
+    committed = False
+    session = AsyncMock()
+    session.commit = AsyncMock()
+    session.add = Mock()
+
+    async def _commit():
+        nonlocal committed
+        committed = True
+
+    session.commit.side_effect = _commit
+
+    @asynccontextmanager
+    async def _session_cm():
+        yield session
+
+    sessionmaker_mock = Mock(side_effect=_session_cm)
+
+    employee_tenant_id = uuid4()
+    mock_employee.tenant_id = employee_tenant_id
+
+    # Stub llm_service to verify llm_cost_usd + tokens forward through the
+    # snapshot. Returns the service-level cycle_* keys (what LLMService
+    # populates regardless of routing config, per PR #77 review feedback).
+    mock_llm = Mock()
+    mock_llm.get_cost_summary = Mock(
+        return_value={
+            "total_cost": 0.100,
+            "requests_count": 3,
+            "cycle_cost_usd": 0.042,
+            "cycle_input_tokens": 1500,
+            "cycle_output_tokens": 250,
+        }
+    )
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=mock_intentions,
+        memory=mock_memory,
+        llm_service=mock_llm,
+        config=loop_config,
+        sessionmaker=sessionmaker_mock,
+    )
+    loop.cycle_count = 7  # non-default value to verify forwarding
+
+    # Patch record_cycle_metrics so we can inspect what it was called with.
+    # The function is imported lazily inside _record_cycle_metrics, so we
+    # patch it at the module level to catch the exact call.
+    with _patch(
+        "empla.services.metrics.record_cycle_metrics",
+        new=AsyncMock(return_value=None),
+    ) as recorder:
+        # Invoke the private method directly (unit-level regression test)
+        await loop._record_cycle_metrics(duration_seconds=1.5, success=True)
+
+    # The sessionmaker must have been called — before the fix this would
+    # never happen because the loop read _sessionmaker from the Employee row.
+    assert sessionmaker_mock.called, (
+        "sessionmaker was not invoked — _record_cycle_metrics is silently "
+        "no-op'ing. Check that ProactiveExecutionLoop.__init__ accepts a "
+        "sessionmaker parameter and _record_cycle_metrics reads from "
+        "self._sessionmaker."
+    )
+    assert committed, "session.commit was not called — metrics write did not complete"
+
+    # Payload assertions — guards against the class of silent-failure where
+    # the metrics write runs but writes wrong/missing data. Every production
+    # dashboard consumer of these metrics (cost panel, cycle history) depends
+    # on these fields being correct.
+    assert recorder.called, (
+        "record_cycle_metrics was not called — payload path is broken even "
+        "though sessionmaker was invoked"
+    )
+    kwargs = recorder.call_args.kwargs
+    assert kwargs.get("tenant_id") == employee_tenant_id, (
+        "tenant_id not forwarded correctly — dashboards would show wrong tenant"
+    )
+    assert kwargs.get("employee_id") == mock_employee.id, (
+        "employee_id not forwarded correctly — metrics would be mis-attributed"
+    )
+    assert kwargs.get("cycle_count") == 7, (
+        "cycle_count not forwarded — time-series history would show 0"
+    )
+    assert kwargs.get("duration_seconds") == 1.5, (
+        "duration_seconds not forwarded — performance metrics would be wrong"
+    )
+    assert kwargs.get("success") is True, "success flag not forwarded"
+    assert kwargs.get("llm_cost_usd") == 0.042, (
+        "llm_cost_usd not forwarded from llm_service.get_cost_summary() — "
+        "cost panel would show zero even with sessionmaker wired correctly"
+    )
+    # Token assertions — the dashboard's Tokens card requires these to be
+    # populated. Tracked in LLMService.total_input_tokens / total_output_tokens
+    # and reset per cycle via reset_cycle_budget().
+    assert kwargs.get("llm_input_tokens") == 1500, (
+        "llm_input_tokens not forwarded — dashboard Tokens card stays hidden"
+    )
+    assert kwargs.get("llm_output_tokens") == 250, (
+        "llm_output_tokens not forwarded — dashboard Tokens card stays hidden"
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_cycle_metrics_no_sessionmaker_returns_gracefully(
+    mock_employee, mock_beliefs, mock_goals, mock_intentions, mock_memory, loop_config
+):
+    """When no sessionmaker is provided, the loop logs and skips — no crash."""
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=mock_intentions,
+        memory=mock_memory,
+        config=loop_config,
+        # sessionmaker omitted
+    )
+
+    # Should not raise
+    await loop._record_cycle_metrics(duration_seconds=1.5, success=True)
+    assert loop._sessionmaker is None
+
+
+@pytest.mark.asyncio
+async def test_record_cycle_metrics_ignores_sessionmaker_on_employee_row(
+    mock_employee, mock_beliefs, mock_goals, mock_intentions, mock_memory, loop_config
+):
+    """Regression: stamping _sessionmaker on the Employee row must NOT work.
+
+    Historically the loop read getattr(self.employee, "_sessionmaker", None).
+    If anyone tries to restore that pattern, this test catches it.
+    """
+    # Stamp _sessionmaker on the ORM row (the OLD broken location)
+    wrong_sessionmaker = Mock()
+    mock_employee._sessionmaker = wrong_sessionmaker
+
+    loop = ProactiveExecutionLoop(
+        employee=mock_employee,
+        beliefs=mock_beliefs,
+        goals=mock_goals,
+        intentions=mock_intentions,
+        memory=mock_memory,
+        config=loop_config,
+        # sessionmaker deliberately NOT passed
+    )
+
+    await loop._record_cycle_metrics(duration_seconds=1.5, success=True)
+
+    # The sessionmaker on the ORM row must NOT have been used
+    wrong_sessionmaker.assert_not_called()

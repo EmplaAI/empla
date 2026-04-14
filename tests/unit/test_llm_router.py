@@ -36,7 +36,10 @@ def make_router(
         circuit_breaker_failure_threshold=cb_threshold,
         circuit_breaker_cooldown_seconds=cb_cooldown,
     )
-    kwargs: dict = {"policy": policy, "provider_pool": pool if pool is not None else ALL_MODELS_POOL}
+    kwargs: dict = {
+        "policy": policy,
+        "provider_pool": pool if pool is not None else ALL_MODELS_POOL,
+    }
     if clock is not None:
         kwargs["_clock"] = clock
     return LLMRouter(**kwargs)
@@ -187,7 +190,7 @@ def test_latency_sensitive_flag_in_reason():
 
 def test_soft_budget_at_70pct_downgrades_tier():
     router = make_router(soft_budget=0.10)
-    router._cycle_cost = 0.075  # 75% of 0.10
+    router._cycle_cost["default"] = 0.075  # 75% of 0.10
     decision = router.route(TaskContext(task_type=TaskType.PLAN_GENERATION))  # base tier 2
     assert decision.tier == 1  # downgraded from 2 to 1
     assert "soft_budget" in decision.reason
@@ -195,7 +198,7 @@ def test_soft_budget_at_70pct_downgrades_tier():
 
 def test_soft_budget_below_70pct_no_downgrade():
     router = make_router(soft_budget=0.10)
-    router._cycle_cost = 0.05  # 50% — below threshold
+    router._cycle_cost["default"] = 0.05  # 50% — below threshold
     decision = router.route(TaskContext(task_type=TaskType.PLAN_GENERATION))
     assert decision.tier == 2  # unchanged
 
@@ -216,10 +219,8 @@ def test_retry_escalates_tier():
 def test_retry_can_recover_soft_budget_downgrade():
     # Soft budget nudges tier 2 → 1; retry_count=1 escalates back to 2
     router = make_router(soft_budget=0.10)
-    router._cycle_cost = 0.075
-    decision = router.route(
-        TaskContext(task_type=TaskType.PLAN_GENERATION, retry_count=1)
-    )
+    router._cycle_cost["default"] = 0.075
+    decision = router.route(TaskContext(task_type=TaskType.PLAN_GENERATION, retry_count=1))
     assert decision.tier == 2  # downgrade then recovery
 
 
@@ -236,7 +237,7 @@ def test_retry_capped_at_tier4():
 
 def test_hard_budget_exceeded_forces_tier1():
     router = make_router(hard_budget=0.50)
-    router._cycle_cost = 0.60  # over hard budget
+    router._cycle_cost["default"] = 0.60  # over hard budget
     decision = router.route(TaskContext(task_type=TaskType.PLAN_GENERATION, quality_threshold=0.9))
     assert decision.tier == 1
     assert "hard_budget" in decision.reason
@@ -245,10 +246,8 @@ def test_hard_budget_exceeded_forces_tier1():
 def test_hard_budget_overrides_retry_escalation():
     """Hard budget is applied after retry, so it truly caps at tier 1."""
     router = make_router(hard_budget=0.50)
-    router._cycle_cost = 0.60
-    decision = router.route(
-        TaskContext(task_type=TaskType.BELIEF_EXTRACTION, retry_count=5)
-    )
+    router._cycle_cost["default"] = 0.60
+    decision = router.route(TaskContext(task_type=TaskType.BELIEF_EXTRACTION, retry_count=5))
     # Retry would push to tier 6 (clamped to 4), but hard budget resets to 1
     assert decision.tier == 1
     assert "hard_budget" in decision.reason
@@ -298,9 +297,9 @@ def test_circuit_breaker_clears_after_cooldown():
 
 def test_reset_cycle_budget():
     router = make_router()
-    router._cycle_cost = 0.42
+    router._cycle_cost["default"] = 0.42
     router.reset_cycle_budget()
-    assert router._cycle_cost == 0.0
+    assert router._cycle_cost["default"] == 0.0
 
 
 def test_record_cost_accumulates_cycle_budget():
@@ -315,21 +314,20 @@ def test_record_cost_accumulates_cycle_budget():
     usage.input_tokens = 10_000
     usage.output_tokens = 500
     usage.total_tokens = 10_500
-    # Use real calculate_cost — pass the actual LLMModel
-    from empla.llm.config import MODELS
-
+    # Stub TokenUsage.calculate_cost to match its real formula. The router's
+    # record_cost() resolves the actual LLMModel internally via MODELS.get(model_key).
     usage.calculate_cost = lambda model: (
         (usage.input_tokens / 1_000_000) * model.input_cost_per_1m
         + (usage.output_tokens / 1_000_000) * model.output_cost_per_1m
     )
 
     router.record_cost("gemini-2.0-flash", usage)
-    assert abs(router._cycle_cost - 0.0018) < 1e-9
+    assert abs(router._cycle_cost["default"] - 0.0018) < 1e-9
 
 
 def test_get_budget_state():
     router = make_router()
-    router._cycle_cost = 0.05
+    router._cycle_cost["default"] = 0.05
     state = router.get_budget_state()
     assert state["cycle_cost_usd"] == 0.05
     assert "soft_budget_usd" in state

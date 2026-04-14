@@ -69,7 +69,8 @@ export function EmployeeCard({ employee, onStart, onStop, onPause }: EmployeeCar
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+                    className="opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label="More actions"
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>

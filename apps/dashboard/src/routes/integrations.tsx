@@ -84,7 +84,7 @@ export function IntegrationsPage() {
       <section>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-display text-lg font-semibold">MCP Servers</h2>
-          <Button size="sm" onClick={() => setShowAddServer(true)}>
+          <Button onClick={() => setShowAddServer(true)}>
             <Plus className="mr-1.5 h-4 w-4" />
             Add Server
           </Button>

@@ -127,3 +127,34 @@
     }
   }
 }
+
+/* Accessibility: honor prefers-reduced-motion.
+ * Users with vestibular disorders or motion sensitivity opt out of animations
+ * via OS settings. Disable non-essential animation and transition durations
+ * when the preference is set. Pulse, glow, scale, and fade effects all stop.
+ *
+ * EXCEPTION: loading indicators (animate-spin on Loader2 icons, animate-pulse
+ * on Skeleton components) are essential status communication. If they freeze,
+ * users think the app is broken. Restore their animations inside the media
+ * query so they remain visible. This matches WAI guidance that essential
+ * motion (loading / progress) should be preserved. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Restore essential loading / status animations. Uses Tailwind's default
+   * keyframe definitions (spin and pulse are built-in). */
+  .animate-spin {
+    animation: spin 1.5s linear infinite !important;
+  }
+
+  .animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
+  }
+}

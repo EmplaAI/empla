@@ -12,9 +12,10 @@ export function Pagination({ page, totalPages, onPageChange }: PaginationProps) 
 
   return (
     <div className="flex items-center justify-center gap-2">
+      {/* Default size (h-11, 44px) meets WCAG 2.5.5 minimum touch target.
+          Pagination controls are primary navigation — no dense-UI exception. */}
       <Button
         variant="outline"
-        size="sm"
         onClick={() => onPageChange(page - 1)}
         disabled={page <= 1}
         className="gap-1"
@@ -28,9 +29,8 @@ export function Pagination({ page, totalPages, onPageChange }: PaginationProps) 
           <Button
             key={p}
             variant={p === page ? 'default' : 'ghost'}
-            size="sm"
             onClick={() => onPageChange(p)}
-            className="h-8 w-8 p-0 font-mono"
+            className="h-11 w-11 p-0 font-mono"
           >
             {p}
           </Button>
@@ -39,7 +39,6 @@ export function Pagination({ page, totalPages, onPageChange }: PaginationProps) 
 
       <Button
         variant="outline"
-        size="sm"
         onClick={() => onPageChange(page + 1)}
         disabled={page >= totalPages}
         className="gap-1"

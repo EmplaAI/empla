@@ -5,7 +5,7 @@ Focuses on:
 - generate (primary success, fallback, no fallback raises)
 - generate_structured (primary success, fallback, no fallback raises)
 - generate_with_tools (primary success, fallback, NotImplementedError propagated, no fallback raises)
-- _track_cost
+- _track_cost_for_model
 - get_cost_summary
 - close
 - _validate_api_key
@@ -62,6 +62,16 @@ def _make_service(
     service.config = config
     service.total_cost = 0.0
     service.requests_count = 0
+    service.total_input_tokens = 0
+    service.total_output_tokens = 0
+    # Attributes that would otherwise be set by __init__. We set them to
+    # empty/None so internal methods that reference them don't AttributeError.
+    service._router = None
+    service._provider_pool = {}
+    service._owner_id = "default"
+    service._cycle_cost_usd = 0.0
+    service._cycle_input_tokens = 0
+    service._cycle_output_tokens = 0
 
     # Mock primary
     service.primary = Mock()
@@ -221,38 +231,40 @@ class TestGenerateWithTools:
 
 
 # ============================================================================
-# _track_cost
+# _track_cost_for_model
 # ============================================================================
 
 
 class TestTrackCost:
+    """Tests for _track_cost_for_model (renamed from _track_cost in LLM routing refactor)."""
+
     def test_tracks_primary_cost(self):
         service = _make_service()
         response = _make_response(cost_tokens=1000)
-        service._track_cost(response, is_primary=True)
+        service._track_cost_for_model(response, model_key="gemini-3-flash-preview")
         assert service.total_cost > 0
         assert service.requests_count == 1
 
     def test_tracks_fallback_cost(self):
         service = _make_service()
         response = _make_response(cost_tokens=1000)
-        service._track_cost(response, is_primary=False)
+        service._track_cost_for_model(response, model_key="gpt-4o")
         assert service.total_cost > 0
 
     def test_cost_tracking_disabled(self):
         service = _make_service()
         service.config.enable_cost_tracking = False
         response = _make_response(cost_tokens=1000)
-        service._track_cost(response, is_primary=True)
+        service._track_cost_for_model(response, model_key="gemini-3-flash-preview")
         assert service.total_cost == 0.0
         assert service.requests_count == 0
 
-    def test_no_fallback_model_config(self):
-        service = _make_service(fallback=False)
+    def test_unknown_model_key_no_crash(self):
+        """Unknown model key should skip cost tracking without raising."""
+        service = _make_service()
         response = _make_response(cost_tokens=1000)
-        # is_primary=False but no fallback model configured
-        service._track_cost(response, is_primary=False)
-        # Should not crash, just skip
+        service._track_cost_for_model(response, model_key="nonexistent-model")
+        # Unknown model: cost skipped, no crash
         assert service.requests_count == 0
 
 

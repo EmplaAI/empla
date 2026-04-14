@@ -113,11 +113,13 @@ export function CredentialsTable() {
               </div>
             </div>
 
-            {/* Revoke button */}
+            {/* Revoke button — destructive action, stays at full icon size
+                (h-11 w-11, 44px) per WCAG 2.5.5. A too-small destructive
+                button is the worst UX+a11y combination. */}
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              className="text-muted-foreground hover:text-destructive"
               onClick={() => handleRevoke(cred)}
               disabled={isRevoking}
             >

@@ -34,6 +34,10 @@ def _make_memory(
         proc.find_procedures_for_situation = AsyncMock(return_value=[])
         proc.reinforce_successful_procedures = AsyncMock()
         proc.archive_poor_procedures = AsyncMock()
+        # find_playbooks added in Phase 4 (PR #73). The mock must be awaitable
+        # or the planning phase raises TypeError when calling
+        # `await memory.procedural.find_playbooks(...)`.
+        proc.find_playbooks = AsyncMock(return_value=[])
         memory.procedural = proc
 
     if episodic is not None:
@@ -255,8 +259,11 @@ class TestProcedureInfluencesPlanning:
 
         memory.procedural.find_procedures_for_situation.assert_called_once()
         call_kwargs = memory.procedural.find_procedures_for_situation.call_args[1]
-        assert call_kwargs["situation"]["goal_type"] == "achievement"
-        assert "Close 10 deals" in call_kwargs["situation"]["goal_description"]
+        # Explicit equality on the full situation dict — guards against
+        # reintroducing keys (e.g., ``goal_description`` was present pre-Phase 4,
+        # removed in planning.py:740-742). If a refactor adds new keys, this
+        # assertion fails loudly rather than silently passing.
+        assert call_kwargs["situation"] == {"goal_type": "achievement"}
         assert call_kwargs["procedure_type"] == "intention_execution"
 
         # Verify generate_plan_for_goal was actually called (success path)

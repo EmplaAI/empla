@@ -68,6 +68,8 @@ from empla.core.loop.reflection import ReflectionMixin
 from empla.models.employee import Employee
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from empla.employees.identity import EmployeeIdentity
     from empla.llm import LLMService
     from empla.runner.health import HealthServer
@@ -139,6 +141,7 @@ class ProactiveExecutionLoop(
         hooks: HookRegistry | None = None,
         tool_router: ToolSourceProtocol | None = None,
         identity: EmployeeIdentity | None = None,
+        sessionmaker: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop.
@@ -158,6 +161,11 @@ class ProactiveExecutionLoop(
             tool_router: Optional unified tool source for tool discovery and execution.
             identity: Optional EmployeeIdentity providing name, role, personality,
                 and goals context for LLM prompts.
+            sessionmaker: Optional async sessionmaker used for short-lived metrics
+                writes. Required for cycle metrics to persist. Previously read via
+                ``getattr(self.employee, "_sessionmaker", None)`` which silently
+                no-op'd because ``self.employee`` is the ORM row, not the
+                ``DigitalEmployee`` instance that holds ``_sessionmaker``.
         """
         self.employee = employee
         self.beliefs = beliefs
@@ -169,6 +177,7 @@ class ProactiveExecutionLoop(
         self._status_checker = status_checker
         self._hooks = hooks or HookRegistry()
         self._identity = identity
+        self._sessionmaker = sessionmaker
         if identity is not None:
             self._identity_prompt: str | None = identity.to_system_prompt()
             logger.debug(
@@ -883,8 +892,19 @@ class ProactiveExecutionLoop(
         Uses a separate session so metrics writes don't pollute the BDI
         loop's long-lived session. Cache update deferred until after commit.
         """
-        sessionmaker = getattr(self.employee, "_sessionmaker", None)
+        sessionmaker = self._sessionmaker
         if sessionmaker is None:
+            # WARNING (not debug) — the whole point of PR #77 was to stop silent
+            # no-op metrics. Logging this at debug would re-hide the same class
+            # of failure: operators checking "why is my cost panel empty?" in
+            # INFO+ production logs would see nothing.
+            logger.warning(
+                "Cycle metrics skipped: no sessionmaker configured. "
+                "Pass sessionmaker= to ProactiveExecutionLoop (see "
+                "empla/employees/base.py:_init_loop) to enable metrics "
+                "persistence.",
+                extra={"employee_id": str(self.employee.id)},
+            )
             return
         try:
             # Deferred import: empla.services.metrics imports empla.models which
@@ -904,14 +924,26 @@ class ProactiveExecutionLoop(
             except Exception:
                 logger.debug("Health monitor query failed, recording without tool stats")
 
-            # Collect LLM cost for this cycle (before reset_cycle_budget)
+            # Collect LLM cost + tokens for this cycle (before reset_cycle_budget).
+            # Reads service-level ``cycle_*`` fields which are populated whether
+            # or not routing is enabled. The ``routing.cycle_cost_usd`` path is
+            # kept as a fallback for configurations where the service's own
+            # per-cycle counter is somehow bypassed.
             llm_cost_usd = None
+            llm_input_tokens = None
+            llm_output_tokens = None
             try:
                 if self.llm_service:
                     cost_summary = self.llm_service.get_cost_summary()
-                    routing = cost_summary.get("routing")
-                    if routing and "cycle_cost_usd" in routing:
+                    # Prefer service-level per-cycle fields (always present
+                    # when cost tracking is enabled).
+                    if "cycle_cost_usd" in cost_summary:
+                        llm_cost_usd = cost_summary["cycle_cost_usd"]
+                    elif (routing := cost_summary.get("routing")) and "cycle_cost_usd" in routing:
+                        # Fallback: router-sourced per-cycle cost.
                         llm_cost_usd = routing["cycle_cost_usd"]
+                    llm_input_tokens = cost_summary.get("cycle_input_tokens")
+                    llm_output_tokens = cost_summary.get("cycle_output_tokens")
             except Exception:
                 logger.debug("LLM cost summary query failed, recording without cost")
 
@@ -925,14 +957,22 @@ class ProactiveExecutionLoop(
                     success=success,
                     tool_stats=tool_stats,
                     llm_cost_usd=llm_cost_usd,
+                    llm_input_tokens=llm_input_tokens,
+                    llm_output_tokens=llm_output_tokens,
                 )
                 await metrics_session.commit()
                 # Only advance cache AFTER commit succeeds
                 if snapshot is not None:
                     _previous_tool_stats[self.employee.id] = snapshot
         except Exception:
-            logger.debug(
-                "Failed to record cycle metrics",
+            # WARNING (not debug) — metrics-write failures are a production
+            # observability concern. Connection pool exhaustion, schema
+            # mismatch, or DB unavailability would otherwise be invisible in
+            # INFO+ logs while the cost panel silently goes quiet.
+            logger.warning(
+                "Failed to record cycle metrics — cost panel and cycle "
+                "history will miss this cycle. Check DB connectivity and "
+                "metrics schema.",
                 exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )
