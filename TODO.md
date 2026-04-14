@@ -2,15 +2,16 @@
 
 > **Updated:** 2026-04-14
 > **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5 (Platform
-> Completeness + Employee Polish) in progress. PR #77 foundation and PR #78
-> CatalogBackedEmployee + PM/SDR/Recruiter shipped. 8 more PRs remain.
+> Completeness + Employee Polish) in progress. PR #77 foundation, PR #78
+> CatalogBackedEmployee + PM/SDR/Recruiter, and PR #79 memory browsing API +
+> 4-group tab restructure shipped. 7 more PRs remain.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
 
 ## Current State
 
-Tests: **1721 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Tests: **1761 unit tests passing** (0 failing), ~70% coverage on unit test scope |
 Employees: SalesAE, CSM, ProductManager, SDR, Recruiter (all 5 catalog roles implemented) |
 Core features: Complete BDI loop, playbook system with autonomous discovery,
 event-driven wake + scheduled actions, webhooks with credential-based routing,
@@ -36,8 +37,14 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
   Recruiter classes. +101 unit tests, trust-boundary enum completeness fix.
   Deferred to follow-up: DRY draft_* refactor, deepcopy on frozen Personality,
   prioritize_backlog/prioritize_accounts dropping LLM output.
-- **PR #79** — Memory browsing UI (Episodic, Semantic, Procedural, Working) +
-  4-group tab restructure (Activity/Mind/Operations/Business)
+- **PR #79** ✓ SHIPPED 2026-04-14: Memory browsing API (4 paginated endpoints)
+  + 4-group tab restructure (ACTIVITY/MIND/BUSINESS, OPERATIONS deferred to
+  PR #80/#82). +40 unit tests. New idx_semantic_employee_confidence index.
+  Working memory hard-capped at 200 items defensively. Deferred to follow-up:
+  DRY pagination helper, type triplication (openapi-typescript), pager touch
+  targets (pre-existing 28px pattern across all panels), validation enum-set
+  duplication from model CHECK constraints, ProceduralMemoryPanel wiring
+  (lands in PR #84 playbook editor).
 - **PR #80** — Tool catalog + per-employee tool health
 
 ### Phase 5B — User Power + Visibility (6 PRs)
