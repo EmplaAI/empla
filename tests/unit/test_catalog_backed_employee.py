@@ -156,8 +156,10 @@ class TestOnStart:
         assert kwargs["episode_type"] == "event"
         assert kwargs["content"]["event"] == "employee_started"
         assert kwargs["content"]["role"] == "pm"
-        assert isinstance(kwargs["content"]["capabilities"], list)
-        assert isinstance(kwargs["content"]["goals"], list)
+        # Exact content: must reflect this employee's defaults, not sibling-role defaults.
+        # Guards against the very bug CatalogBackedEmployee was refactored to prevent.
+        assert kwargs["content"]["capabilities"] == emp.default_capabilities
+        assert kwargs["content"]["goals"] == [g.description for g in emp.default_goals]
 
     @pytest.mark.asyncio
     async def test_belief_failure_raises_employee_startup_error(self):
@@ -182,6 +184,12 @@ class TestOnStart:
 
         # Should complete without raising
         await emp.on_start()
+
+        # Belief must have been written before the episode failure (observable,
+        # not just "did not raise"). Guards against a future refactor that
+        # swallows belief errors along with episode errors.
+        emp._beliefs.update_belief.assert_awaited_once()
+        emp._memory.episodic.record_episode.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

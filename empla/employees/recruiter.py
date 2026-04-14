@@ -25,6 +25,9 @@ from empla.employees.exceptions import LLMGenerationError
 
 logger = logging.getLogger(__name__)
 
+MAX_NAME_LENGTH = 100
+SCREENING_NOTES_MAX_CHARS = 500  # 2-3 sentence excerpt for stub output
+
 
 class Recruiter(CatalogBackedEmployee):
     """Recruiter Digital Employee."""
@@ -77,7 +80,7 @@ class Recruiter(CatalogBackedEmployee):
             return {
                 "fit": "possible",
                 "score": 0,
-                "notes": response.content[:500],
+                "notes": response.content[:SCREENING_NOTES_MAX_CHARS],
             }
         except Exception as e:
             logger.error(
@@ -113,10 +116,10 @@ class Recruiter(CatalogBackedEmployee):
             raise ValueError("candidate_name cannot be empty")
         if not role_title or not role_title.strip():
             raise ValueError("role_title cannot be empty")
-        if len(candidate_name) > 100:
-            raise ValueError("candidate_name too long (max 100 chars)")
-        if len(role_title) > 100:
-            raise ValueError("role_title too long (max 100 chars)")
+        if len(candidate_name) > MAX_NAME_LENGTH:
+            raise ValueError(f"candidate_name too long (max {MAX_NAME_LENGTH} chars)")
+        if len(role_title) > MAX_NAME_LENGTH:
+            raise ValueError(f"role_title too long (max {MAX_NAME_LENGTH} chars)")
 
         candidate_name = candidate_name.strip()
         role_title = role_title.strip()

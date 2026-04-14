@@ -94,19 +94,18 @@ GLOBALLY_DENIED_TOOLS: frozenset[str] = frozenset(
 )
 
 # Per-role denied tools (prefix matching supported with trailing dot).
+# All built-in roles share the same baseline deny list — admin.* and system.*
+# tools should never be callable from a tainted context regardless of role.
+# Adding a new role? Add it here, or refactor so every registered role inherits
+# ``_BASELINE_ROLE_DENIED`` automatically.
+_BASELINE_ROLE_DENIED: frozenset[str] = frozenset({"admin.", "system."})
+
 DENIED_TOOLS_BY_ROLE: dict[str, frozenset[str]] = {
-    "sales_ae": frozenset(
-        {
-            "admin.",
-            "system.",
-        }
-    ),
-    "csm": frozenset(
-        {
-            "admin.",
-            "system.",
-        }
-    ),
+    "sales_ae": _BASELINE_ROLE_DENIED,
+    "csm": _BASELINE_ROLE_DENIED,
+    "pm": _BASELINE_ROLE_DENIED,
+    "sdr": _BASELINE_ROLE_DENIED,
+    "recruiter": _BASELINE_ROLE_DENIED,
 }
 
 # Maximum tool calls per BDI cycle (safety valve against runaway loops)

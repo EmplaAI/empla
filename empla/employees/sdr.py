@@ -26,6 +26,9 @@ from empla.employees.exceptions import LLMGenerationError
 
 logger = logging.getLogger(__name__)
 
+MAX_NAME_LENGTH = 100
+QUALIFICATION_REASONING_MAX_CHARS = 280  # tweet-length excerpt for stub output
+
 
 class SDR(CatalogBackedEmployee):
     """Sales Development Representative Digital Employee."""
@@ -68,7 +71,7 @@ class SDR(CatalogBackedEmployee):
             return {
                 "qualified": False,
                 "score": 0,
-                "reasoning": response.content[:280],
+                "reasoning": response.content[:QUALIFICATION_REASONING_MAX_CHARS],
             }
         except Exception as e:
             logger.error(
@@ -104,10 +107,10 @@ class SDR(CatalogBackedEmployee):
             raise ValueError("prospect_name cannot be empty")
         if not company or not company.strip():
             raise ValueError("company cannot be empty")
-        if len(prospect_name) > 100:
-            raise ValueError("prospect_name too long (max 100 chars)")
-        if len(company) > 100:
-            raise ValueError("company too long (max 100 chars)")
+        if len(prospect_name) > MAX_NAME_LENGTH:
+            raise ValueError(f"prospect_name too long (max {MAX_NAME_LENGTH} chars)")
+        if len(company) > MAX_NAME_LENGTH:
+            raise ValueError(f"company too long (max {MAX_NAME_LENGTH} chars)")
 
         prospect_name = prospect_name.strip()
         company = company.strip()

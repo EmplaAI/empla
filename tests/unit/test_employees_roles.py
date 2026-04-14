@@ -628,3 +628,21 @@ class TestAllRolesDifferentiated:
             for b in codes[i + 1 :]:
                 overlap = descs_by_role[a] & descs_by_role[b]
                 assert not overlap, f"{a} and {b} share goals: {overlap}"
+
+    def test_focus_keywords_unique_per_role(self):
+        """Guards against catalog copy-paste bugs on focus_keyword."""
+        focuses = {code: get_role(code).focus_keyword for code in self._make_all()}
+        assert len(set(focuses.values())) == len(focuses), f"focus_keyword collision: {focuses}"
+        for code, focus in focuses.items():
+            assert focus, f"{code} missing focus_keyword"
+
+    def test_personalities_unique_per_role(self):
+        """Guards against catalog copy-paste bugs on personality."""
+        all_emps = self._make_all()
+        personalities = {code: emp.default_personality for code, emp in all_emps.items()}
+        codes = list(personalities.keys())
+        for i, a in enumerate(codes):
+            for b in codes[i + 1 :]:
+                assert personalities[a] != personalities[b], (
+                    f"{a} and {b} have identical personalities — likely copy-paste"
+                )

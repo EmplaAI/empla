@@ -26,6 +26,9 @@ from empla.employees.exceptions import LLMGenerationError
 
 logger = logging.getLogger(__name__)
 
+LARGE_BACKLOG_WARNING_THRESHOLD = 100
+MAX_VERSION_LENGTH = 50
+
 
 class ProductManager(CatalogBackedEmployee):
     """Product Manager Digital Employee."""
@@ -51,7 +54,7 @@ class ProductManager(CatalogBackedEmployee):
         if not items:
             return []
 
-        if len(items) > 100:
+        if len(items) > LARGE_BACKLOG_WARNING_THRESHOLD:
             logger.warning(f"Large backlog ({len(items)}), prioritization may be slow")
 
         prompt = f"""
@@ -100,8 +103,8 @@ class ProductManager(CatalogBackedEmployee):
             raise ValueError("features cannot be empty")
         if not version or not version.strip():
             raise ValueError("version cannot be empty")
-        if len(version) > 50:
-            raise ValueError("version too long (max 50 chars)")
+        if len(version) > MAX_VERSION_LENGTH:
+            raise ValueError(f"version too long (max {MAX_VERSION_LENGTH} chars)")
 
         version = version.strip()
 
