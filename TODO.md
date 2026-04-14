@@ -1,17 +1,17 @@
 # empla - Roadmap
 
-> **Updated:** 2026-04-11
+> **Updated:** 2026-04-14
 > **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5 (Platform
-> Completeness + Employee Polish) planned and reviewed. Next: PR #77 foundation,
-> then 9 more PRs split across Phase 5A and 5B.
+> Completeness + Employee Polish) in progress. PR #77 foundation and PR #78
+> CatalogBackedEmployee + PM/SDR/Recruiter shipped. 8 more PRs remain.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
 
 ## Current State
 
-Tests: **1644 unit tests passing** (0 failing), ~70% coverage on unit test scope |
-Employees: SalesAE, CSM (with PM, SDR, Recruiter coming in PR #78) |
+Tests: **1721 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Employees: SalesAE, CSM, ProductManager, SDR, Recruiter (all 5 catalog roles implemented) |
 Core features: Complete BDI loop, playbook system with autonomous discovery,
 event-driven wake + scheduled actions, webhooks with credential-based routing,
 LLM routing layer with cost tracking, cost panel + playbook viewer in dashboard.
@@ -28,11 +28,14 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
 
 ### Phase 5A — Core Completeness (4 PRs)
 
-- **PR #77 — Foundation** (in progress): docs housekeeping, critical cost metrics
-  hotfix (execution.py:886 silent no-op bug from Phase 4), 16 pre-existing test
-  failures fixed (LLM router + service tests), DESIGN.md creation, Button a11y
-  fix (44×44px WCAG 2.5.5), reduced-motion support
-- **PR #78** — CatalogBackedEmployee refactor + PM, SDR, Recruiter classes
+- **PR #77 — Foundation** ✓ SHIPPED 2026-04-11: docs housekeeping, critical cost
+  metrics hotfix (execution.py:886 silent no-op bug from Phase 4), 16 pre-existing
+  test failures fixed (LLM router + service tests), DESIGN.md creation, Button
+  a11y fix (44×44px WCAG 2.5.5), reduced-motion support
+- **PR #78** ✓ SHIPPED 2026-04-14: CatalogBackedEmployee refactor + PM, SDR,
+  Recruiter classes. +101 unit tests, trust-boundary enum completeness fix.
+  Deferred to follow-up: DRY draft_* refactor, deepcopy on frozen Personality,
+  prioritize_backlog/prioritize_accounts dropping LLM output.
 - **PR #79** — Memory browsing UI (Episodic, Semantic, Procedural, Working) +
   4-group tab restructure (Activity/Mind/Operations/Business)
 - **PR #80** — Tool catalog + per-employee tool health
