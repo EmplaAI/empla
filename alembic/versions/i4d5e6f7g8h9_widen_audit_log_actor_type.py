@@ -15,6 +15,7 @@ Drop and recreate the constraint with the new value.
 from collections.abc import Sequence
 
 from alembic import op
+from sqlalchemy import text as sa_text
 
 revision: str = "i4d5e6f7g8h9"
 down_revision: str | None = "h3c4d5e6f7g8"
@@ -31,8 +32,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Drop any webhook-actor rows so the narrower constraint can re-apply.
-    op.execute("DELETE FROM audit_log WHERE actor_type = 'webhook'")
+    # Audit rows are compliance data — never silently destroy them. If any
+    # webhook-actor rows exist, fail the downgrade and tell the operator
+    # to decide how to handle them (archive, export, or explicit DELETE).
+    bind = op.get_bind()
+    count = bind.execute(
+        sa_text("SELECT COUNT(*) FROM audit_log WHERE actor_type = 'webhook'")
+    ).scalar()
+    if count and int(count) > 0:
+        raise RuntimeError(
+            f"Refusing to downgrade: {count} webhook audit rows exist. "
+            "Archive or explicitly delete them first — a constraint downgrade "
+            "would either DELETE them silently or fail at commit."
+        )
     op.execute("ALTER TABLE audit_log DROP CONSTRAINT IF EXISTS ck_audit_log_actor_type")
     op.execute(
         "ALTER TABLE audit_log ADD CONSTRAINT ck_audit_log_actor_type "

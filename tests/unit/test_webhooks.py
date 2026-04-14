@@ -612,7 +612,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "invalid-token"},
+                    headers={"X-Webhook-Token": "invalid-token-1234567890"},
                     json={"subscriptionType": "deal.updated"},
                 )
             assert resp.status_code == 401
@@ -653,7 +653,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "valid-token"},
+                    headers={"X-Webhook-Token": "valid-token-1234567890"},
                     json=[{"subscriptionType": "deal.updated", "objectId": 123}],
                 )
 
@@ -695,7 +695,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "valid-token"},
+                    headers={"X-Webhook-Token": "valid-token-1234567890"},
                     json={"subscriptionType": "deal.updated"},
                 )
 
@@ -734,7 +734,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "valid-token"},
+                    headers={"X-Webhook-Token": "valid-token-1234567890"},
                     json={"subscriptionType": "deal.updated"},
                 )
 
@@ -775,7 +775,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "valid-token"},
+                    headers={"X-Webhook-Token": "valid-token-1234567890"},
                     json={"subscriptionType": "deal.updated"},
                 )
 

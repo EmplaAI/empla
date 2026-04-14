@@ -72,14 +72,34 @@ const WIZARD_PROVIDERS: Array<{
 
 function TokenReceivedDialog({
   token,
+  provider,
   onClose,
 }: {
   token: string | null;
+  provider: string | null;
   onClose: () => void;
 }) {
+  const [saved, setSaved] = useState(false);
+  const targetUrl =
+    token && provider ? `${window.location.origin}/api/v1/webhooks/${provider}` : '';
+
+  if (!token && saved) setSaved(false);
+
+  const copy = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error('Clipboard blocked — select the text and copy manually.');
+    }
+  };
+
   return (
-    <Dialog open={!!token} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
+    <Dialog open={!!token} onOpenChange={(open) => !open && saved && onClose()}>
+      <DialogContent
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="font-display">Token generated</DialogTitle>
           <DialogDescription>
@@ -87,22 +107,40 @@ function TokenReceivedDialog({
             one.
           </DialogDescription>
         </DialogHeader>
-        <div className="mt-2 rounded-lg border border-border/50 bg-muted p-3 font-mono text-xs break-all">
-          {token ?? ''}
+        <div className="mt-2 space-y-3">
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Token</p>
+            <div className="rounded-lg border border-border/50 bg-muted p-3 font-mono text-xs break-all">
+              {token ?? ''}
+            </div>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
+              Target URL (set this as the webhook destination in {provider ?? 'your provider'})
+            </p>
+            <div className="rounded-lg border border-border/50 bg-muted p-3 font-mono text-xs break-all">
+              {targetUrl}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Send the token in the <code className="font-mono">X-Webhook-Token</code> header.
+          </p>
         </div>
-        <DialogFooter>
-          <Button
-            onClick={() => {
-              if (token) {
-                navigator.clipboard.writeText(token);
-                toast.success('Token copied to clipboard');
-              }
-            }}
-          >
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
+          <Button variant="outline" onClick={() => targetUrl && copy(targetUrl, 'URL')}>
+            <Copy className="mr-2 h-4 w-4" /> Copy URL
+          </Button>
+          <Button onClick={() => token && copy(token, 'Token')}>
             <Copy className="mr-2 h-4 w-4" /> Copy token
           </Button>
-          <Button variant="outline" onClick={onClose}>
-            Done
+          <Button
+            variant={saved ? 'default' : 'outline'}
+            onClick={() => {
+              setSaved(true);
+              onClose();
+            }}
+          >
+            I've saved it
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -115,15 +153,17 @@ function TokenRow({
   onGenerated,
 }: {
   token: WebhookTokenInfo;
-  onGenerated: (value: string) => void;
+  onGenerated: (value: string, provider: string) => void;
 }) {
   const create = useCreateWebhookToken();
   const rotate = useRotateWebhookToken();
   const del = useDeleteWebhookToken();
 
+  const targetUrl = `${window.location.origin}/api/v1/webhooks/${token.provider}`;
+
   const handleGenerate = async () => {
     const result = await create.mutateAsync({ integrationId: token.integrationId });
-    onGenerated(result.token);
+    onGenerated(result.token, token.provider);
   };
 
   const handleRotate = async () => {
@@ -135,7 +175,16 @@ function TokenRow({
       return;
     }
     const result = await rotate.mutateAsync({ integrationId: token.integrationId });
-    onGenerated(result.token);
+    onGenerated(result.token, token.provider);
+  };
+
+  const handleCopyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(targetUrl);
+      toast.success('Target URL copied');
+    } catch {
+      toast.error('Clipboard blocked — select the text and copy manually.');
+    }
   };
 
   const handleDelete = async () => {
@@ -148,7 +197,7 @@ function TokenRow({
 
   return (
     <div className="rounded-lg border border-border/50 bg-muted/30 p-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="font-mono text-sm">
             <span className="text-primary">{token.provider}</span>
@@ -169,6 +218,16 @@ function TokenRow({
               'No token yet.'
             )}
           </p>
+          {token.hasToken ? (
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded border border-border/40 bg-background/60 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+                {targetUrl}
+              </code>
+              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={handleCopyUrl}>
+                <Copy className="h-3 w-3" />
+              </Button>
+            </div>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {token.hasToken ? (
@@ -206,7 +265,7 @@ function TokenManager({
   onGenerated,
 }: {
   providers: ProviderInfo[] | undefined;
-  onGenerated: (value: string) => void;
+  onGenerated: (value: string, provider: string) => void;
 }) {
   const { data, isLoading, error, refetch } = useWebhookTokens();
 
@@ -388,7 +447,7 @@ function SetupWizards() {
 }
 
 export function EventsPage() {
-  const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  const [issued, setIssued] = useState<{ token: string; provider: string } | null>(null);
   const providersQuery = useProviders();
 
   return (
@@ -400,11 +459,18 @@ export function EventsPage() {
         </p>
       </div>
 
-      <TokenManager providers={providersQuery.data} onGenerated={setIssuedToken} />
+      <TokenManager
+        providers={providersQuery.data}
+        onGenerated={(token, provider) => setIssued({ token, provider })}
+      />
       <EventFeed />
       <SetupWizards />
 
-      <TokenReceivedDialog token={issuedToken} onClose={() => setIssuedToken(null)} />
+      <TokenReceivedDialog
+        token={issued?.token ?? null}
+        provider={issued?.provider ?? null}
+        onClose={() => setIssued(null)}
+      />
     </div>
   );
 }

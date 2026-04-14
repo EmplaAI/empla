@@ -200,6 +200,30 @@ class TestTokenEndpoints:
         assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_create_409_when_token_already_exists(self):
+        """Double-clicking Generate should 409, not silently issue a dead token."""
+        auth = _auth()
+        integration_id = uuid4()
+        integ = _FakeIntegration(
+            integration_id,
+            auth.tenant_id,
+            oauth_config={"webhook_token": "already-here"},
+        )
+        db = _db_with_integration(integ)
+
+        from empla.api.v1.schemas.webhook import WebhookTokenCreateRequest
+
+        with pytest.raises(HTTPException) as exc:
+            await webhooks_ep.create_webhook_token(
+                db=db,
+                auth=auth,
+                body=WebhookTokenCreateRequest(integration_id=str(integration_id)),
+            )
+        assert exc.value.status_code == 409
+        # Existing token untouched — the client can still use it or rotate it.
+        assert integ.oauth_config["webhook_token"] == "already-here"
+
+    @pytest.mark.asyncio
     async def test_rotate_preserves_old_token_with_rotated_at(self):
         auth = _auth()
         integration_id = uuid4()

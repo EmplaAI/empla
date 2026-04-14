@@ -162,7 +162,11 @@ async def receive_webhook(
     db: DBSession,
     request: Request,
     provider: str = Path(max_length=64, pattern=r"^[a-z][a-z0-9_]*$"),
-    x_webhook_token: str = Header(description="Webhook authentication token"),
+    x_webhook_token: str = Header(
+        description="Webhook authentication token",
+        min_length=16,
+        max_length=128,
+    ),
 ) -> WebhookResponse:
     """Receive a webhook from an external integration provider.
 
@@ -284,6 +288,11 @@ async def receive_webhook(
     )
 
     # Persist a row to AuditLog so the dashboard event feed can show it.
+    # NOTE: we deliberately do NOT persist the raw payload. Gmail/HubSpot/
+    # Calendar payloads contain PII (email bodies, contact addresses, attendee
+    # lists) and CLAUDE.md requires PII-safe logging. The dashboard only
+    # reads metadata (provider, event_type, summary, counts) — payload data
+    # would be wasted storage plus a compliance liability.
     # Best-effort: if this write fails, the webhook still succeeded for the
     # employee — log and swallow rather than 500 the provider.
     try:
@@ -299,9 +308,6 @@ async def receive_webhook(
                     "provider": provider,
                     "event_type": event_type,
                     "summary": summary,
-                    # Cap payload size in audit log — large payloads bloat
-                    # the row + the dashboard query response.
-                    "payload": _truncate_payload(raw_payload),
                     "routed_to_employees": [str(e) for e in employee_ids],
                     "employees_notified": notified,
                 },
@@ -309,6 +315,12 @@ async def receive_webhook(
         )
         await db.commit()
     except Exception:
+        # Roll back so the session isn't left in a failed-transaction state
+        # for the remaining request lifecycle / pool cleanup.
+        try:
+            await db.rollback()
+        except Exception:
+            logger.exception("Rollback after audit-log write failure also failed")
         logger.warning(
             "Failed to write webhook audit log row (event still delivered)",
             exc_info=True,
@@ -318,37 +330,32 @@ async def receive_webhook(
     return WebhookResponse(status="accepted", employees_notified=notified)
 
 
-def _truncate_payload(payload: object, max_chars: int = 4000) -> object:
-    """Bound how much webhook payload we persist into AuditLog."""
-    import json as _json
-
-    try:
-        encoded = _json.dumps(payload)
-    except (TypeError, ValueError):
-        return {"_truncated": "non-serializable payload"}
-    if len(encoded) <= max_chars:
-        return payload
-    return {
-        "_truncated": True,
-        "_original_size": len(encoded),
-        "_excerpt": encoded[:max_chars],
-    }
-
-
 # =========================================================================
 # Token management (PR #81) — JWT-protected, tenant-scoped
 # =========================================================================
 
 
-async def _get_integration(db: DBSession, integration_id: UUID, tenant_id: UUID) -> Integration:
-    """Fetch an integration row enforcing tenant ownership, 404 otherwise."""
-    result = await db.execute(
-        select(Integration).where(
-            Integration.id == integration_id,
-            Integration.tenant_id == tenant_id,
-            Integration.deleted_at.is_(None),
-        )
+async def _get_integration(
+    db: DBSession,
+    integration_id: UUID,
+    tenant_id: UUID,
+    *,
+    for_update: bool = False,
+) -> Integration:
+    """Fetch an integration row enforcing tenant ownership, 404 otherwise.
+
+    Pass ``for_update=True`` inside token rotate/create/delete paths to take
+    a row-level lock so concurrent mutations serialize (prevents the
+    "second rotation wins, first-issued token is dead" race).
+    """
+    stmt = select(Integration).where(
+        Integration.id == integration_id,
+        Integration.tenant_id == tenant_id,
+        Integration.deleted_at.is_(None),
     )
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
     integration = result.scalar_one_or_none()
     if integration is None:
         raise HTTPException(
@@ -398,7 +405,15 @@ async def create_webhook_token(
             detail="Invalid integration_id",
         ) from e
 
-    integration = await _get_integration(db, integration_id, auth.tenant_id)
+    integration = await _get_integration(db, integration_id, auth.tenant_id, for_update=True)
+    # Don't silently overwrite an existing token — if one is already set, the
+    # client should rotate instead. Prevents a double-click or duplicate tab
+    # from issuing a token that's immediately dead.
+    if (integration.oauth_config or {}).get("webhook_token"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Webhook token already exists. Use /tokens/{integration_id}/rotate instead.",
+        )
     token = secrets.token_urlsafe(32)
 
     # Mutate the JSONB blob in place. Pydantic-typed ORM models with JSONB
@@ -432,7 +447,10 @@ async def rotate_webhook_token(
     ``_TOKEN_ROTATION_GRACE_SECONDS`` (5 minutes) so in-flight webhook
     deliveries don't 401 mid-rotation.
     """
-    integration = await _get_integration(db, integration_id, auth.tenant_id)
+    # Row-level lock prevents two concurrent rotations from racing (one
+    # would win the DB write, the other's issued token would be returned
+    # to the client but never stored — a permanent 401).
+    integration = await _get_integration(db, integration_id, auth.tenant_id, for_update=True)
     cfg = dict(integration.oauth_config or {})
     old = cfg.get("webhook_token")
     if not old:
@@ -538,9 +556,10 @@ async def list_webhook_events(
         AuditLog.deleted_at.is_(None),
     )
     if provider:
-        # Filter by JSONB key — uses the action_type prefix as a cheap
-        # pre-filter (action_type is "webhook_<provider>_<event_type>").
-        base = base.where(AuditLog.action_type.like(f"webhook_{provider}_%"))
+        # Filter by the JSONB `provider` key directly. We used to filter on
+        # `action_type LIKE 'webhook_<provider>_%'` but `_` is a LIKE wildcard
+        # so `provider=hub` over-matched `webhook_hubspot_*` etc.
+        base = base.where(AuditLog.details["provider"].astext == provider)
 
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
 
