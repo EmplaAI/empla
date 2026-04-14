@@ -184,20 +184,19 @@ class TestTokenEndpoints:
             )
         assert exc.value.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_create_400_on_bad_integration_id(self):
-        auth = _auth()
-        db = AsyncMock()
+    def test_create_422_on_bad_integration_id(self):
+        """Pydantic rejects malformed UUIDs at the schema boundary (422, not 400).
+
+        The test no longer reaches the endpoint — validation fails on model
+        construction. This is the intended contract: bad UUIDs never touch
+        the DB session.
+        """
+        from pydantic import ValidationError
 
         from empla.api.v1.schemas.webhook import WebhookTokenCreateRequest
 
-        with pytest.raises(HTTPException) as exc:
-            await webhooks_ep.create_webhook_token(
-                db=db,
-                auth=auth,
-                body=WebhookTokenCreateRequest(integration_id="not-a-uuid"),
-            )
-        assert exc.value.status_code == 400
+        with pytest.raises(ValidationError):
+            WebhookTokenCreateRequest(integration_id="not-a-uuid")
 
     @pytest.mark.asyncio
     async def test_create_409_when_token_already_exists(self):

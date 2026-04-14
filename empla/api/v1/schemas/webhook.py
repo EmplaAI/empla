@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -63,7 +64,9 @@ class WebhookTokenIssued(BaseModel):
 
 
 class WebhookTokenCreateRequest(BaseModel):
-    integration_id: str = Field(description="Integration row to attach the token to")
+    """Body for POST /webhooks/tokens (rejects malformed UUIDs at schema boundary)."""
+
+    integration_id: UUID = Field(description="Integration row to attach the token to")
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +75,8 @@ class WebhookTokenCreateRequest(BaseModel):
 
 
 class WebhookAuditEvent(BaseModel):
+    """One webhook delivery, rendered from an AuditLog row (actor_type='webhook')."""
+
     id: str
     integration_id: str = Field(description="Integration that received the webhook")
     provider: str
@@ -82,6 +87,8 @@ class WebhookAuditEvent(BaseModel):
 
 
 class WebhookEventListResponse(BaseModel):
+    """Paginated envelope around WebhookAuditEvent items, newest first."""
+
     items: list[WebhookAuditEvent]
     total: int
     page: int

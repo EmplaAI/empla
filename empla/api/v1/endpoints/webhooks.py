@@ -397,15 +397,7 @@ async def create_webhook_token(
     body: WebhookTokenCreateRequest,
 ) -> WebhookTokenIssued:
     """Generate a fresh webhook token for an integration. Returns it ONCE."""
-    try:
-        integration_id = UUID(body.integration_id)
-    except (ValueError, AttributeError) as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid integration_id",
-        ) from e
-
-    integration = await _get_integration(db, integration_id, auth.tenant_id, for_update=True)
+    integration = await _get_integration(db, body.integration_id, auth.tenant_id, for_update=True)
     # Don't silently overwrite an existing token — if one is already set, the
     # client should rotate instead. Prevents a double-click or duplicate tab
     # from issuing a token that's immediately dead.
