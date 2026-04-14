@@ -6,6 +6,68 @@
 
 ---
 
+## 2026-04-14 - Phase 5A: CatalogBackedEmployee + PM/SDR/Recruiter (PR #78)
+
+**Phase:** Phase 5A — Core Completeness (PR 2 of 10)
+
+### Added
+
+- **Three new digital-employee roles: Product Manager, SDR, Recruiter.**
+  Before this PR, the dashboard offered them in the role dropdown, but
+  starting one raised `UnsupportedRoleError` because only SalesAE and CSM
+  were registered. Now all five roles in `ROLE_CATALOG` are fully
+  implemented: `empla/employees/pm.py`, `sdr.py`, `recruiter.py`, wired
+  into `_EMPLOYEE_ROLE_MAP` and exported from `empla.employees`.
+
+- **`CatalogBackedEmployee` base class** (`empla/employees/catalog_backed.py`).
+  Subclasses declare a `role_code` class attribute; base class reads
+  `default_personality` / `default_goals` / `default_capabilities` from
+  `ROLE_CATALOG[role_code]` and templatizes `on_start` (role belief +
+  startup episode) and `on_stop` (shutdown episode). Role-specific helper
+  methods live on the subclass.
+
+- **`focus_keyword` field on `RoleDefinition`** for catalog-driven startup
+  belief content. Populated for all five built-in roles.
+
+### Changed
+
+- **SalesAE and CSM migrated to `CatalogBackedEmployee`.** Dropped ~200
+  lines of duplicated boilerplate. Behavior preserved — all 24 existing
+  role tests pass unchanged.
+
+- **SDR and Recruiter catalog entries populated** with realistic goals,
+  personality profiles, and three-capability defaults (previously empty
+  stubs).
+
+### Fixed
+
+- **Trust boundary enum completeness.** `DENIED_TOOLS_BY_ROLE` now covers
+  PM/SDR/Recruiter via a shared `_BASELINE_ROLE_DENIED` frozenset. Without
+  this, the new roles silently no-opped on the taint-activated role-deny
+  check (defense-in-depth — global deny list still caught destructive
+  tools unconditionally).
+
+### Tests
+
+- **+101 unit tests.** 1620 → 1721 passing. New coverage:
+  - `test_catalog_backed_employee.py` (new) — base-class contract tests.
+  - `test_employees_helpers.py` (new) — codifies stub-helper contracts
+    (ValueError guards, LLM-failure fallbacks, success shapes).
+  - `test_employees_roles.py` — extended with PM/SDR/Recruiter test
+    classes plus cross-role uniqueness checks (goals, personalities,
+    focus keywords) to guard against catalog copy-paste bugs.
+
+### Deferred (tracked for follow-up)
+
+- DRY refactor of `draft_*` validation+LLM-call pattern across pm.py /
+  sdr.py / recruiter.py / sales_ae.py.
+- `copy.deepcopy` on frozen `Personality` per property access (pre-existing
+  pattern, changes base-class identity contract).
+- `prioritize_backlog` / `prioritize_accounts` burning LLM tokens with no
+  structured-output parser wired up.
+
+---
+
 ## 2026-04-11 - Phase 5 Foundation: Cost Metrics Hotfix + A11y + DESIGN.md (PR #77)
 
 **Phase:** Phase 5 — Platform Completeness (PR 1 of 10)

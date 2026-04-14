@@ -3,7 +3,7 @@
 **Autonomous Digital Employees — AI workers that think, plan, and act on their own.**
 
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-![Tests](https://img.shields.io/badge/tests-1687%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-1721%20passing-brightgreen.svg)
 ![Status](https://img.shields.io/badge/status-alpha-orange.svg)
 
 ---
@@ -114,11 +114,12 @@ Product Managers that analyze usage and prioritize roadmaps. Recruiters that sou
 |------|-------|--------|
 | **SalesAE** | Pipeline building, prospecting, deal progression | Live |
 | **CSM** | Customer success, health monitoring | Live |
-| **PM** | Usage analysis, roadmap, launches | Planned |
-| **Recruiter** | Sourcing, screening, coordination | Planned |
+| **ProductManager** | Backlog prioritization, release notes | Live |
+| **SDR** | Lead qualification, outbound prospecting | Live |
+| **Recruiter** | Sourcing, screening, outreach | Live |
 | **Executive Assistant** | Calendar, email triage, briefs | Planned |
 
-New types are created by subclassing `DigitalEmployee` and defining goals + personality via the role catalog.
+New types are created by subclassing `CatalogBackedEmployee` and adding a `ROLE_CATALOG` entry with goals + personality.
 
 ---
 
@@ -133,7 +134,7 @@ empla/
 │   ├── loop/         # Proactive execution loop (7 modules)
 │   ├── memory/       # 4 memory systems
 │   └── tools/        # ToolRouter, trust boundary, health monitor
-├── employees/        # Employee types (SalesAE, CSM)
+├── employees/        # Employee types (SalesAE, CSM, PM, SDR, Recruiter)
 ├── integrations/     # HubSpot, Google Calendar, Email
 ├── llm/              # LLM providers (Claude, OpenAI, Vertex, Azure)
 ├── models/           # Database models (PostgreSQL)

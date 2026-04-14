@@ -146,25 +146,42 @@ class TestPersonalityFromPreset:
         p = Personality.from_preset("nonexistent")
         assert p == Personality()
 
-    def test_sdr_has_default_personality(self) -> None:
-        """SDR exists in catalog but uses default personality."""
+    def test_sdr_has_populated_personality(self) -> None:
+        """SDR now has a populated personality (Phase 5A)."""
         p = Personality.from_preset("sdr")
-        assert p == Personality()
+        assert p != Personality(), "SDR should have a customized personality"
+        assert p == ROLE_CATALOG["sdr"].personality
+
+    def test_recruiter_has_populated_personality(self) -> None:
+        """Recruiter now has a populated personality (Phase 5A)."""
+        p = Personality.from_preset("recruiter")
+        assert p != Personality()
+        assert p == ROLE_CATALOG["recruiter"].personality
 
 
 class TestNewRoles:
-    """New roles (sdr, recruiter) are in the catalog."""
+    """PM/SDR/Recruiter entries are fully populated (Phase 5A)."""
 
     def test_sdr_in_catalog(self) -> None:
         role = get_role("sdr")
         assert role is not None
         assert role.title == "Sales Development Representative"
-        assert role.default_goals == []
-        assert role.default_capabilities == ["email"]
+        assert role.focus_keyword == "lead_qualification"
+        assert len(role.default_goals) >= 1
+        assert "email" in role.default_capabilities
 
     def test_recruiter_in_catalog(self) -> None:
         role = get_role("recruiter")
         assert role is not None
         assert role.title == "Recruiter"
-        assert role.default_goals == []
-        assert role.default_capabilities == ["email"]
+        assert role.focus_keyword == "talent_acquisition"
+        assert len(role.default_goals) >= 1
+        assert "email" in role.default_capabilities
+
+    def test_pm_in_catalog(self) -> None:
+        role = get_role("pm")
+        assert role is not None
+        assert role.title == "Product Manager"
+        assert role.focus_keyword == "product_delivery"
+        assert len(role.default_goals) >= 1
+        assert "email" in role.default_capabilities
