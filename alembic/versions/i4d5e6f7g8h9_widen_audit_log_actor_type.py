@@ -1,4 +1,4 @@
-"""Widen audit_log.actor_type to include 'webhook'
+"""Widen audit_log.actor_type to include 'webhook' + provider expression index
 
 Revision ID: i4d5e6f7g8h9
 Revises: h3c4d5e6f7g8
@@ -9,7 +9,9 @@ PR #81 adds a per-tenant webhook event feed sourced from AuditLog with
 employee / user / system, so the first webhook INSERT would fail
 without this migration.
 
-Drop and recreate the constraint with the new value.
+Also adds a partial expression index on ``(details->>'provider')`` for
+``actor_type='webhook'`` rows so the dashboard's provider filter does
+an index probe instead of scanning all webhook rows per tenant.
 """
 
 from collections.abc import Sequence
@@ -29,6 +31,14 @@ def upgrade() -> None:
         "ALTER TABLE audit_log ADD CONSTRAINT ck_audit_log_actor_type "
         "CHECK (actor_type IN ('employee', 'user', 'system', 'webhook'))"
     )
+    # Partial expression index supports the dashboard events feed provider
+    # filter (`WHERE actor_type='webhook' AND details->>'provider' = :p`).
+    # `IF NOT EXISTS` keeps the migration idempotent.
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audit_webhook_provider "
+        "ON audit_log ((details->>'provider'), occurred_at DESC) "
+        "WHERE actor_type = 'webhook'"
+    )
 
 
 def downgrade() -> None:
@@ -45,6 +55,7 @@ def downgrade() -> None:
             "Archive or explicitly delete them first — a constraint downgrade "
             "would either DELETE them silently or fail at commit."
         )
+    op.execute("DROP INDEX IF EXISTS idx_audit_webhook_provider")
     op.execute("ALTER TABLE audit_log DROP CONSTRAINT IF EXISTS ck_audit_log_actor_type")
     op.execute(
         "ALTER TABLE audit_log ADD CONSTRAINT ck_audit_log_actor_type "

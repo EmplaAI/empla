@@ -486,7 +486,9 @@ async def delete_webhook_token(
 ) -> None:
     """Drop both current and previous tokens. Webhooks for this integration
     will start returning 401 immediately."""
-    integration = await _get_integration(db, integration_id, auth.tenant_id)
+    # Same row-lock pattern as rotate/create — keeps delete serialized with
+    # any in-flight rotation so the final `oauth_config` state is correct.
+    integration = await _get_integration(db, integration_id, auth.tenant_id, for_update=True)
     cfg = dict(integration.oauth_config or {})
     if not (cfg.get("webhook_token") or cfg.get("webhook_token_prev")):
         return  # already empty — idempotent

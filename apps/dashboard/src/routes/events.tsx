@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertCircle,
@@ -83,7 +83,25 @@ function TokenReceivedDialog({
   const targetUrl =
     token && provider ? `${window.location.origin}/api/v1/webhooks/${provider}` : '';
 
-  if (!token && saved) setSaved(false);
+  // Reset the "saved" confirmation when the dialog closes. Doing this in
+  // render would violate React's rule against setState during render
+  // (StrictMode re-renders into an infinite loop).
+  useEffect(() => {
+    if (!token) setSaved(false);
+  }, [token]);
+
+  // Warn the user before unload if they've generated a token but haven't
+  // confirmed they saved it yet. The token is one-time; losing it forces a
+  // rotate + reconfigure of the provider webhook.
+  useEffect(() => {
+    if (!token || saved) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [token, saved]);
 
   const copy = async (value: string, label: string) => {
     try {
