@@ -32,6 +32,7 @@ import {
   WorkingMemoryPanel,
 } from '@/components/memory/memory-panels';
 import { BlockedToolsPanel, ToolsPanel } from '@/components/tools/tools-panel';
+import { SchedulerPanel } from '@/components/operations/scheduler-panel';
 // Note: ProceduralMemoryPanel is exported from memory-panels.tsx but not
 // wired into the 4-group tab layout per the Phase 5A plan (procedural
 // memory is surfaced via the curated Playbooks view under BUSINESS). It
@@ -264,7 +265,7 @@ export function EmployeeDetailPage() {
            * 4-group tab layout:
            *   ACTIVITY    — Timeline | Episodic | Semantic | Working (PR #79)
            *   MIND        — Goals | Intentions | Beliefs
-           *   OPERATIONS  — Tools | Trust (PR #80) — Scheduler lands in PR #82
+           *   OPERATIONS  — Tools | Scheduler (PR #82) | Trust boundary
            *   BUSINESS    — Costs | Playbooks
            */}
           <Tabs defaultValue="activity">
@@ -321,10 +322,14 @@ export function EmployeeDetailPage() {
               <Tabs defaultValue="tools">
                 <TabsList className="w-full justify-start overflow-x-auto">
                   <TabsTrigger value="tools">Tools</TabsTrigger>
+                  <TabsTrigger value="scheduler">Scheduler</TabsTrigger>
                   <TabsTrigger value="trust">Trust boundary</TabsTrigger>
                 </TabsList>
                 <TabsContent value="tools">
                   <ToolsPanel employeeId={employee.id} />
+                </TabsContent>
+                <TabsContent value="scheduler">
+                  <SchedulerPanel employeeId={employee.id} />
                 </TabsContent>
                 <TabsContent value="trust">
                   <BlockedToolsPanel employeeId={employee.id} />

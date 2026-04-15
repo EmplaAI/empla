@@ -257,6 +257,25 @@ export interface WebhookAuditEvent {
 }
 
 /**
+ * Scheduler — one queued scheduled action for an employee (PR #82).
+ *
+ * `source` distinguishes self-scheduled (the employee's BDI loop filed it) from
+ * user_requested (a user added it via the dashboard). Legacy rows default to
+ * "employee".
+ */
+export type ScheduledActionSource = 'employee' | 'user_requested';
+
+export interface ScheduledAction {
+  id: string;
+  description: string;
+  scheduledFor: string;
+  recurring: boolean;
+  intervalHours: number | null;
+  source: ScheduledActionSource;
+  createdAt: string | null;
+}
+
+/**
  * Activity event from API.
  */
 export interface Activity {

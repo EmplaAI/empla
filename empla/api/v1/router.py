@@ -18,6 +18,7 @@ from empla.api.v1.endpoints import (
     metrics,
     playbooks,
     roles,
+    scheduler,
     tools,
     webhooks,
 )
@@ -38,3 +39,4 @@ api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"]
 api_router.include_router(playbooks.router, prefix="/employees", tags=["playbooks"])
 api_router.include_router(memory.router, prefix="/employees", tags=["memory"])
 api_router.include_router(tools.router, prefix="/employees", tags=["tools"])
+api_router.include_router(scheduler.router, prefix="/employees", tags=["scheduler"])

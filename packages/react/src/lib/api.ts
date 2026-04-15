@@ -36,6 +36,7 @@ import type {
   RoleDefinition,
   SemanticMemoryItem,
   ToolCatalogResponse,
+  ScheduledAction,
   WebhookAuditEvent,
   WebhookTokenInfo,
   WebhookTokenIssued,
@@ -1651,6 +1652,92 @@ export function createApiClient(config: ApiClientConfig) {
     };
   }
 
+  // =========================================================================
+  // Scheduler (PR #82)
+  // =========================================================================
+
+  function _parseScheduledAction(raw: {
+    id: string;
+    description: string;
+    scheduled_for: string;
+    recurring: boolean;
+    interval_hours: number | null;
+    source: 'employee' | 'user_requested';
+    created_at: string | null;
+  }): ScheduledAction {
+    return {
+      id: raw.id,
+      description: raw.description,
+      scheduledFor: raw.scheduled_for,
+      recurring: raw.recurring,
+      intervalHours: raw.interval_hours,
+      source: raw.source,
+      createdAt: raw.created_at,
+    };
+  }
+
+  async function listScheduledActions(employeeId: string): Promise<{
+    items: ScheduledAction[];
+    total: number;
+  }> {
+    const response = await request<{
+      items: Array<{
+        id: string;
+        description: string;
+        scheduled_for: string;
+        recurring: boolean;
+        interval_hours: number | null;
+        source: 'employee' | 'user_requested';
+        created_at: string | null;
+      }>;
+      total: number;
+    }>(`/v1/employees/${employeeId}/schedule`);
+    return {
+      items: response.items.map(_parseScheduledAction),
+      total: response.total,
+    };
+  }
+
+  async function createScheduledAction(params: {
+    employeeId: string;
+    description: string;
+    scheduledFor: string;
+    recurring: boolean;
+    intervalHours?: number;
+  }): Promise<ScheduledAction> {
+    const body: Record<string, unknown> = {
+      description: params.description,
+      scheduled_for: params.scheduledFor,
+      recurring: params.recurring,
+    };
+    if (params.intervalHours !== undefined) {
+      body.interval_hours = params.intervalHours;
+    }
+    const response = await request<{
+      id: string;
+      description: string;
+      scheduled_for: string;
+      recurring: boolean;
+      interval_hours: number | null;
+      source: 'employee' | 'user_requested';
+      created_at: string | null;
+    }>(`/v1/employees/${params.employeeId}/schedule`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    return _parseScheduledAction(response);
+  }
+
+  async function cancelScheduledAction(params: {
+    employeeId: string;
+    actionId: string;
+  }): Promise<void> {
+    await request<void>(
+      `/v1/employees/${params.employeeId}/schedule/${params.actionId}`,
+      { method: 'DELETE' }
+    );
+  }
+
   return {
     setAuthToken,
     login,
@@ -1698,6 +1785,9 @@ export function createApiClient(config: ApiClientConfig) {
     rotateWebhookToken,
     deleteWebhookToken,
     listWebhookEvents,
+    listScheduledActions,
+    createScheduledAction,
+    cancelScheduledAction,
   };
 }
 

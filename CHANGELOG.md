@@ -6,6 +6,81 @@
 
 ---
 
+## 2026-04-15 - Phase 5B: Scheduler Panel (PR #82)
+
+**Phase:** Phase 5B — User Power + Visibility (PR 6 of 10)
+
+### Added
+
+- **Scheduler API.** Three endpoints over existing `WorkingMemory`
+  scheduled-action rows (no new table): `GET /employees/{id}/schedule`
+  lists pending actions soonest-first, `POST` files a user-requested
+  action, `DELETE /{action_id}` cancels one-shot or recurring. The API
+  filters at SQL level on `expires_at > now` and
+  `content->>'subtype' = 'scheduled_action'` so the list matches what
+  the loop's `get_active_items` actually sees.
+
+- **Source-aware observation prefix.** Self-scheduled actions carry
+  `content.source='employee'`; user-filed ones carry `'user_requested'`.
+  The loop's `_check_scheduled_actions` prefixes the perception
+  observation accordingly (`USER-REQUESTED SCHEDULED ACTION: …` vs
+  `SCHEDULED ACTION DUE: …`). The LLM sees whose idea it was, which
+  preserves the goal-oriented contract: the employee can act or defer.
+
+- **Dashboard SchedulerPanel.** New `/employees/{id}` OPERATIONS sub-tab
+  (Tools | Scheduler | Trust boundary). Inline add-request form with
+  one-shot/recurring toggle, datetime-local input with `(your local
+  time)` label and live UTC echo, source + recurring badges, overdue
+  highlighting.
+
+- **`@empla/react` hooks.** `useSchedule`, `useCreateScheduledAction`,
+  `useCancelScheduledAction` with React Query invalidation.
+
+### Changed
+
+- **Cycle-top session refresh.** The BDI loop now calls
+  `rollback(); commit()` at the top of each cycle before
+  `_check_scheduled_actions` runs, so API-written rows in a short-lived
+  session are visible through the loop's long-lived one. The rollback
+  first clears any dirty writes from a crashed prior phase instead of
+  silently persisting them.
+
+- **Scheduled-action capacity protection.** Working memory's
+  `_enforce_capacity` now skips unfired scheduled actions when picking
+  a victim. A user-filed request for tomorrow would otherwise be
+  silently evicted when today's 0.9-importance observation burst
+  arrived.
+
+- **Scheduled-action TTL fix (pre-existing bug).** Working memory's
+  default `ttl_seconds=3600` combined with `get_active_items` filtering
+  on `expires_at > now` meant scheduled actions with delays > 1h
+  silently expired before firing. Both the initial-create and
+  recurring-re-queue paths now compute TTL from `scheduled_for` so the
+  row persists 24h past fire time.
+
+- **Recurring cadence anchor.** The recurring re-queue anchors
+  `next_run` to `scheduled_for + interval_hours` instead of
+  `now + interval_hours`, so the cadence doesn't drift each cycle
+  the loop is late.
+
+- **Idempotent DELETE.** A DELETE against an already-cancelled action
+  returns 204 instead of 404, so optimistic-UI double-clicks don't
+  surface error toasts for work the user already intended to stop.
+
+### Fixed
+
+- Observation `original_action` no longer aliases the row's mutated
+  content during recurring re-queue. Took a snapshot copy before
+  mutation so the observation reflects fire-time state, not next-run
+  state.
+
+### Tests
+
+17 new unit tests (14 scheduler API + 2 capacity-eviction-skip + 1
+idempotent-DELETE). Full unit suite: 1851 passing (+17 since PR #81).
+
+---
+
 ## 2026-04-14 - Phase 5B: Webhook UI + Event Feed + Setup Wizards (PR #81)
 
 **Phase:** Phase 5B — User Power + Visibility (PR 5 of 10, opens Phase 5B)

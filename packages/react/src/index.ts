@@ -137,6 +137,11 @@ export {
   useTestMCPServer,
   useTestMCPServerConnection,
   useUpdateMCPServer,
+  // Scheduler
+  scheduleKeys,
+  useCancelScheduledAction,
+  useCreateScheduledAction,
+  useSchedule,
 } from './hooks';
 
 // Components
@@ -222,6 +227,8 @@ export type {
   WebhookAuditEvent,
   WebhookTokenInfo,
   WebhookTokenIssued,
+  ScheduledAction,
+  ScheduledActionSource,
 } from './types';
 
 // API Client (for advanced usage)
