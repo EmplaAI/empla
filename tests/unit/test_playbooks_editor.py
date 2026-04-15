@@ -184,13 +184,17 @@ class TestCreatePlaybook:
 
     @pytest.mark.asyncio
     async def test_duplicate_name_returns_409(self):
+        from sqlalchemy.exc import IntegrityError
+
         auth = _auth()
         emp_id = uuid4()
         db = _db_with_employee_verify()
+        # Build an IntegrityError that looks like an asyncpg unique-violation
+        # with the constraint_name on .orig.diag — the production code uses
+        # that path first and falls back to a substring match.
+        orig = SimpleNamespace(diag=SimpleNamespace(constraint_name="idx_procedural_unique_name"))
         db.commit = AsyncMock(
-            side_effect=Exception(
-                'duplicate key value violates unique constraint "idx_procedural_unique_name"'
-            )
+            side_effect=IntegrityError("INSERT", {}, orig)  # type: ignore[arg-type]
         )
 
         body = PlaybookCreateRequest(
@@ -438,12 +442,56 @@ class TestDeletePlaybook:
 
 class TestAutoPromotionBumpsVersion:
     """The reflection path calls ``ProceduralMemorySystem.promote_to_playbook``
-    directly, not via the API. Without bumping version here, an API PUT
-    concurrent with an auto-promotion silently wins or loses. This test
-    pins the version-bump contract at the service boundary."""
+    directly, not via the API. The promotion now uses an explicit
+    ``UPDATE ... WHERE version = expected RETURNING`` so it actually races
+    correctly against API edits — ORM flush wouldn't include the version
+    filter and would silently clobber concurrent writers."""
+
+    def _make_session_with_update(self, returning_id: UUID | None) -> AsyncMock:
+        """Build a session mock that returns ``returning_id`` from the
+        UPDATE+RETURNING (None means optimistic lock lost)."""
+        session = AsyncMock()
+        result = Mock()
+        result.scalar_one_or_none.return_value = returning_id
+        session.execute = AsyncMock(return_value=result)
+        session.flush = AsyncMock()
+        return session
 
     @pytest.mark.asyncio
-    async def test_promote_bumps_version(self):
+    async def test_promote_bumps_version_via_atomic_update(self):
+        from empla.core.memory.procedural import ProceduralMemorySystem
+
+        proc_id = uuid4()
+        fake_proc = SimpleNamespace(
+            id=proc_id,
+            is_playbook=False,
+            execution_count=10,
+            success_rate=0.85,
+            promoted_at=None,
+            learned_from=None,
+            version=3,
+        )
+
+        session = self._make_session_with_update(returning_id=proc_id)
+        system = ProceduralMemorySystem(session=session, employee_id=uuid4(), tenant_id=uuid4())
+
+        async def _stub_get(_pid):
+            return fake_proc
+
+        system.get_procedure = _stub_get  # type: ignore[assignment]
+
+        result = await system.promote_to_playbook(proc_id)
+
+        assert result is fake_proc
+        assert fake_proc.is_playbook is True
+        assert fake_proc.version == 4  # bumped after successful UPDATE
+        # The atomic UPDATE was issued (vs. a bare ORM attribute mutation).
+        session.execute.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_promote_returns_none_when_lost_race(self):
+        """Concurrent writer bumped version first → UPDATE matches zero rows
+        → promotion returns None instead of clobbering."""
         from empla.core.memory.procedural import ProceduralMemorySystem
 
         fake_proc = SimpleNamespace(
@@ -456,8 +504,7 @@ class TestAutoPromotionBumpsVersion:
             version=3,
         )
 
-        session = AsyncMock()
-        session.flush = AsyncMock()
+        session = self._make_session_with_update(returning_id=None)
         system = ProceduralMemorySystem(session=session, employee_id=uuid4(), tenant_id=uuid4())
 
         async def _stub_get(_pid):
@@ -467,16 +514,18 @@ class TestAutoPromotionBumpsVersion:
 
         result = await system.promote_to_playbook(fake_proc.id)
 
-        assert result is fake_proc
-        assert fake_proc.is_playbook is True
-        assert fake_proc.version == 4  # bumped
+        assert result is None
+        # No in-memory mutation when the lock is lost.
+        assert fake_proc.is_playbook is False
+        assert fake_proc.version == 3
 
     @pytest.mark.asyncio
-    async def test_promote_reverts_version_on_flush_failure(self):
+    async def test_promote_reverts_in_memory_on_flush_failure(self):
         from empla.core.memory.procedural import ProceduralMemorySystem
 
+        proc_id = uuid4()
         fake_proc = SimpleNamespace(
-            id=uuid4(),
+            id=proc_id,
             is_playbook=False,
             execution_count=10,
             success_rate=0.85,
@@ -485,7 +534,8 @@ class TestAutoPromotionBumpsVersion:
             version=7,
         )
 
-        session = AsyncMock()
+        # UPDATE succeeds (returns id), then flush blows up.
+        session = self._make_session_with_update(returning_id=proc_id)
         session.flush = AsyncMock(side_effect=RuntimeError("db down"))
         system = ProceduralMemorySystem(session=session, employee_id=uuid4(), tenant_id=uuid4())
 
@@ -495,8 +545,7 @@ class TestAutoPromotionBumpsVersion:
         system.get_procedure = _stub_get  # type: ignore[assignment]
 
         with pytest.raises(RuntimeError):
-            await system.promote_to_playbook(fake_proc.id)
+            await system.promote_to_playbook(proc_id)
 
-        # All in-memory state reverted so callers don't see a false positive.
         assert fake_proc.is_playbook is False
         assert fake_proc.version == 7

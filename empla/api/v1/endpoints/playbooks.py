@@ -14,6 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from empla.api.deps import CurrentUser, DBSession, RequireAdmin
 from empla.models.employee import Employee
@@ -128,6 +129,23 @@ class PlaybookToggleRequest(BaseModel):
 # ============================================================================
 # Helpers
 # ============================================================================
+
+
+def _is_unique_name_violation(err: IntegrityError) -> bool:
+    """Detect whether an IntegrityError came from the unique-name index.
+
+    Inspects the constraint name on the underlying asyncpg error rather
+    than string-matching the message text — which would silently break
+    the next time PostgreSQL or asyncpg adjusts its error format.
+    """
+    diag = getattr(getattr(err, "orig", None), "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    if constraint_name == "idx_procedural_unique_name":
+        return True
+    # Fallback: some adapters don't expose .diag; keep the substring
+    # match as a defensive last resort but log so we notice if we land
+    # on this branch in production.
+    return "idx_procedural_unique_name" in str(err)
 
 
 async def _verify_employee(db: DBSession, employee_id: UUID, tenant_id: UUID) -> None:
@@ -289,10 +307,11 @@ async def create_playbook(
     try:
         await db.commit()
         await db.refresh(playbook)
-    except Exception as e:
+    except IntegrityError as e:
         await db.rollback()
         # Unique-index collision on (employee_id, name) → 409, not 500.
-        if "idx_procedural_unique_name" in str(e):
+        # Detect via the asyncpg constraint name on the underlying error.
+        if _is_unique_name_violation(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"A playbook named {body.name!r} already exists for this employee.",
@@ -385,12 +404,16 @@ async def update_playbook(
 
     try:
         await db.commit()
-    except Exception as e:
+    except IntegrityError as e:
         await db.rollback()
-        if "idx_procedural_unique_name" in str(e):
+        if _is_unique_name_violation(e):
+            # Use values["name"] if the rename was the cause; fall back
+            # to the row's pre-update name otherwise (shouldn't happen,
+            # but better than printing literal None).
+            offending_name = values.get("name") or row.name
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"A playbook named {body.name!r} already exists for this employee.",
+                detail=f"A playbook named {offending_name!r} already exists for this employee.",
             ) from e
         raise
 

@@ -17,11 +17,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+/** Step shape preserves arbitrary keys (tool, args, condition, etc.) that
+ *  reflection-promoted playbooks attach. The editor only mutates `description`
+ *  but round-trips the rest verbatim so admin edits don't strip tool bindings. */
+export type PlaybookEditableStep = { description: string } & Record<string, unknown>;
+
 export interface PlaybookEditableData {
   id?: string;
   name: string;
   description: string;
-  steps: Array<{ description: string }>;
+  steps: PlaybookEditableStep[];
   enabled: boolean;
   version?: number;
 }
@@ -55,10 +60,32 @@ export function PlaybookEditorDialog({
   const update = useUpdatePlaybook(employeeId);
   const [draft, setDraft] = useState<PlaybookEditableData>(initial ?? EMPTY);
 
-  // Reset draft when the dialog reopens with new initial data.
+  const saving = create.isPending || update.isPending;
+
+  // Reset draft when the dialog reopens with new initial data. Only
+  // fires when the dialog actually opens (open transitions false→true)
+  // so reopens with the same initial don't clobber an in-progress draft
+  // from a re-render.
   useEffect(() => {
-    setDraft(initial ?? EMPTY);
+    if (open) {
+      setDraft(initial ?? EMPTY);
+    }
   }, [initial, open]);
+
+  const isDirty = JSON.stringify(draft) !== JSON.stringify(initial ?? EMPTY);
+
+  // Confirm before discarding unsaved edits. Used by both the Esc/overlay
+  // close path AND the Cancel button so the guard is consistent.
+  const requestClose = () => {
+    if (saving) return;
+    if (isDirty && !window.confirm('Discard unsaved changes?')) return;
+    onClose();
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    if (next) return;
+    requestClose();
+  };
 
   const moveStep = (from: number, to: number) => {
     if (to < 0 || to >= draft.steps.length) return;
@@ -73,6 +100,10 @@ export function PlaybookEditorDialog({
       toast.error('Max 50 steps per playbook');
       return;
     }
+    // New step has only `description` — that's intentional: we don't
+    // know what extras the LLM/loop expects unless the playbook came
+    // pre-promoted. Tool bindings on user-created steps would be a
+    // separate UX surface (future PR).
     setDraft({ ...draft, steps: [...draft.steps, { description: '' }] });
   };
 
@@ -90,7 +121,13 @@ export function PlaybookEditorDialog({
   const setStep = (i: number, description: string) => {
     setDraft({
       ...draft,
-      steps: draft.steps.map((s, idx) => (idx === i ? { description } : s)),
+      steps: draft.steps.map((s, idx) =>
+        // PRESERVE every other key on the step (tool bindings, args,
+        // conditions). The editor only mutates description; everything
+        // else round-trips verbatim. Stripping extras would silently
+        // delete tool bindings on autonomously-promoted playbooks.
+        idx === i ? { ...s, description } : s,
+      ),
     });
   };
 
@@ -136,10 +173,8 @@ export function PlaybookEditorDialog({
     }
   };
 
-  const saving = create.isPending || update.isPending;
-
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && !saving && onClose()}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="font-display">
@@ -247,7 +282,7 @@ export function PlaybookEditorDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
+          <Button variant="outline" onClick={requestClose} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={saving}>

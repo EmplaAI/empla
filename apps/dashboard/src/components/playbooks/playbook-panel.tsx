@@ -112,8 +112,13 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
       id: p.id,
       name: p.name,
       description: p.description ?? '',
-      steps: (p.steps as Array<{ description: string }>).map((s) => ({
-        description: typeof s.description === 'string' ? s.description : '',
+      // Spread each step so non-description keys (tool, args, condition,
+      // anything reflection attached) round-trip into the editor and back
+      // out on save. Coerce description to string defensively.
+      steps: (p.steps as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        description:
+          typeof s.description === 'string' ? s.description : '',
       })),
       enabled: p.enabled,
       version: p.version,
