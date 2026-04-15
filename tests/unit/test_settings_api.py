@@ -102,6 +102,24 @@ class TestSchemaValidation:
         # conceptually. Confirm the model's field list.
         assert "trust" not in TenantSettingsUpdate.model_fields
 
+    def test_update_schema_rejects_unknown_keys(self):
+        """A user POSTing ``trust`` or any unknown section must get 422, not
+        a silent drop that lies to them."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            TenantSettingsUpdate.model_validate({"trust": {"current_taint_rules": []}})
+        with pytest.raises(ValidationError):
+            TenantSettingsUpdate.model_validate({"spelt_wrong": {}})
+
+    def test_cycle_min_floor_is_30_seconds(self):
+        """5-second cycles would burn LLM budget too fast. Floor is 30s
+        until cost hard-stop enforcement (PR #86)."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            CycleSettings(min_interval_seconds=5, max_interval_seconds=60)
+
 
 # ---------------------------------------------------------------------------
 # GET /settings
@@ -222,6 +240,62 @@ class TestPutSettings:
         with pytest.raises(HTTPException) as exc:
             await settings_ep.update_settings(db=db, auth=auth, body=TenantSettingsUpdate())
         assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_expected_version_mismatch_returns_409(self, monkeypatch):
+        """Concurrent save lost-update prevention."""
+        auth = _auth()
+        existing = TenantSettings(version=7).model_dump(mode="json")
+        tenant = _FakeTenant(auth.tenant_id, settings=existing)
+        db = _db_with_tenant(tenant)
+
+        fake_manager = Mock()
+        fake_manager.restart_all_for_tenant = AsyncMock(return_value=0)
+        monkeypatch.setattr(settings_ep, "get_employee_manager", lambda: fake_manager)
+
+        # Client thinks settings are at v5, but stored is v7 — reject.
+        body = TenantSettingsUpdate(expected_version=5)
+        with pytest.raises(HTTPException) as exc:
+            await settings_ep.update_settings(db=db, auth=auth, body=body)
+        assert exc.value.status_code == 409
+        # Should NOT have triggered a restart on a rejected write.
+        fake_manager.restart_all_for_tenant.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_expected_version_match_succeeds(self, monkeypatch):
+        auth = _auth()
+        existing = TenantSettings(version=7).model_dump(mode="json")
+        tenant = _FakeTenant(auth.tenant_id, settings=existing)
+        db = _db_with_tenant(tenant)
+
+        fake_manager = Mock()
+        fake_manager.restart_all_for_tenant = AsyncMock(return_value=1)
+        monkeypatch.setattr(settings_ep, "get_employee_manager", lambda: fake_manager)
+
+        body = TenantSettingsUpdate(
+            expected_version=7, sales=SalesSettings(quarterly_target_usd=250_000.0)
+        )
+        resp = await settings_ep.update_settings(db=db, auth=auth, body=body)
+        assert resp.settings.version == 8
+        assert resp.settings.sales.quarterly_target_usd == 250_000.0
+
+    @pytest.mark.asyncio
+    async def test_corrupt_jsonb_backed_up_on_put(self, monkeypatch):
+        """First write after a corrupt read should snapshot the original
+        under ``_corrupted_backup`` so operators can recover."""
+        auth = _auth()
+        # Schema-invalid: llm should be an object, not a string
+        original = {"llm": "garbage", "version": 99}
+        tenant = _FakeTenant(auth.tenant_id, settings=original)
+        db = _db_with_tenant(tenant)
+
+        fake_manager = Mock()
+        fake_manager.restart_all_for_tenant = AsyncMock(return_value=0)
+        monkeypatch.setattr(settings_ep, "get_employee_manager", lambda: fake_manager)
+
+        await settings_ep.update_settings(db=db, auth=auth, body=TenantSettingsUpdate())
+        # The overwrite carries the corrupt original under the backup key.
+        assert tenant.settings["_corrupted_backup"] == original
 
     @pytest.mark.asyncio
     async def test_empty_body_still_bumps_version(self, monkeypatch):

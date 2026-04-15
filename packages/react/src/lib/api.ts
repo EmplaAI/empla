@@ -1815,6 +1815,7 @@ export function createApiClient(config: ApiClientConfig) {
 
   function _serializeSettingsUpdate(body: TenantSettingsUpdate): Record<string, unknown> {
     const out: Record<string, unknown> = {};
+    if (body.expectedVersion !== undefined) out.expected_version = body.expectedVersion;
     if (body.llm) {
       out.llm = {
         primary_model: body.llm.primaryModel,

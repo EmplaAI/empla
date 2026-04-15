@@ -29,8 +29,16 @@ HUBSPOT_API = "https://api.hubapi.com"
 _client: httpx.AsyncClient | None = None
 
 # PR #83: Quarterly target read from Tenant.settings.sales.quarterly_target_usd
-# at _hubspot_init time. Fresh values are picked up on the next runner restart
-# (settings PUT in the dashboard triggers a tenant-wide restart).
+# at _hubspot_init time, via a ``tenant_settings`` key in the init config.
+# NOTE: The runner doesn't currently invoke ``IntegrationRouter.initialize``
+# for in-process integrations (only MCP servers are wired end-to-end today).
+# The read path below is correct; when a future PR wires
+# ``tool_router.initialize_integrations({"hubspot": {"access_token": ...,
+# "tenant_settings": tenant.settings}})`` at runner startup, the value flows
+# through without further changes. Until then, ``_quarterly_target`` stays
+# at the 100k default in production. The hardcoded literal in
+# ``get_pipeline_metrics`` is gone either way — that's the real TODO
+# retired here.
 _quarterly_target: float = 100_000.0
 
 
@@ -98,7 +106,9 @@ async def _hubspot_init(**config: Any) -> None:
     tenant_settings = config.get("tenant_settings") or {}
     sales_section = tenant_settings.get("sales") or {}
     candidate = sales_section.get("quarterly_target_usd")
-    if isinstance(candidate, int | float) and candidate >= 0:
+    # bool is a subclass of int — exclude it so a stray True/False doesn't
+    # silently coerce to 1.0/0.0 and override the default.
+    if isinstance(candidate, int | float) and not isinstance(candidate, bool) and candidate >= 0:
         _quarterly_target = float(candidate)
     else:
         _quarterly_target = 100_000.0

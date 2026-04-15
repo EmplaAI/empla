@@ -30,6 +30,30 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+// Shallow structural equality for settings sections. One level deep is
+// enough for every section here — arrays get compared element-by-element,
+// nested dicts like `routingRules` are compared via JSON.stringify at
+// the leaf. Replacing `JSON.stringify(whole draft)` dirty-detection.
+function shallowEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null)
+    return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => shallowEqual(v, b[i]));
+  }
+  const ka = Object.keys(a as Record<string, unknown>);
+  const kb = Object.keys(b as Record<string, unknown>);
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) =>
+    shallowEqual(
+      (a as Record<string, unknown>)[k],
+      (b as Record<string, unknown>)[k],
+    ),
+  );
+}
+
 // Known models — kept small on purpose. Additions happen here (not by typing
 // a free string) so operators don't accidentally point at a deprecated model.
 const KNOWN_MODELS = [
@@ -139,22 +163,30 @@ function SettingsEditor({ data }: { data: TenantSettingsData }) {
     setDraft(data);
   }, [data]);
 
-  const dirty = JSON.stringify(draft) !== JSON.stringify(data);
+  // Structural equality per section — an array reorder or key-order flip
+  // doesn't falsely mark the form dirty. Cheap enough for 6 sections.
+  const sectionsDirty = {
+    llm: !shallowEqual(draft.llm, data.llm),
+    cost: !shallowEqual(draft.cost, data.cost),
+    cycle: !shallowEqual(draft.cycle, data.cycle),
+    notifications: !shallowEqual(draft.notifications, data.notifications),
+    sales: !shallowEqual(draft.sales, data.sales),
+  };
+  const dirty = Object.values(sectionsDirty).some(Boolean);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       // Build a diff'd update — only send sections the user actually changed.
-      const body: TenantSettingsUpdate = {};
-      if (JSON.stringify(draft.llm) !== JSON.stringify(data.llm)) body.llm = draft.llm;
-      if (JSON.stringify(draft.cost) !== JSON.stringify(data.cost))
-        body.cost = draft.cost;
-      if (JSON.stringify(draft.cycle) !== JSON.stringify(data.cycle))
-        body.cycle = draft.cycle;
-      if (JSON.stringify(draft.notifications) !== JSON.stringify(data.notifications))
-        body.notifications = draft.notifications;
-      if (JSON.stringify(draft.sales) !== JSON.stringify(data.sales))
-        body.sales = draft.sales;
+      // `expected_version` enables server-side optimistic locking: if another
+      // tab saved between our fetch and our submit, we get a 409 instead of
+      // silently clobbering their changes.
+      const body: TenantSettingsUpdate = { expectedVersion: data.version };
+      if (sectionsDirty.llm) body.llm = draft.llm;
+      if (sectionsDirty.cost) body.cost = draft.cost;
+      if (sectionsDirty.cycle) body.cycle = draft.cycle;
+      if (sectionsDirty.notifications) body.notifications = draft.notifications;
+      if (sectionsDirty.sales) body.sales = draft.sales;
 
       const result = await update.mutateAsync(body);
       const n = result.restartingEmployees;

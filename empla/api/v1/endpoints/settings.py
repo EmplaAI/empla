@@ -24,7 +24,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from empla.api.deps import CurrentUser, DBSession
+from empla.api.deps import CurrentUser, DBSession, RequireAdmin
 from empla.api.v1.schemas.settings import (
     TenantSettings,
     TenantSettingsUpdate,
@@ -51,34 +51,43 @@ async def _load_tenant(db: DBSession, tenant_id: UUID) -> Tenant:
     return tenant
 
 
-def _load_settings(raw: dict | None) -> TenantSettings:
-    """Merge stored JSONB into the schema. Unknown keys are tolerated for
-    forward compatibility — future settings additions won't break old rows."""
+def _load_settings(raw: dict | None) -> tuple[TenantSettings, bool]:
+    """Merge stored JSONB into the schema. Returns (settings, was_corrupt).
+
+    Unknown keys are tolerated for forward compatibility — future settings
+    additions won't break old rows. If the stored blob doesn't match the
+    schema at all, we return defaults and flag the corruption so callers
+    can preserve the original before any write overwrites it.
+    """
     if not raw:
-        return TenantSettings()
+        return TenantSettings(), False
     try:
-        return TenantSettings.model_validate(raw)
+        return TenantSettings.model_validate(raw), False
     except Exception:
-        # Corrupt or pre-schema data — fall back to defaults. Log so the rot
-        # is visible without taking down the dashboard.
         logger.warning(
             "Tenant.settings JSONB did not match schema; returning defaults",
             exc_info=True,
         )
-        return TenantSettings()
+        return TenantSettings(), True
 
 
 @router.get("", response_model=TenantSettings)
 async def get_settings(db: DBSession, auth: CurrentUser) -> TenantSettings:
-    """Return the tenant's current settings document (with defaults for blank fields)."""
+    """Return the tenant's current settings document (with defaults for blank fields).
+
+    Read is available to any authenticated user in the tenant — non-admin
+    users benefit from seeing the active cycle/cost policy their employees
+    run under. Writes require admin (see ``update_settings``).
+    """
     tenant = await _load_tenant(db, auth.tenant_id)
-    return _load_settings(tenant.settings)
+    settings, _corrupt = _load_settings(tenant.settings)
+    return settings
 
 
 @router.put("", response_model=TenantSettingsUpdateResponse)
 async def update_settings(
     db: DBSession,
-    auth: CurrentUser,
+    auth: RequireAdmin,
     body: TenantSettingsUpdate,
 ) -> TenantSettingsUpdateResponse:
     """Merge the provided sections into the stored settings, bump version,
@@ -89,23 +98,46 @@ async def update_settings(
     merging within a section, to keep the contract obvious).
     """
     tenant = await _load_tenant(db, auth.tenant_id)
-    current = _load_settings(tenant.settings)
+    current, was_corrupt = _load_settings(tenant.settings)
+
+    # Optimistic lock: refuse the write if a concurrent editor has already
+    # advanced the version. Without this, two admin tabs both read v5,
+    # both bump to v6, and the later commit silently clobbers the earlier.
+    if body.expected_version is not None and body.expected_version != current.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Settings changed since you loaded them "
+                f"(expected v{body.expected_version}, current v{current.version}). "
+                "Reload and retry."
+            ),
+        )
 
     # Merge at the dict level so Pydantic can re-validate the whole document
     # in one shot. Avoids ``model_copy(update=raw_dict)`` which leaves
     # submodel fields as raw dicts and confuses the serializer.
     current_dict = current.model_dump(mode="json")
-    patch_dict = body.model_dump(exclude_none=True, mode="json")
+    patch_dict = body.model_dump(exclude_none=True, exclude={"expected_version"}, mode="json")
     current_dict.update(patch_dict)
     current_dict["version"] = current.version + 1
 
     new_settings = TenantSettings.model_validate(current_dict)
 
-    # Direct assignment works because the ORM wraps JSONB as a dict and
-    # SQLAlchemy notices a fresh dict assignment. Writing the whole blob
-    # atomically (vs. jsonb_set key-by-key) is fine here because we
-    # validated the full document.
-    tenant.settings = new_settings.model_dump(mode="json")
+    # If the stored JSONB didn't match the schema, preserve the original under
+    # a backup key before overwriting. Operators can then diff and recover.
+    # Best-effort — if the old blob isn't a dict we skip silently.
+    new_blob = new_settings.model_dump(mode="json")
+    if was_corrupt and isinstance(tenant.settings, dict):
+        new_blob["_corrupted_backup"] = tenant.settings
+
+    # Fresh dict assignment is how SQLAlchemy picks up JSONB changes —
+    # compares by attribute identity, and we're replacing the whole dict.
+    # FOOTGUN for future maintainers: if you ever switch to in-place
+    # mutation (``tenant.settings["foo"] = bar`` without reassigning the
+    # whole dict), SA WON'T flag the attribute dirty and the commit
+    # silently no-ops. Use ``sqlalchemy.orm.attributes.flag_modified``
+    # there, or stick to whole-blob replacement like this code does.
+    tenant.settings = new_blob
     await db.commit()
 
     # Kick off runner restart. Best-effort: if the manager is unreachable,
@@ -127,7 +159,9 @@ async def update_settings(
         "Tenant settings updated",
         extra={
             "tenant_id": str(auth.tenant_id),
+            "actor_user_id": str(auth.user_id),
             "new_version": new_settings.version,
+            "previous_version": current.version,
             "restarting_employees": restarting_count,
             "sections_modified": list(patch_dict.keys()),
         },

@@ -618,11 +618,13 @@ class EmployeeManager:
 
         restarted = 0
         for eid in affected:
+            stopped_ok = False
             try:
                 # stop_employee with session=None skips the DB write, because
                 # we already set status='restarting' above and start_employee
                 # below will flip it back to 'active'.
                 await self.stop_employee(eid, session=None)
+                stopped_ok = True
                 await self.start_employee(eid, tenant_id, session)
                 restarted += 1
             except Exception:
@@ -632,6 +634,30 @@ class EmployeeManager:
                     exc_info=True,
                     extra={"employee_id": str(eid), "tenant_id": str(tenant_id)},
                 )
+                # Critical: don't leave the DB row stuck at 'restarting' with
+                # no subprocess and no reaper. Revert to 'stopped' if we did
+                # kill the process but couldn't respawn, or 'active' on pure
+                # stop failure (since the old process is still around).
+                recovery_status = "stopped" if stopped_ok else "active"
+                try:
+                    await session.execute(
+                        update(EmployeeModel)
+                        .where(
+                            EmployeeModel.id == eid,
+                            EmployeeModel.tenant_id == tenant_id,
+                        )
+                        .values(status=recovery_status)
+                    )
+                    await session.commit()
+                except Exception:
+                    logger.error(
+                        "Employee %s stuck in status='restarting' — could not "
+                        "write recovery status %s after respawn failure",
+                        eid,
+                        recovery_status,
+                        exc_info=True,
+                        extra={"employee_id": str(eid)},
+                    )
 
         logger.info(
             "Tenant %s settings-triggered restart: %d of %d employees respawned",

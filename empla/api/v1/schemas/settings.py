@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # LLM
@@ -95,9 +95,15 @@ class CostSettings(BaseModel):
 
 
 class CycleSettings(BaseModel):
-    """BDI loop cadence bounds + adaptive sensitivity."""
+    """BDI loop cadence bounds + adaptive sensitivity.
 
-    min_interval_seconds: int = Field(default=30, ge=5, le=3600)
+    ``min_interval_seconds`` floor is 30s because sub-30s cycles would burn
+    LLM budget faster than most observable signal changes, and cost
+    hard-stop enforcement doesn't land until PR #86 to protect against
+    misconfiguration. Lift the floor there if needed.
+    """
+
+    min_interval_seconds: int = Field(default=30, ge=30, le=3600)
     max_interval_seconds: int = Field(default=1800, ge=30, le=86400)
     adaptive_sensitivity: float = Field(
         default=0.5,
@@ -189,9 +195,24 @@ class TenantSettings(BaseModel):
 
 
 class TenantSettingsUpdate(BaseModel):
-    """PUT body. All editable sections are optional (trust is not included —
-    edits are rejected at the API level)."""
+    """PUT body. All editable sections are optional.
 
+    ``extra='forbid'`` so submitting an unknown section — crucially including
+    ``trust`` — returns 422 instead of being silently dropped. Without this,
+    a user editing the trust tab would get a 200 back with their edit
+    swallowed, which lies to the caller.
+
+    ``expected_version`` enables optimistic locking (PR #83 fix). Omit to
+    skip the check; include to assert "I only want this write to succeed
+    if the stored version still matches what I read."
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int | None = Field(
+        default=None,
+        description="If set, the write fails with 409 if the stored version differs.",
+    )
     llm: LLMSettings | None = None
     cost: CostSettings | None = None
     cycle: CycleSettings | None = None

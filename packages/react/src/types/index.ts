@@ -337,6 +337,9 @@ export interface TenantSettingsData {
  * absent; edits are rejected at the API schema level.
  */
 export interface TenantSettingsUpdate {
+  /** Optimistic lock: if set, the write fails with 409 when the stored
+   *  version has advanced since the client loaded it. */
+  expectedVersion?: number;
   llm?: LLMSettingsData;
   cost?: CostSettingsData;
   cycle?: CycleSettingsData;
