@@ -104,15 +104,24 @@ async def list_scheduled_actions(
     auth: CurrentUser,
     employee_id: UUID,
 ) -> ScheduledActionListResponse:
-    """List pending scheduled actions for an employee, soonest first."""
+    """List pending scheduled actions for an employee, soonest first.
+
+    Filters at SQL level to match what the loop's ``get_active_items``
+    actually sees: non-deleted, non-expired, tagged as scheduled_action.
+    Without these filters the dashboard would show expired or unrelated
+    task rows that will never fire.
+    """
     await _verify_employee(db, employee_id, auth.tenant_id)
 
+    now_ts = datetime.now(UTC).timestamp()
     result = await db.execute(
         select(WorkingMemory).where(
             WorkingMemory.tenant_id == auth.tenant_id,
             WorkingMemory.employee_id == employee_id,
             WorkingMemory.deleted_at.is_(None),
             WorkingMemory.item_type == "task",
+            WorkingMemory.expires_at > now_ts,
+            WorkingMemory.content["subtype"].astext == "scheduled_action",
         )
     )
     rows = result.scalars().all()
@@ -213,15 +222,21 @@ async def cancel_scheduled_action(
     employee_id: UUID,
     action_id: UUID,
 ) -> None:
-    """Cancel a queued action. Works for one-shot and recurring, employee- or user-sourced."""
+    """Cancel a queued action. Works for one-shot and recurring, employee- or user-sourced.
+
+    Idempotent: a DELETE against an already-cancelled row also returns 204.
+    That keeps optimistic-UI patterns (double-click cancel) from surfacing a
+    404 error toast for work the user already intended to stop.
+    """
     await _verify_employee(db, employee_id, auth.tenant_id)
 
+    # Scoped to tenant + employee, but NOT filtered on deleted_at — we want
+    # to accept a DELETE for an already-deleted row as a no-op.
     result = await db.execute(
         select(WorkingMemory).where(
             WorkingMemory.id == action_id,
             WorkingMemory.tenant_id == auth.tenant_id,
             WorkingMemory.employee_id == employee_id,
-            WorkingMemory.deleted_at.is_(None),
         )
     )
     row = result.scalar_one_or_none()
@@ -232,9 +247,12 @@ async def cancel_scheduled_action(
             detail="Scheduled action not found",
         )
 
-    # Soft-delete via timestamp (WorkingMemory inherits from TenantScopedModel
-    # which uses a deleted_at column). The loop's _check_scheduled_actions
-    # filters on get_active_items() which skips deleted_at.
+    if row.deleted_at is not None:
+        # Already cancelled — 204 without touching the row.
+        return
+
+    # Soft-delete via timestamp. get_active_items filters deleted_at.is_(None)
+    # so the loop stops seeing it immediately.
     row.deleted_at = datetime.now(UTC)
     await db.commit()
 

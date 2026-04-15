@@ -335,16 +335,22 @@ class ProactiveExecutionLoop(
                     cycle_count=self.cycle_count,
                 )
 
-                # PR #82: commit + begin a fresh transaction so scheduled
-                # actions written by the API (short-lived session) are
-                # visible to _check_scheduled_actions on this cycle.
-                # Without this, READ COMMITTED isolation hides them behind
-                # the loop's long-lived transaction until the next commit.
+                # PR #82: begin a fresh transaction so scheduled actions
+                # written by the API (short-lived session) are visible to
+                # _check_scheduled_actions on this cycle. Without this,
+                # READ COMMITTED isolation hides them behind the loop's
+                # long-lived transaction until the next commit.
+                #
+                # Rollback first so any dirty writes left over from a prior
+                # cycle that raised between `_safe_commit` checkpoints don't
+                # get silently persisted here. A commit on a clean session
+                # is a no-op.
                 try:
+                    await self.beliefs.session.rollback()
                     await self.beliefs.session.commit()
                 except Exception:
                     logger.warning(
-                        "Failed to commit session before scheduled-action check",
+                        "Failed to refresh session before scheduled-action check",
                         exc_info=True,
                         extra={"employee_id": str(self.employee.id)},
                     )
@@ -758,17 +764,21 @@ class ProactiveExecutionLoop(
                     continue
 
             for action in due_actions:
-                content = getattr(action, "content", {}) or {}
-                desc = content.get("description", "Scheduled action")
+                original_content = getattr(action, "content", {}) or {}
+                desc = original_content.get("description", "Scheduled action")
                 # PR #82: differentiate user-requested from self-scheduled so
                 # the LLM perception phase sees whose idea this was. Legacy
                 # rows without a source default to "employee".
-                source = content.get("source", "employee")
+                source = original_content.get("source", "employee")
                 prefix = (
                     "USER-REQUESTED SCHEDULED ACTION"
                     if source == "user_requested"
                     else "SCHEDULED ACTION DUE"
                 )
+                # Snapshot the original content before any downstream mutation
+                # so the observation's original_action reflects the fire-time
+                # state, not the recurring re-queue state.
+                snapshot = dict(original_content)
                 # Add as high-importance working memory item so perception sees it
                 await self.memory.working.add_item(
                     item_type="observation",
@@ -776,21 +786,35 @@ class ProactiveExecutionLoop(
                         "description": f"{prefix}: {desc}",
                         "subtype": "scheduled_action_due",
                         "source": source,
-                        "original_action": content,
+                        "original_action": snapshot,
                     },
                     importance=0.9,
                 )
                 # Clean up the fired action
-                recurring = content.get("recurring", False)
+                recurring = snapshot.get("recurring", False)
                 await self.memory.working.remove_item(action.id)
 
                 if recurring:
                     # Re-create with next run time (remove + add since
-                    # working memory has no update_content method)
-                    interval_hours = content.get("interval_hours", 24)
-                    next_run = now + timedelta(hours=interval_hours)
-                    content["scheduled_for"] = next_run.isoformat()
-                    content["subtype"] = "scheduled_action"
+                    # working memory has no update_content method). Work
+                    # on a fresh copy so we never alias `snapshot` into the
+                    # new row's content.
+                    interval_hours = snapshot.get("interval_hours", 24)
+                    # Anchor next_run to the original scheduled_for + interval
+                    # (not `now + interval`) so the cadence doesn't drift each
+                    # cycle the loop is late. Fall through to now-based if the
+                    # stored scheduled_for is malformed or in the past.
+                    try:
+                        scheduled_for_dt = datetime.fromisoformat(snapshot.get("scheduled_for", ""))
+                    except (ValueError, TypeError):
+                        scheduled_for_dt = now
+                    next_run = max(
+                        now,
+                        scheduled_for_dt + timedelta(hours=interval_hours),
+                    )
+                    new_content = dict(snapshot)
+                    new_content["scheduled_for"] = next_run.isoformat()
+                    new_content["subtype"] = "scheduled_action"
                     # PR #82: default TTL would expire this before the next
                     # firing if interval > 1h. Compute TTL past next_run.
                     next_ttl = max(
@@ -799,7 +823,7 @@ class ProactiveExecutionLoop(
                     )
                     await self.memory.working.add_item(
                         item_type="task",
-                        content=content,
+                        content=new_content,
                         importance=0.7,
                         ttl_seconds=next_ttl,
                     )

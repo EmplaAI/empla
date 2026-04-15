@@ -29,7 +29,15 @@ def _compute_scheduled_action_ttl(scheduled_for_iso: str) -> int:
     try:
         scheduled_for = datetime.fromisoformat(scheduled_for_iso)
     except (ValueError, TypeError):
-        return 3600  # fall back to WorkingMemory default
+        # A malformed scheduled_for means the action will never fire (the
+        # loop's due-check parses this same string and skips on failure).
+        # Log so the rot is visible rather than silent — the row will still
+        # expire on the default 1h TTL and get cleaned up.
+        logger.warning(
+            "Malformed scheduled_for %r — falling back to 1h TTL, action will not fire",
+            scheduled_for_iso,
+        )
+        return 3600
     delta = scheduled_for - datetime.now(UTC)
     return max(3600, int(delta.total_seconds()) + 86400)
 

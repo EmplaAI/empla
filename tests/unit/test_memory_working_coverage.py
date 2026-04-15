@@ -476,6 +476,91 @@ async def test_enforce_capacity_at_capacity_evicts(working_small, session):
     assert item_low.deleted_at is not None
 
 
+@pytest.mark.asyncio
+async def test_enforce_capacity_skips_unfired_scheduled_actions(working_small, session):
+    """Scheduled actions (PR #82) are a queued to-do list, not attention —
+    capacity eviction must skip them so a user's tomorrow-request isn't
+    silently dropped when today's observation burst arrives."""
+    # Higher-importance scheduled action (would normally be kept) is irrelevant;
+    # we care that the LOW-importance task gets evicted even though the
+    # scheduled action is technically LESS important.
+    scheduled = _make_working_memory_item(
+        item_type="task",
+        content={"subtype": "scheduled_action", "scheduled_for": "future"},
+        importance=0.1,  # deliberately low — without the skip, this would evict
+        deleted_at=None,
+    )
+    regular_task = _make_working_memory_item(
+        item_type="task",
+        content={"task": "Ordinary work"},
+        importance=0.3,
+        deleted_at=None,
+    )
+
+    call_count = [0]
+
+    def make_scalars_result(items):
+        mock_r = MagicMock()
+        mock_r.scalars.return_value.all.return_value = items
+        return mock_r
+
+    async def mock_execute(query):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return make_scalars_result([regular_task, scheduled])
+        if call_count[0] == 2:
+            return make_scalars_result([])
+        # After cleanup sort by importance desc: regular_task (0.3) before scheduled (0.1)
+        return make_scalars_result([regular_task, scheduled])
+
+    session.execute.side_effect = mock_execute
+
+    await working_small._enforce_capacity()
+    # Scheduled action is protected; regular task is the victim even though
+    # the scheduled action has lower importance.
+    assert scheduled.deleted_at is None
+    assert regular_task.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_enforce_capacity_all_scheduled_actions_is_no_op(working_small, session):
+    """If the only active items are scheduled actions, we'd rather go
+    slightly over capacity than silently drop queued work."""
+    a = _make_working_memory_item(
+        item_type="task",
+        content={"subtype": "scheduled_action"},
+        importance=0.8,
+        deleted_at=None,
+    )
+    b = _make_working_memory_item(
+        item_type="task",
+        content={"subtype": "scheduled_action"},
+        importance=0.7,
+        deleted_at=None,
+    )
+
+    call_count = [0]
+
+    def make_scalars_result(items):
+        mock_r = MagicMock()
+        mock_r.scalars.return_value.all.return_value = items
+        return mock_r
+
+    async def mock_execute(query):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return make_scalars_result([a, b])
+        if call_count[0] == 2:
+            return make_scalars_result([])
+        return make_scalars_result([a, b])
+
+    session.execute.side_effect = mock_execute
+
+    await working_small._enforce_capacity()
+    assert a.deleted_at is None
+    assert b.deleted_at is None
+
+
 # ============================================================================
 # get_context_summary
 # ============================================================================

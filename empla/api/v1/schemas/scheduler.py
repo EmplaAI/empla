@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ScheduledActionSource = Literal["employee", "user_requested"]
 
@@ -63,11 +63,10 @@ class ScheduledActionCreateRequest(BaseModel):
             )
         return v
 
-    @field_validator("interval_hours")
-    @classmethod
-    def _interval_required_when_recurring(cls, v: float | None, info: object) -> float | None:
-        # Accessing sibling fields via info.data (Pydantic v2 idiom).
-        data = getattr(info, "data", {}) or {}
-        if data.get("recurring") and v is None:
+    @model_validator(mode="after")
+    def _interval_required_when_recurring(self) -> ScheduledActionCreateRequest:
+        # Post-validation cross-field check — doesn't rely on field declaration
+        # order the way a field_validator inspecting info.data would.
+        if self.recurring and self.interval_hours is None:
             raise ValueError("interval_hours is required when recurring=true")
-        return v
+        return self

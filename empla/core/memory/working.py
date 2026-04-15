@@ -371,7 +371,12 @@ class WorkingMemory:
         """
         Ensure working memory doesn't exceed capacity.
 
-        If at capacity, evicts the least important non-expired item.
+        If at capacity, evicts the least important non-expired item that is
+        NOT an unfired scheduled action. Scheduled actions are a queued
+        to-do list (the user or the employee's own BDI wrote them), not
+        cognitive attention — evicting tomorrow's user-filed request when
+        today's observation burst arrives would silently drop work.
+
         This is called automatically before adding new items.
         """
         items = await self.get_active_items()
@@ -384,11 +389,22 @@ class WorkingMemory:
 
         # If still at or over capacity, evict least important
         if len(items) >= self.capacity:
-            # Items are already sorted by importance (descending)
-            # Evict the last (least important) item
-            least_important = items[-1]
-            least_important.deleted_at = datetime.now(UTC)
-            await self.session.flush()
+            # Items are already sorted by importance (descending).
+            # Walk from least → most important and skip unfired scheduled
+            # actions so they survive capacity pressure.
+            for candidate in reversed(items):
+                content = getattr(candidate, "content", {}) or {}
+                if (
+                    candidate.item_type == "task"
+                    and isinstance(content, dict)
+                    and content.get("subtype") == "scheduled_action"
+                ):
+                    continue
+                candidate.deleted_at = datetime.now(UTC)
+                await self.session.flush()
+                return
+            # Only scheduled actions in working memory — allow slight over-capacity
+            # rather than drop queued work.
 
     async def get_context_summary(self) -> dict[str, Any]:
         """

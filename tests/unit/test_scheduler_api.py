@@ -321,6 +321,30 @@ class TestCancelScheduledAction:
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
+    async def test_idempotent_on_already_cancelled(self):
+        """Second DELETE against an already-cancelled row returns 204, not 404."""
+        auth = _auth()
+        row = _FakeRow(
+            row_id=uuid4(),
+            content=_sched_content("x", datetime.now(UTC) + timedelta(hours=1)),
+            deleted_at=datetime.now(UTC),  # already cancelled
+        )
+        db = AsyncMock()
+        verify_result = Mock()
+        verify_result.scalar_one_or_none.return_value = uuid4()
+        row_result = Mock()
+        row_result.scalar_one_or_none.return_value = row
+        db.execute = AsyncMock(side_effect=[verify_result, row_result])
+        db.commit = AsyncMock()
+
+        # Should NOT raise — idempotent cancel.
+        await scheduler_ep.cancel_scheduled_action(
+            db=db, auth=auth, employee_id=uuid4(), action_id=uuid4()
+        )
+        # No commit should have happened since the row was already deleted.
+        db.commit.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_404_on_non_scheduled_action_row(self):
         """A row exists at that id but its subtype is something else — opaque 404."""
         auth = _auth()

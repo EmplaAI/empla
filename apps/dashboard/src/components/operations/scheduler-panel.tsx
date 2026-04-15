@@ -87,7 +87,7 @@ function ScheduleRequestForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="scheduler-when" className="text-xs">
-            When
+            When <span className="text-muted-foreground">(your local time)</span>
           </Label>
           <Input
             id="scheduler-when"
@@ -96,6 +96,11 @@ function ScheduleRequestForm({
             onChange={(e) => setScheduledFor(e.target.value)}
             required
           />
+          {scheduledFor ? (
+            <p className="font-mono text-[10px] text-muted-foreground">
+              → {new Date(scheduledFor).toISOString()}
+            </p>
+          ) : null}
         </div>
 
         <div className="space-y-1.5">
