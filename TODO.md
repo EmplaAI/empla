@@ -5,7 +5,8 @@
 > PR #77 (foundation), PR #78 (PM/SDR/Recruiter), PR #79 (memory API + 4-group
 > tabs), PR #80 (tool catalog + trust boundary view + runner auth) shipped.
 > Phase 5B in progress: PR #81 (webhook UI) + PR #82 (scheduler) + PR #83
-> (settings + runner-restart) shipped — 3 more Phase 5B PRs remain.
+> (settings + runner-restart) + PR #84 (playbook editor) shipped —
+> 2 more Phase 5B PRs remain.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
@@ -84,8 +85,18 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
   optimistic locking, stuck-restarting recovery, cycle floor raise.
   **Deferred to PR #86:** cost hard-stop enforcement (needs inbox for the "why
   did my employee pause?" message).
-- **PR #84** — Playbook editor with optimistic locking (version column on
-  ProceduralMemory, bumped by both API + autonomous promotion path)
+- **PR #84** ✓ SHIPPED 2026-04-15: Playbook editor with optimistic locking.
+  Migration k6f7g8h9i0j1 adds version + enabled to memory_procedural. Four
+  admin-only endpoints (POST/PUT/POST-toggle/DELETE) over the existing
+  ProceduralMemory rows. PUT uses UPDATE+WHERE+RETURNING for the lock; on
+  zero rows, reloads to distinguish 404 from 409. Auto-promotion was
+  rewritten to use the same atomic UPDATE pattern (the original ORM
+  flush emits UPDATE WHERE id with no version filter, silently clobbering
+  concurrent API edits — fixed). Editor dialog with reorder steps,
+  enable/disable toggle, 409 surfacing, unsaved-changes guard, step-extras
+  preservation. +22 unit tests. Boil-the-lake review: 6 fixes incl.
+  step-extras data-loss fix, atomic auto-promotion UPDATE,
+  IntegrityError-by-constraint-name detection, dialog isDirty guard.
 - **PR #85** — Custom role builder with admin review gate (GenericEmployee for
   runtime resolution)
 - **PR #86** — Inbox (employee→human messaging with structured content blocks)

@@ -6,6 +6,95 @@
 
 ---
 
+## 2026-04-15 - Phase 5B: Playbook Editor with Optimistic Locking (PR #84)
+
+**Phase:** Phase 5B — User Power + Visibility (PR 8 of 10)
+
+### Added
+
+- **Playbook editor.** Users can now author, edit, toggle, and delete
+  playbooks from the dashboard. Previously read-only — a learned
+  procedure could only be observed, never shaped. The Playbooks panel
+  on each employee detail page gains a "New playbook" button and
+  per-row Edit / Toggle / Delete actions.
+
+- **Editor dialog.** Full-form editor with name, description, an
+  ordered list of steps (up/down arrows for reordering, max 50, min 1
+  step), enabled toggle, and a save button that surfaces 409 conflicts
+  through the existing `ApiError.message` channel. Confirms before
+  discarding unsaved edits.
+
+- **`@empla/react` hooks.** `useCreatePlaybook`,
+  `useUpdatePlaybook`, `useTogglePlaybook`, `useDeletePlaybook` with
+  React Query invalidation across all per-employee list/stats
+  queries.
+
+- **Four admin-only endpoints.** `POST /employees/{id}/playbooks`
+  (create user-authored), `PUT/{id}` (edit with `expected_version` →
+  409 on mismatch), `POST/{id}/toggle` (idempotent enable/disable
+  taking explicit target state), `DELETE/{id}` (soft-delete via
+  `deleted_at`, idempotent on already-deleted rows).
+
+### Changed
+
+- **Migration `k6f7g8h9i0j1`** adds `version` (NOT NULL default 0)
+  and `enabled` (NOT NULL default true) columns to `memory_procedural`.
+  `version` is the optimistic-lock counter bumped on every write by
+  either the API editor or the autonomous promotion path. `enabled`
+  lets users disable a playbook without demoting it (which would
+  lose `promoted_at` and force a re-evaluation cycle).
+
+- **Auto-promotion uses an atomic UPDATE.**
+  `ProceduralMemorySystem.promote_to_playbook` was rewritten to issue
+  `UPDATE ... WHERE version = expected RETURNING` instead of mutating
+  ORM attributes and relying on `session.flush()`. SA's flush emits
+  `UPDATE WHERE id` with NO version filter, which would silently
+  clobber a concurrent API edit. The new path returns `None` when
+  the lock is lost so the caller can retry.
+
+### Fixed
+
+- **Editor preserved step extras on edit.** The first implementation
+  stripped `tool / args / condition` keys from autonomously-promoted
+  playbook steps the moment an admin edited the playbook — silent
+  data loss. `PlaybookEditableStep` now allows arbitrary keys and
+  the panel maps each step with `...s, description: …` so reflection-
+  promoted bindings round-trip cleanly.
+
+- **Unique-name violations detect via constraint name.** The 409
+  branch was matching on the substring `idx_procedural_unique_name`
+  in the exception message, which would silently break the next time
+  PostgreSQL or asyncpg adjusted its error format. Now inspects
+  `IntegrityError.orig.diag.constraint_name` first; the substring
+  match is kept as a defensive fallback.
+
+- **PUT 409 detail no longer prints `None`** when the user changed
+  fields other than `name` — uses `values["name"]` or the row's
+  pre-update name.
+
+### Tests
+
+22 new unit tests in `tests/unit/test_playbooks_editor.py` cover
+schema validation (empty/over-cap steps, extra='forbid', missing
+expected_version), CREATE happy/duplicate-name-409/cross-tenant 404,
+UPDATE version-match/mismatch/missing/no-op, TOGGLE flip/idempotent/404,
+DELETE soft/idempotent/404, plus 3 service-level tests proving
+auto-promotion bumps version atomically, returns None on lost race,
+and reverts in-memory state on flush failure. Updated
+`MockProceduralMemory` in `test_playbook_system.py` to carry the new
+fields. Full unit suite: 1895 passing (+22).
+
+### Explicitly deferred
+
+- Versioned playbook history (snapshots of prior step shapes) →
+  current `version` column is for optimistic lock, not history.
+- Manual promotion from procedural memory → playbook via the
+  dashboard (the autonomous promote_to_playbook + this editor
+  cover the existing paths).
+- Playbook run counts and per-edit audit trail → future PR.
+
+---
+
 ## 2026-04-15 - Phase 5B: Real Settings Page with Runner-Restart Reload (PR #83)
 
 **Phase:** Phase 5B — User Power + Visibility (PR 7 of 10)
