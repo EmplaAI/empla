@@ -4,8 +4,8 @@
 > **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5A complete:
 > PR #77 (foundation), PR #78 (PM/SDR/Recruiter), PR #79 (memory API + 4-group
 > tabs), PR #80 (tool catalog + trust boundary view + runner auth) shipped.
-> Phase 5B in progress: PR #81 (webhook UI + event feed + wizards) shipped —
-> 5 more Phase 5B PRs remain.
+> Phase 5B in progress: PR #81 (webhook UI) + PR #82 (scheduler) shipped —
+> 4 more Phase 5B PRs remain.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
@@ -64,7 +64,15 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
   review: 12 fixes applied including PII scrub, SELECT FOR UPDATE on
   create/rotate/delete, create-409 on existing token, LIKE→JSONB filter fix,
   setState-during-render fix, downgrade fail-loud.
-- **PR #82** — Scheduler panel (read + cancel + tagged user-requested add)
+- **PR #82** ✓ SHIPPED 2026-04-15: Scheduler panel (read + cancel + tagged
+  user-requested add). 3 new endpoints over existing WorkingMemory
+  scheduled_action rows (no new table). Source-aware perception prefix
+  (USER-REQUESTED vs SCHEDULED ACTION DUE). Cycle-top rollback + commit
+  so API-written rows are visible through the loop's long-lived session.
+  Dashboard SchedulerPanel wired as OPERATIONS sub-tab. +17 unit tests.
+  Boil-the-lake review: 9 fixes incl. scheduled-action capacity
+  protection, SQL-level GET filter, recurring cadence anchor,
+  idempotent DELETE, pre-existing TTL-bug fix for delays > 1h.
 - **PR #83** — Real settings page (LLM, cost, cycle, trust read-only, notifications)
   with runner-restart reload pattern. Kills `hubspot/tools.py:150` quarterly_target
   TODO.
