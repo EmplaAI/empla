@@ -10,7 +10,7 @@ Covers:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -43,15 +43,25 @@ class MockProceduralMemory:
         self.trigger_conditions = {"goal_type": goal_type}
         self.procedure_type = "intention_execution"
         self.deleted_at = None
+        # PR #84 added an optimistic-lock counter; promote_to_playbook bumps it.
+        self.version = 0
+        self.enabled = True
 
 
 class TestPromoteToPlaybook:
     """Tests for ProceduralMemorySystem.promote_to_playbook()."""
 
-    def _make_service(self):
+    def _make_service(self, *, lock_lost: bool = False):
+        """Build a service whose session.execute returns a successful
+        UPDATE+RETURNING (or None to simulate optimistic-lock loss).
+        PR #84 made promote_to_playbook use UPDATE+WHERE for atomic
+        version bumping rather than a bare ORM attribute mutation."""
         from empla.core.memory.procedural import ProceduralMemorySystem
 
         session = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None if lock_lost else uuid4()
+        session.execute = AsyncMock(return_value=result)
         session.flush = AsyncMock()
         return ProceduralMemorySystem(session, employee_id=uuid4(), tenant_id=uuid4())
 

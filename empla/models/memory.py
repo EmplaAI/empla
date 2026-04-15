@@ -457,6 +457,29 @@ class ProceduralMemory(TenantScopedModel):
         comment="When this procedure was promoted to a playbook (UTC)",
     )
 
+    # Playbook editing (PR #84)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("true"),
+        comment=(
+            "Whether the loop should consider using this procedure. Toggleable "
+            "without demoting (which would lose promoted_at). Disabled playbooks "
+            "stay is_playbook=true so re-enabling is cheap."
+        ),
+    )
+
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+        comment=(
+            "Optimistic-lock counter. Bumped on every write by the API editor "
+            "path AND the autonomous promote_to_playbook path — without that "
+            "dual-writer discipline, concurrent edits silently clobber."
+        ),
+    )
+
     # Metadata
     learned_from: Mapped[str | None] = mapped_column(
         String(50),

@@ -1100,6 +1100,61 @@ export function createApiClient(config: ApiClientConfig) {
   // Playbook Endpoints
   // =========================================================================
 
+  // Server response shape (snake_case). PR #84 added enabled + version + steps.
+  type RawPlaybook = {
+    id: string;
+    name: string;
+    description: string | null;
+    procedure_type: string;
+    success_rate: number;
+    execution_count: number;
+    success_count: number;
+    avg_execution_time: number | null;
+    last_executed_at: string | null;
+    promoted_at: string | null;
+    learned_from: string | null;
+    steps: Array<Record<string, unknown>>;
+    trigger_conditions: Record<string, unknown>;
+    enabled: boolean;
+    version: number;
+  };
+
+  function _parsePlaybook(p: RawPlaybook): {
+    id: string;
+    name: string;
+    description: string | null;
+    procedureType: string;
+    successRate: number;
+    executionCount: number;
+    successCount: number;
+    avgExecutionTime: number | null;
+    lastExecutedAt: string | null;
+    promotedAt: string | null;
+    learnedFrom: string | null;
+    steps: Array<Record<string, unknown>>;
+    triggerConditions: Record<string, unknown>;
+    enabled: boolean;
+    version: number;
+  } {
+    return {
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      procedureType: p.procedure_type,
+      successRate: p.success_rate,
+      executionCount: p.execution_count,
+      successCount: p.success_count,
+      avgExecutionTime: p.avg_execution_time,
+      lastExecutedAt: p.last_executed_at,
+      promotedAt: p.promoted_at,
+      learnedFrom: p.learned_from,
+      steps: p.steps ?? [],
+      triggerConditions: p.trigger_conditions ?? {},
+      enabled: p.enabled,
+      version: p.version,
+    };
+  }
+
   async function listPlaybooks(params: {
     employeeId: string;
     minSuccessRate?: number;
@@ -1107,61 +1162,95 @@ export function createApiClient(config: ApiClientConfig) {
     sortBy?: string;
     limit?: number;
   }): Promise<{
-    items: Array<{
-      id: string;
-      name: string;
-      description: string | null;
-      procedureType: string;
-      successRate: number;
-      executionCount: number;
-      successCount: number;
-      avgExecutionTime: number | null;
-      lastExecutedAt: string | null;
-      promotedAt: string | null;
-      learnedFrom: string | null;
-    }>;
+    items: ReturnType<typeof _parsePlaybook>[];
     total: number;
   }> {
     const searchParams = new URLSearchParams();
-    if (params.minSuccessRate !== undefined) searchParams.set('min_success_rate', params.minSuccessRate.toString());
+    if (params.minSuccessRate !== undefined)
+      searchParams.set('min_success_rate', params.minSuccessRate.toString());
     if (params.learnedFrom) searchParams.set('learned_from', params.learnedFrom);
     if (params.sortBy) searchParams.set('sort_by', params.sortBy);
     if (params.limit !== undefined) searchParams.set('limit', params.limit.toString());
     const query = searchParams.toString();
 
-    const response = await request<{
-      items: Array<{
-        id: string;
-        name: string;
-        description: string | null;
-        procedure_type: string;
-        success_rate: number;
-        execution_count: number;
-        success_count: number;
-        avg_execution_time: number | null;
-        last_executed_at: string | null;
-        promoted_at: string | null;
-        learned_from: string | null;
-      }>;
-      total: number;
-    }>(`/v1/employees/${params.employeeId}/playbooks${query ? `?${query}` : ''}`);
+    const response = await request<{ items: RawPlaybook[]; total: number }>(
+      `/v1/employees/${params.employeeId}/playbooks${query ? `?${query}` : ''}`,
+    );
 
     return {
-      items: response.items.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        procedureType: p.procedure_type,
-        successRate: p.success_rate,
-        executionCount: p.execution_count,
-        successCount: p.success_count,
-        avgExecutionTime: p.avg_execution_time,
-        lastExecutedAt: p.last_executed_at,
-        promotedAt: p.promoted_at,
-        learnedFrom: p.learned_from,
-      })),
+      items: response.items.map(_parsePlaybook),
       total: response.total,
     };
+  }
+
+  async function createPlaybook(params: {
+    employeeId: string;
+    name: string;
+    description: string;
+    steps: Array<{ description: string } & Record<string, unknown>>;
+    triggerConditions?: Record<string, unknown>;
+    enabled?: boolean;
+  }): Promise<ReturnType<typeof _parsePlaybook>> {
+    const raw = await request<RawPlaybook>(
+      `/v1/employees/${params.employeeId}/playbooks`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          name: params.name,
+          description: params.description,
+          steps: params.steps,
+          trigger_conditions: params.triggerConditions ?? {},
+          enabled: params.enabled ?? true,
+        }),
+      },
+    );
+    return _parsePlaybook(raw);
+  }
+
+  async function updatePlaybook(params: {
+    employeeId: string;
+    playbookId: string;
+    expectedVersion: number;
+    name?: string;
+    description?: string;
+    steps?: Array<{ description: string } & Record<string, unknown>>;
+    triggerConditions?: Record<string, unknown>;
+    enabled?: boolean;
+  }): Promise<ReturnType<typeof _parsePlaybook>> {
+    const body: Record<string, unknown> = { expected_version: params.expectedVersion };
+    if (params.name !== undefined) body.name = params.name;
+    if (params.description !== undefined) body.description = params.description;
+    if (params.steps !== undefined) body.steps = params.steps;
+    if (params.triggerConditions !== undefined) body.trigger_conditions = params.triggerConditions;
+    if (params.enabled !== undefined) body.enabled = params.enabled;
+
+    const raw = await request<RawPlaybook>(
+      `/v1/employees/${params.employeeId}/playbooks/${params.playbookId}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    );
+    return _parsePlaybook(raw);
+  }
+
+  async function togglePlaybook(params: {
+    employeeId: string;
+    playbookId: string;
+    enabled: boolean;
+  }): Promise<ReturnType<typeof _parsePlaybook>> {
+    const raw = await request<RawPlaybook>(
+      `/v1/employees/${params.employeeId}/playbooks/${params.playbookId}/toggle`,
+      { method: 'POST', body: JSON.stringify({ enabled: params.enabled }) },
+    );
+    return _parsePlaybook(raw);
+  }
+
+  async function deletePlaybook(params: {
+    employeeId: string;
+    playbookId: string;
+  }): Promise<void> {
+    await request<void>(
+      `/v1/employees/${params.employeeId}/playbooks/${params.playbookId}`,
+      { method: 'DELETE' },
+    );
   }
 
   async function getPlaybookStats(params: {
@@ -1906,6 +1995,10 @@ export function createApiClient(config: ApiClientConfig) {
     getCostSummary,
     getCostHistory,
     listPlaybooks,
+    createPlaybook,
+    updatePlaybook,
+    togglePlaybook,
+    deletePlaybook,
     getPlaybookStats,
     listEpisodicMemory,
     listSemanticMemory,

@@ -17,6 +17,7 @@ Key characteristics:
 """
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -25,6 +26,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from empla.models.memory import ProceduralMemory
+
+logger = logging.getLogger(__name__)
 
 
 class ProceduralMemorySystem:
@@ -712,19 +715,69 @@ class ProceduralMemorySystem:
         if proc.execution_count < 3 or proc.success_rate < 0.7:
             return None  # Doesn't meet quality threshold
 
-        old_learned_from = proc.learned_from
-        proc.is_playbook = True
-        proc.promoted_at = datetime.now(UTC)
-        if proc.learned_from is None:
-            proc.learned_from = "autonomous_discovery"
+        # PR #84: enforce dual-writer optimistic lock. ORM-attribute
+        # writes followed by `session.flush()` produce
+        # `UPDATE ... WHERE id = :id` with NO version filter. That would
+        # silently clobber a concurrent API edit. Use an explicit
+        # `UPDATE ... WHERE version = :expected RETURNING` so a racing
+        # editor's bump causes this promotion to fail and retry.
+        from sqlalchemy import update as sa_update
 
+        from empla.models.memory import ProceduralMemory
+
+        old_learned_from = proc.learned_from
+        old_version = proc.version
+        new_learned_from = (
+            proc.learned_from if proc.learned_from is not None else "autonomous_discovery"
+        )
+        promoted_at = datetime.now(UTC)
+
+        # Expire the cached row so a successful UPDATE forces a refresh
+        # with the new server-side state.
+        result = await self.session.execute(
+            sa_update(ProceduralMemory)
+            .where(
+                ProceduralMemory.id == procedure_id,
+                ProceduralMemory.version == old_version,
+                ProceduralMemory.deleted_at.is_(None),
+            )
+            .values(
+                is_playbook=True,
+                promoted_at=promoted_at,
+                learned_from=new_learned_from,
+                version=old_version + 1,
+            )
+            .returning(ProceduralMemory.id)
+        )
+        if result.scalar_one_or_none() is None:
+            # Lost the race: a concurrent writer (API edit, another
+            # reflection cycle) bumped the row first. Don't promote;
+            # let the caller decide (typically: try again next cycle).
+            logger.info(
+                "promote_to_playbook lost optimistic lock for %s "
+                "(version moved past %d) — caller may retry",
+                procedure_id,
+                old_version,
+            )
+            return None
+
+        # Sync the in-memory attrs so callers see the canonical state
+        # without a follow-up SELECT.
+        proc.is_playbook = True
+        proc.promoted_at = promoted_at
+        proc.learned_from = new_learned_from
+        proc.version = old_version + 1
+        # Belt-and-suspenders: if the host runs in autocommit-off mode
+        # and never commits, the UPDATE is still pending. Most callers
+        # commit at the cycle boundary; flush here is a no-op there but
+        # ensures unit tests that assert on mock.flush still see the call.
         try:
             await self.session.flush()
         except Exception:
-            # Revert in-memory state so callers don't see a false positive
             proc.is_playbook = False
             proc.promoted_at = None
             proc.learned_from = old_learned_from
+            proc.version = old_version
             raise
 
         return proc

@@ -228,7 +228,7 @@ FastAPI at `/api/v1/`:
 | HTTP client | httpx (for HubSpot, Google Calendar) |
 | MCP | Model Context Protocol (stdio + HTTP) |
 | Frontend | React + TypeScript |
-| Testing | pytest (1873 unit tests, ~70% unit coverage) |
+| Testing | pytest (1895 unit tests, ~70% unit coverage) |
 | Linting | ruff |
 | Type checking | mypy |
 | Package manager | uv |

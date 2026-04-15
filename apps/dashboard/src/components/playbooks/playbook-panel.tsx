@@ -1,7 +1,28 @@
-import { BookOpen, TrendingUp, Award, Clock } from 'lucide-react';
-import { usePlaybooks, usePlaybookStats } from '@empla/react';
+import { useState } from 'react';
+import {
+  Award,
+  BookOpen,
+  Clock,
+  Pencil,
+  Plus,
+  Power,
+  Trash2,
+  TrendingUp,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  useDeletePlaybook,
+  usePlaybooks,
+  usePlaybookStats,
+  useTogglePlaybook,
+} from '@empla/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  PlaybookEditorDialog,
+  type PlaybookEditableData,
+} from '@/components/playbooks/playbook-editor-dialog';
 
 const LEARNED_FROM_LABELS: Record<string, string> = {
   human_demonstration: 'Human Demo',
@@ -72,6 +93,64 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
     limit: 50,
   });
 
+  // Editor state — single dialog reused for create + edit. `editing=null` is
+  // create mode; setting it to a row's data switches to edit mode.
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editing, setEditing] = useState<PlaybookEditableData | null>(null);
+  const toggle = useTogglePlaybook(employeeId);
+  const del = useDeletePlaybook(employeeId);
+
+  const openCreate = () => {
+    setEditing(null);
+    setEditorOpen(true);
+  };
+
+  const openEdit = (
+    p: NonNullable<typeof playbooks>['items'][number],
+  ) => {
+    setEditing({
+      id: p.id,
+      name: p.name,
+      description: p.description ?? '',
+      // Spread each step so non-description keys (tool, args, condition,
+      // anything reflection attached) round-trip into the editor and back
+      // out on save. Coerce description to string defensively.
+      steps: (p.steps as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        description:
+          typeof s.description === 'string' ? s.description : '',
+      })),
+      enabled: p.enabled,
+      version: p.version,
+    });
+    setEditorOpen(true);
+  };
+
+  const handleToggle = async (
+    p: NonNullable<typeof playbooks>['items'][number],
+  ) => {
+    try {
+      await toggle.mutateAsync({ playbookId: p.id, enabled: !p.enabled });
+      toast.success(p.enabled ? 'Playbook disabled' : 'Playbook enabled');
+    } catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : 'Toggle failed';
+      toast.error(msg);
+    }
+  };
+
+  const handleDelete = async (
+    p: NonNullable<typeof playbooks>['items'][number],
+  ) => {
+    if (!window.confirm(`Delete "${p.name}"? Cannot be undone.`)) return;
+    try {
+      await del.mutateAsync({ playbookId: p.id });
+      toast.success('Playbook deleted');
+    } catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : 'Delete failed';
+      toast.error(msg);
+    }
+  };
+
   if (statsLoading || listLoading) {
     return (
       <Card>
@@ -106,10 +185,13 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2 text-base">
           <BookOpen className="h-4 w-4" /> Playbooks
         </CardTitle>
+        <Button size="sm" variant="outline" onClick={openCreate}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" /> New playbook
+        </Button>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Stats row */}
@@ -141,14 +223,28 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
                   <th className="px-3 py-2 text-right font-medium">Runs</th>
                   <th className="px-3 py-2 text-left font-medium">Source</th>
                   <th className="px-3 py-2 text-left font-medium">Promoted</th>
+                  <th className="px-3 py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {playbooks.items.map((p) => (
-                  <tr key={p.id} className="border-b border-border/50 last:border-0">
+                  <tr
+                    key={p.id}
+                    className={
+                      'border-b border-border/50 last:border-0' +
+                      (p.enabled ? '' : ' opacity-60')
+                    }
+                  >
                     <td className="px-3 py-2">
                       <div>
-                        <p className="font-medium">{p.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium">{p.name}</p>
+                          {!p.enabled ? (
+                            <span className="inline-flex rounded-full border border-border bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                              disabled
+                            </span>
+                          ) : null}
+                        </div>
                         {p.description && (
                           <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
                             {p.description}
@@ -172,6 +268,42 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
                         ? new Date(p.promotedAt).toLocaleDateString()
                         : '-'}
                     </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => handleToggle(p)}
+                          disabled={toggle.isPending}
+                          title={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
+                          aria-label={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
+                        >
+                          <Power className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => openEdit(p)}
+                          title={`Edit ${p.name}`}
+                          aria-label={`Edit ${p.name}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => handleDelete(p)}
+                          disabled={del.isPending}
+                          title={`Delete ${p.name}`}
+                          aria-label={`Delete ${p.name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -184,11 +316,21 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
             </div>
             <p className="mt-3 text-sm font-medium">No playbooks yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Playbooks are discovered autonomously when procedures prove successful.
+              The employee discovers playbooks autonomously as procedures
+              prove successful, or you can author one directly.
             </p>
+            <Button size="sm" variant="outline" className="mt-4" onClick={openCreate}>
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> New playbook
+            </Button>
           </div>
         )}
       </CardContent>
+      <PlaybookEditorDialog
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        employeeId={employeeId}
+        initial={editing ?? undefined}
+      />
     </Card>
   );
 }
