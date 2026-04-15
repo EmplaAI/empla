@@ -22,6 +22,7 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from empla.api.deps import CurrentUser, DBSession, RequireAdmin
@@ -63,7 +64,11 @@ def _load_settings(raw: dict | None) -> tuple[TenantSettings, bool]:
         return TenantSettings(), False
     try:
         return TenantSettings.model_validate(raw), False
-    except Exception:
+    except ValidationError:
+        # Only SCHEMA mismatches fall back to defaults. Other exceptions
+        # (TypeError from a genuinely broken submodel, MemoryError on huge
+        # payloads, etc.) should propagate so we don't mask real bugs under
+        # "corrupt JSONB" noise.
         logger.warning(
             "Tenant.settings JSONB did not match schema; returning defaults",
             exc_info=True,

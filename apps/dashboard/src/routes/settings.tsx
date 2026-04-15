@@ -389,9 +389,10 @@ function CycleSection({ draft, setDraft }: { draft: TenantSettingsData; setDraft
     <div className="grid gap-4 py-2 md:grid-cols-3">
       <NumberField
         label="Min interval (seconds)"
+        hint="Floor is 30s — sub-30s cycles burn LLM budget faster than most signal change."
         value={cycle.minIntervalSeconds}
         step={5}
-        min={5}
+        min={30}
         onChange={(v) =>
           setDraft((d) => ({ ...d, cycle: { ...d.cycle, minIntervalSeconds: v } }))
         }
