@@ -571,6 +571,103 @@ class EmployeeManager:
         """
         return self._health_tokens.get(employee_id)
 
+    async def restart_all_for_tenant(
+        self,
+        tenant_id: UUID,
+        session: AsyncSession,
+    ) -> int:
+        """
+        Stop + respawn every running employee owned by ``tenant_id`` so the
+        new subprocess reads fresh ``Tenant.settings`` at startup.
+
+        Used by the settings PUT endpoint (PR #83). The subprocess startup
+        path is the only place tenant settings are read today (OAuth tokens,
+        MCP servers, identity, and the module-level HubSpot ``_hubspot_init``
+        all follow the same pattern), so a fresh spawn is the simplest and
+        most reliable reload mechanism.
+
+        Contract:
+        - Employees currently tracked as running for this tenant are marked
+          ``status='restarting'`` in the DB while the stop + spawn cycle
+          runs, then flip back to ``'active'`` after the new subprocess
+          registers. The intermediate state is visible to operators and
+          gives the loop's status poll a clean signal.
+        - Employees not tracked as running (already stopped, paused, or
+          owned by a different tenant) are untouched.
+        - Best-effort: individual failures are logged but don't abort the
+          whole fan-out. The next manual start will pick up the new settings.
+
+        Returns the number of employees that were marked for restart.
+        """
+        affected = [eid for eid, tid in list(self._tenant_ids.items()) if tid == tenant_id]
+        if not affected:
+            return 0
+
+        # Mark restarting FIRST so the DB row reflects the transient state
+        # even if the stop/start fan-out is slow or partially fails.
+        await session.execute(
+            update(EmployeeModel)
+            .where(
+                EmployeeModel.tenant_id == tenant_id,
+                EmployeeModel.id.in_(affected),
+                EmployeeModel.deleted_at.is_(None),
+            )
+            .values(status="restarting")
+        )
+        await session.commit()
+
+        restarted = 0
+        for eid in affected:
+            stopped_ok = False
+            try:
+                # stop_employee with session=None skips the DB write, because
+                # we already set status='restarting' above and start_employee
+                # below will flip it back to 'active'.
+                await self.stop_employee(eid, session=None)
+                stopped_ok = True
+                await self.start_employee(eid, tenant_id, session)
+                restarted += 1
+            except Exception:
+                logger.warning(
+                    "Failed to restart employee %s during tenant-wide settings reload",
+                    eid,
+                    exc_info=True,
+                    extra={"employee_id": str(eid), "tenant_id": str(tenant_id)},
+                )
+                # Critical: don't leave the DB row stuck at 'restarting' with
+                # no subprocess and no reaper. Revert to 'stopped' if we did
+                # kill the process but couldn't respawn, or 'active' on pure
+                # stop failure (since the old process is still around).
+                recovery_status = "stopped" if stopped_ok else "active"
+                try:
+                    await session.execute(
+                        update(EmployeeModel)
+                        .where(
+                            EmployeeModel.id == eid,
+                            EmployeeModel.tenant_id == tenant_id,
+                        )
+                        .values(status=recovery_status)
+                    )
+                    await session.commit()
+                except Exception:
+                    logger.error(
+                        "Employee %s stuck in status='restarting' — could not "
+                        "write recovery status %s after respawn failure",
+                        eid,
+                        recovery_status,
+                        exc_info=True,
+                        extra={"employee_id": str(eid)},
+                    )
+
+        logger.info(
+            "Tenant %s settings-triggered restart: %d of %d employees respawned",
+            tenant_id,
+            restarted,
+            len(affected),
+            extra={"tenant_id": str(tenant_id)},
+        )
+        return restarted
+
     async def stop_all(self, session: AsyncSession | None = None) -> dict[str, list[UUID]]:
         """
         Stop all running employees.

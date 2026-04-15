@@ -3,7 +3,7 @@
 **Autonomous Digital Employees — AI workers that think, plan, and act on their own.**
 
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-![Tests](https://img.shields.io/badge/tests-1851%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-1873%20passing-brightgreen.svg)
 ![Status](https://img.shields.io/badge/status-alpha-orange.svg)
 
 ---

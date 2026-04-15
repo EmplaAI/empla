@@ -93,3 +93,9 @@ export {
   useCreateScheduledAction,
   useSchedule,
 } from './useScheduler';
+
+export {
+  settingsKeys,
+  useSettings,
+  useUpdateSettings,
+} from './useSettings';

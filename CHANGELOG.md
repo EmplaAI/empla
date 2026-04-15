@@ -6,6 +6,105 @@
 
 ---
 
+## 2026-04-15 - Phase 5B: Real Settings Page with Runner-Restart Reload (PR #83)
+
+**Phase:** Phase 5B — User Power + Visibility (PR 7 of 10)
+
+### Added
+
+- **Tenant settings API.** New `GET /api/v1/settings` (any authenticated
+  user) and `PUT /api/v1/settings` (admin only) over the existing
+  `Tenant.settings` JSONB column. No new storage.
+
+- **Five editable sections + one read-only.** `llm`, `cost`, `cycle`,
+  `notifications`, `sales` are editable. `trust` is read-only because
+  the trust language isn't ready for user editing yet. Unknown sections
+  return 422 instead of being silently dropped.
+
+- **Optimistic locking.** Updates carry `expected_version`; if the
+  stored settings have advanced since the client loaded them, the PUT
+  returns 409 so the caller reloads instead of clobbering a concurrent
+  edit.
+
+- **Runner-restart reload.** Saving settings marks running employees
+  `status='restarting'`. The loop's existing status poll exits
+  gracefully, and `EmployeeManager` respawns the subprocess so the new
+  one reads fresh `Tenant.settings` at startup. ~5-10 seconds of
+  downtime per settings change. Failed per-employee restarts revert
+  the row to `stopped` (killed but couldn't respawn) or `active`
+  (still running — stop itself failed) so the DB never gets stuck
+  at `restarting`.
+
+- **HubSpot `quarterly_target` killed.** `_hubspot_init` now reads
+  `tenant_settings.sales.quarterly_target_usd` from its init config
+  and caches it in a module-level `_quarterly_target`.
+  `get_pipeline_metrics` uses that instead of the hardcoded 100k.
+  (Runner-side wire-up that calls `IntegrationRouter.initialize` for
+  in-process integrations lands in a future PR — the value flows
+  through as soon as that plumbing exists.)
+
+- **Dashboard settings page overhaul.** `/settings` replaces the
+  previous info-card placeholder with a tabbed editor (LLM, Cost,
+  Cycle, Trust, Notifications, Sales) with per-section dirty-state
+  detection via shallow structural comparison, live burn-rate hint
+  under Cost, model dropdowns bounded to a known allowlist, and a
+  save button that shows "Restarting N employees (~5-10s)..." when
+  the PUT returns the restarted count.
+
+- **`@empla/react` hooks.** `useSettings`, `useUpdateSettings` with
+  React Query invalidation and cache priming from the mutation
+  response so the UI never flashes an old version.
+
+### Changed
+
+- **`employees.status` CHECK constraint widened** to include
+  `'restarting'` (migration `j5e6f7g8h9i0`). The downgrade fails loud
+  if any rows are mid-restart rather than silently clobbering them.
+
+- **Cycle interval floor raised from 5s to 30s.** Sub-30s BDI cycles
+  would burn LLM budget faster than most observable signals change,
+  and hard-stop enforcement doesn't ship until PR #86 to protect
+  against misconfiguration.
+
+- **Corrupt `Tenant.settings` JSONB is preserved under a
+  `_corrupted_backup` key** on the first write after a schema drift,
+  so operators can diff and recover instead of losing the original
+  to a default-value overwrite.
+
+### Fixed
+
+- **Writes are admin-only.** The first implementation accepted any
+  authenticated user; a viewer could have rewritten LLM routing,
+  budgets, and cycle cadence.
+- **Trust edits are now rejected with 422** instead of being silently
+  dropped — the docstring promised "edits are rejected" but Pydantic's
+  default `extra='ignore'` was making the server 200-with-nothing-saved.
+- **Lost-update race closed.** Two admin tabs both reading `v5` used
+  to both write `v6` and the later commit silently clobbered the
+  earlier. Optimistic locking + 409 fixes it.
+- **HubSpot bool coercion.** `isinstance(x, int | float)` accepted
+  `True`/`False` as 1.0/0.0; now excluded.
+
+### Tests
+
+22 unit tests for the settings API covering schema validation
+(cross-field, unknown keys, cycle floor), GET (defaults, stored,
+corrupt JSONB, missing tenant), PUT (merge, restart-failure
+resilience, optimistic-lock 409/match, corrupt-backup, admin-only
+at the schema level), and HubSpot quarterly-target init with
+tenant settings + fallback + bool-exclusion. Full unit suite:
+1873 passing (+22 since PR #82).
+
+### Explicitly deferred
+
+- Cost hard-stop enforcement → PR #86 (needs inbox for user visibility).
+- Trust rule editing → later phase; trust language needs design review.
+- Structured audit log rows for settings changes → `logger.info` in
+  this PR captures actor + previous/new version; durable audit table
+  lands in a future PR.
+
+---
+
 ## 2026-04-15 - Phase 5B: Scheduler Panel (PR #82)
 
 **Phase:** Phase 5B — User Power + Visibility (PR 6 of 10)

@@ -28,6 +28,19 @@ HUBSPOT_API = "https://api.hubapi.com"
 # per employee (which is the current runner architecture — one process per employee).
 _client: httpx.AsyncClient | None = None
 
+# PR #83: Quarterly target read from Tenant.settings.sales.quarterly_target_usd
+# at _hubspot_init time, via a ``tenant_settings`` key in the init config.
+# NOTE: The runner doesn't currently invoke ``IntegrationRouter.initialize``
+# for in-process integrations (only MCP servers are wired end-to-end today).
+# The read path below is correct; when a future PR wires
+# ``tool_router.initialize_integrations({"hubspot": {"access_token": ...,
+# "tenant_settings": tenant.settings}})`` at runner startup, the value flows
+# through without further changes. Until then, ``_quarterly_target`` stays
+# at the 100k default in production. The hardcoded literal in
+# ``get_pipeline_metrics`` is gone either way — that's the real TODO
+# retired here.
+_quarterly_target: float = 100_000.0
+
 
 def _api() -> httpx.AsyncClient:
     """Get the initialized HTTP client. Raises if not initialized."""
@@ -71,7 +84,7 @@ async def _call(method: str, path: str, operation: str, **kwargs: Any) -> dict[s
 
 
 async def _hubspot_init(**config: Any) -> None:
-    global _client  # noqa: PLW0603
+    global _client, _quarterly_target  # noqa: PLW0603
     # Close previous client if re-initializing (e.g., token refresh)
     if _client is not None:
         try:
@@ -86,7 +99,20 @@ async def _hubspot_init(**config: Any) -> None:
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         timeout=30.0,
     )
-    logger.info("HubSpot connector initialized")
+
+    # PR #83: pick up quarterly target from tenant settings if provided.
+    # Runner passes ``tenant_settings`` through config at spawn time. Falls
+    # back to the historical 100k default when the setting is blank.
+    tenant_settings = config.get("tenant_settings") or {}
+    sales_section = tenant_settings.get("sales") or {}
+    candidate = sales_section.get("quarterly_target_usd")
+    # bool is a subclass of int — exclude it so a stray True/False doesn't
+    # silently coerce to 1.0/0.0 and override the default.
+    if isinstance(candidate, int | float) and not isinstance(candidate, bool) and candidate >= 0:
+        _quarterly_target = float(candidate)
+    else:
+        _quarterly_target = 100_000.0
+    logger.info("HubSpot connector initialized (quarterly_target=%.0f)", _quarterly_target)
 
 
 async def _hubspot_shutdown() -> None:
@@ -147,7 +173,8 @@ async def get_pipeline_metrics() -> dict[str, Any]:
     }
     active = [d for d in deals if d.get("properties", {}).get("dealstage") in active_stages]
     total_value = sum(float(d.get("properties", {}).get("amount") or 0) for d in active)
-    quarterly_target = 100_000.0  # TODO: make configurable per tenant
+    # Read from module-level state set by _hubspot_init from tenant settings.
+    quarterly_target = _quarterly_target
 
     return {
         "coverage": round(total_value / quarterly_target, 2) if quarterly_target else 0.0,
