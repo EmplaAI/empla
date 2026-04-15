@@ -4,8 +4,8 @@
 > **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5A complete:
 > PR #77 (foundation), PR #78 (PM/SDR/Recruiter), PR #79 (memory API + 4-group
 > tabs), PR #80 (tool catalog + trust boundary view + runner auth) shipped.
-> Phase 5B in progress: PR #81 (webhook UI) + PR #82 (scheduler) shipped —
-> 4 more Phase 5B PRs remain.
+> Phase 5B in progress: PR #81 (webhook UI) + PR #82 (scheduler) + PR #83
+> (settings + runner-restart) shipped — 3 more Phase 5B PRs remain.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
@@ -73,9 +73,17 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
   Boil-the-lake review: 9 fixes incl. scheduled-action capacity
   protection, SQL-level GET filter, recurring cadence anchor,
   idempotent DELETE, pre-existing TTL-bug fix for delays > 1h.
-- **PR #83** — Real settings page (LLM, cost, cycle, trust read-only, notifications)
-  with runner-restart reload pattern. Kills `hubspot/tools.py:150` quarterly_target
-  TODO.
+- **PR #83** ✓ SHIPPED 2026-04-15: Real settings page (LLM, cost, cycle, trust
+  read-only, notifications, sales) with runner-restart reload pattern. New
+  `restarting` employee status (migration j5e6f7g8h9i0) + `restart_all_for_tenant`
+  fans out stop+respawn so fresh Tenant.settings are read at process startup.
+  Admin-only PUT, optimistic locking via expected_version, corrupt-JSONB backup,
+  Pydantic `extra='forbid'` rejects unknown sections. Killed hubspot/tools.py:150
+  hardcoded 100k quarterly target (runner-side integration init wire-up lands
+  later). +22 unit tests. Boil-the-lake review: 9 fixes incl. admin role check,
+  optimistic locking, stuck-restarting recovery, cycle floor raise.
+  **Deferred to PR #86:** cost hard-stop enforcement (needs inbox for the "why
+  did my employee pause?" message).
 - **PR #84** — Playbook editor with optimistic locking (version column on
   ProceduralMemory, bumped by both API + autonomous promotion path)
 - **PR #85** — Custom role builder with admin review gate (GenericEmployee for
