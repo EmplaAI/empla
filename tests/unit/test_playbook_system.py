@@ -43,6 +43,9 @@ class MockProceduralMemory:
         self.trigger_conditions = {"goal_type": goal_type}
         self.procedure_type = "intention_execution"
         self.deleted_at = None
+        # PR #84 added an optimistic-lock counter; promote_to_playbook bumps it.
+        self.version = 0
+        self.enabled = True
 
 
 class TestPromoteToPlaybook:

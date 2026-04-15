@@ -110,6 +110,10 @@ export {
   playbookKeys,
   usePlaybooks,
   usePlaybookStats,
+  useCreatePlaybook,
+  useUpdatePlaybook,
+  useTogglePlaybook,
+  useDeletePlaybook,
   // Memory
   memoryKeys,
   useEpisodicMemory,

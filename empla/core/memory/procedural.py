@@ -713,10 +713,15 @@ class ProceduralMemorySystem:
             return None  # Doesn't meet quality threshold
 
         old_learned_from = proc.learned_from
+        old_version = proc.version
         proc.is_playbook = True
         proc.promoted_at = datetime.now(UTC)
         if proc.learned_from is None:
             proc.learned_from = "autonomous_discovery"
+        # PR #84: bump version so the API editor path's optimistic lock
+        # catches this as a concurrent writer. Without this, the user
+        # would silently clobber the auto-promotion's transition.
+        proc.version = old_version + 1
 
         try:
             await self.session.flush()
@@ -725,6 +730,7 @@ class ProceduralMemorySystem:
             proc.is_playbook = False
             proc.promoted_at = None
             proc.learned_from = old_learned_from
+            proc.version = old_version
             raise
 
         return proc
