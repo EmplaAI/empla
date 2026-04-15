@@ -72,6 +72,36 @@
   fields other than `name` — uses `values["name"]` or the row's
   pre-update name.
 
+### Fixed (critical — pre-existing Phase 4 bug, caught by /qa)
+
+- **Phase 4 (PR #73) playbook schema was never migrated.** PR #73
+  added `is_playbook` and `promoted_at` columns to the
+  `ProceduralMemory` model, an `idx_procedural_playbooks` partial
+  index, and widened the `procedure_type` and `learned_from` CHECK
+  constraints — but no Alembic migration was ever generated. Unit
+  tests passed because `tests/conftest.py` uses
+  `metadata.create_all()`, bypassing Alembic. **Any deployment that
+  ran migrations from scratch was 500'ing on every playbook query**
+  (`column memory_procedural.is_playbook does not exist`). The cost
+  panel + playbook viewer (PR #76) and the playbook editor would
+  both fail in production.
+  Fix bundled into the PR #84 migration (`k6f7g8h9i0j1`) using
+  idempotent `ADD COLUMN IF NOT EXISTS` so DBs that picked up the
+  schema via `create_all` aren't disturbed. Migration body now adds
+  4 columns + 1 partial index + widens 2 CHECK constraints, then
+  layers the `version` and `enabled` columns on top. Roundtrip
+  tested: downgrade drops the new columns and intentionally leaves
+  the widened CHECKs in place (downgrade must not destroy data, and
+  the widened CHECKs are a superset of the old ones so nothing
+  breaks).
+
+- **Icon-only action buttons had no `aria-label`.** The per-row
+  Toggle/Edit/Delete buttons in `playbook-panel.tsx` had only
+  `title` for accessibility. Screen readers don't reliably
+  announce `title` on `<button>`. Now both `title` and
+  `aria-label` are set, both include the playbook name so
+  multi-row pages aren't a "Edit / Edit / Edit" wall.
+
 ### Tests
 
 22 new unit tests in `tests/unit/test_playbooks_editor.py` cover

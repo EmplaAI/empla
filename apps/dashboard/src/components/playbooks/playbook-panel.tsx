@@ -276,7 +276,8 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
                           className="h-7 px-2"
                           onClick={() => handleToggle(p)}
                           disabled={toggle.isPending}
-                          title={p.enabled ? 'Disable' : 'Enable'}
+                          title={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
+                          aria-label={p.enabled ? `Disable ${p.name}` : `Enable ${p.name}`}
                         >
                           <Power className="h-3.5 w-3.5" />
                         </Button>
@@ -285,7 +286,8 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
                           size="sm"
                           className="h-7 px-2"
                           onClick={() => openEdit(p)}
-                          title="Edit"
+                          title={`Edit ${p.name}`}
+                          aria-label={`Edit ${p.name}`}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -295,7 +297,8 @@ export function PlaybookPanel({ employeeId }: { employeeId: string }) {
                           className="h-7 px-2"
                           onClick={() => handleDelete(p)}
                           disabled={del.isPending}
-                          title="Delete"
+                          title={`Delete ${p.name}`}
+                          aria-label={`Delete ${p.name}`}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
