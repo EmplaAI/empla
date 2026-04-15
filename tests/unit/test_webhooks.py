@@ -567,7 +567,13 @@ class TestWebhookEndpoint:
 
         # Override DB dependency with a mock session
         async def mock_get_db():
-            yield AsyncMock()
+            db = AsyncMock()
+            # Real SQLAlchemy has `add` sync and `commit`/`execute` async.
+            # AsyncMock makes everything async by default — override `add`
+            # so the webhook audit-log write (PR #81) doesn't dangle a
+            # never-awaited coroutine.
+            db.add = Mock()
+            yield db
 
         app.dependency_overrides[get_db] = mock_get_db
         return app
@@ -606,7 +612,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "invalid-token"},
+                    headers={"X-Webhook-Token": "invalid-token-1234567890"},
                     json={"subscriptionType": "deal.updated"},
                 )
             assert resp.status_code == 401
@@ -619,6 +625,7 @@ class TestWebhookEndpoint:
         from empla.api.v1.endpoints import webhooks
 
         tenant_id = uuid4()
+        integration_id = uuid4()
         emp_id = uuid4()
 
         app = self._make_app()
@@ -629,7 +636,7 @@ class TestWebhookEndpoint:
                 webhooks,
                 "_find_tenant_by_webhook_token",
                 new_callable=AsyncMock,
-                return_value=tenant_id,
+                return_value=(tenant_id, integration_id),
             ),
             patch.object(
                 webhooks,
@@ -646,7 +653,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "valid-token"},
+                    headers={"X-Webhook-Token": "valid-token-1234567890"},
                     json=[{"subscriptionType": "deal.updated", "objectId": 123}],
                 )
 
@@ -676,7 +683,7 @@ class TestWebhookEndpoint:
                 webhooks,
                 "_find_tenant_by_webhook_token",
                 new_callable=AsyncMock,
-                return_value=uuid4(),
+                return_value=(uuid4(), uuid4()),
             ),
             patch.object(
                 webhooks,
@@ -688,7 +695,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "valid-token"},
+                    headers={"X-Webhook-Token": "valid-token-1234567890"},
                     json={"subscriptionType": "deal.updated"},
                 )
 
@@ -710,7 +717,7 @@ class TestWebhookEndpoint:
                 webhooks,
                 "_find_tenant_by_webhook_token",
                 new_callable=AsyncMock,
-                return_value=uuid4(),
+                return_value=(uuid4(), uuid4()),
             ),
             patch.object(
                 webhooks,
@@ -727,7 +734,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "valid-token"},
+                    headers={"X-Webhook-Token": "valid-token-1234567890"},
                     json={"subscriptionType": "deal.updated"},
                 )
 
@@ -750,7 +757,7 @@ class TestWebhookEndpoint:
                 webhooks,
                 "_find_tenant_by_webhook_token",
                 new_callable=AsyncMock,
-                return_value=uuid4(),
+                return_value=(uuid4(), uuid4()),
             ),
             patch.object(
                 webhooks,
@@ -768,7 +775,7 @@ class TestWebhookEndpoint:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 resp = await client.post(
                     "/api/v1/webhooks/hubspot",
-                    headers={"X-Webhook-Token": "valid-token"},
+                    headers={"X-Webhook-Token": "valid-token-1234567890"},
                     json={"subscriptionType": "deal.updated"},
                 )
 

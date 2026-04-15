@@ -4,7 +4,8 @@
 > **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5A complete:
 > PR #77 (foundation), PR #78 (PM/SDR/Recruiter), PR #79 (memory API + 4-group
 > tabs), PR #80 (tool catalog + trust boundary view + runner auth) shipped.
-> Phase 5B kicks off with PR #81 — 6 more PRs remain.
+> Phase 5B in progress: PR #81 (webhook UI + event feed + wizards) shipped —
+> 5 more Phase 5B PRs remain.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
@@ -53,7 +54,16 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
 
 ### Phase 5B — User Power + Visibility (6 PRs)
 
-- **PR #81** — Webhook UI + event feed + setup wizards (HubSpot, Calendar, Gmail)
+- **PR #81** ✓ SHIPPED 2026-04-14: Webhook UI + event feed + setup wizards.
+  Token mgmt on existing Integration.oauth_config JSONB (no new table), 5-min
+  grace-window rotation (freezegun test), events feed reuses AuditLog with
+  widened actor_type CHECK + partial expression index on
+  details->>'provider'. Dashboard /events route: token manager with inline
+  Target URL, once-only token dialog with beforeunload guard, 15s-autorefresh
+  event stream, HubSpot/Calendar/Gmail wizards. +19 unit tests. Boil-the-lake
+  review: 12 fixes applied including PII scrub, SELECT FOR UPDATE on
+  create/rotate/delete, create-409 on existing token, LIKE→JSONB filter fix,
+  setState-during-render fix, downgrade fail-loud.
 - **PR #82** — Scheduler panel (read + cancel + tagged user-requested add)
 - **PR #83** — Real settings page (LLM, cost, cycle, trust read-only, notifications)
   with runner-restart reload pattern. Kills `hubspot/tools.py:150` quarterly_target
