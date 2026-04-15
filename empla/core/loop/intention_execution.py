@@ -12,11 +12,26 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 from empla.core.loop.models import IntentionResult
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_scheduled_action_ttl(scheduled_for_iso: str) -> int:
+    """TTL in seconds so a row persists 24h past its fire time.
+
+    Working memory's ``get_active_items`` filters on ``expires_at > now``,
+    so a too-short TTL makes scheduled actions vanish before firing.
+    """
+    try:
+        scheduled_for = datetime.fromisoformat(scheduled_for_iso)
+    except (ValueError, TypeError):
+        return 3600  # fall back to WorkingMemory default
+    delta = scheduled_for - datetime.now(UTC)
+    return max(3600, int(delta.total_seconds()) + 86400)
 
 
 class IntentionExecutionMixin:
@@ -448,11 +463,20 @@ class IntentionExecutionMixin:
                     "interval_hours": output.get("interval_hours"),
                     "context": output.get("context", {}),
                     "created_at": output.get("created_at", ""),
+                    # PR #82: tag self-scheduled actions so the API can
+                    # distinguish from user_requested ones.
+                    "source": "employee",
                 }
+                # Working memory's default TTL is 1 hour. Scheduled actions
+                # may fire arbitrarily far in the future, so compute a TTL
+                # that extends 24h past scheduled_for; otherwise the row
+                # disappears from get_active_items before ever firing.
+                ttl_seconds = _compute_scheduled_action_ttl(content["scheduled_for"])
                 await self.memory.working.add_item(
                     item_type="task",
                     content=content,
                     importance=0.7,
+                    ttl_seconds=ttl_seconds,
                 )
                 logger.info(
                     "Stored scheduled action: %s at %s",

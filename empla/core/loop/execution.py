@@ -335,6 +335,20 @@ class ProactiveExecutionLoop(
                     cycle_count=self.cycle_count,
                 )
 
+                # PR #82: commit + begin a fresh transaction so scheduled
+                # actions written by the API (short-lived session) are
+                # visible to _check_scheduled_actions on this cycle.
+                # Without this, READ COMMITTED isolation hides them behind
+                # the loop's long-lived transaction until the next commit.
+                try:
+                    await self.beliefs.session.commit()
+                except Exception:
+                    logger.warning(
+                        "Failed to commit session before scheduled-action check",
+                        exc_info=True,
+                        extra={"employee_id": str(self.employee.id)},
+                    )
+
                 # Check for due scheduled actions → inject into working memory
                 await self._check_scheduled_actions()
 
@@ -746,12 +760,22 @@ class ProactiveExecutionLoop(
             for action in due_actions:
                 content = getattr(action, "content", {}) or {}
                 desc = content.get("description", "Scheduled action")
+                # PR #82: differentiate user-requested from self-scheduled so
+                # the LLM perception phase sees whose idea this was. Legacy
+                # rows without a source default to "employee".
+                source = content.get("source", "employee")
+                prefix = (
+                    "USER-REQUESTED SCHEDULED ACTION"
+                    if source == "user_requested"
+                    else "SCHEDULED ACTION DUE"
+                )
                 # Add as high-importance working memory item so perception sees it
                 await self.memory.working.add_item(
                     item_type="observation",
                     content={
-                        "description": f"SCHEDULED ACTION DUE: {desc}",
+                        "description": f"{prefix}: {desc}",
                         "subtype": "scheduled_action_due",
+                        "source": source,
                         "original_action": content,
                     },
                     importance=0.9,
@@ -767,10 +791,17 @@ class ProactiveExecutionLoop(
                     next_run = now + timedelta(hours=interval_hours)
                     content["scheduled_for"] = next_run.isoformat()
                     content["subtype"] = "scheduled_action"
+                    # PR #82: default TTL would expire this before the next
+                    # firing if interval > 1h. Compute TTL past next_run.
+                    next_ttl = max(
+                        3600,
+                        int((next_run - now).total_seconds()) + 86400,
+                    )
                     await self.memory.working.add_item(
                         item_type="task",
                         content=content,
                         importance=0.7,
+                        ttl_seconds=next_ttl,
                     )
 
             if due_actions:
