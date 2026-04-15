@@ -276,6 +276,80 @@ export interface ScheduledAction {
 }
 
 /**
+ * Tenant settings (PR #83). Five editable sections plus read-only trust.
+ *
+ * All fields use camelCase on the frontend; the API client converts to/from
+ * the snake_case server representation.
+ */
+export interface LLMSettingsData {
+  primaryModel: string;
+  fallbackModel: string;
+  routingRules: Record<string, string>;
+  providerAllowlist: string[];
+}
+
+export interface CostSettingsData {
+  dailyBudgetUsd: number;
+  monthlyBudgetUsd: number;
+  alertThresholdPct: number;
+  hardStopBudgetUsd: number | null;
+}
+
+export interface CycleSettingsData {
+  minIntervalSeconds: number;
+  maxIntervalSeconds: number;
+  adaptiveSensitivity: number;
+}
+
+export interface TrustRule {
+  category: string;
+  pattern: string;
+  action: 'deny' | 'warn' | 'strip';
+  origin: 'platform' | 'tenant';
+}
+
+export interface TrustSettingsData {
+  currentTaintRules: TrustRule[];
+  globalDenyList: string[];
+}
+
+export interface NotificationSettingsData {
+  inboxUrgentEnabled: boolean;
+  inboxNormalEnabled: boolean;
+}
+
+export interface SalesSettingsData {
+  quarterlyTargetUsd: number;
+}
+
+export interface TenantSettingsData {
+  version: number;
+  llm: LLMSettingsData;
+  cost: CostSettingsData;
+  cycle: CycleSettingsData;
+  trust: TrustSettingsData;
+  notifications: NotificationSettingsData;
+  sales: SalesSettingsData;
+}
+
+/**
+ * Partial update — any section omitted is left unchanged. Trust is intentionally
+ * absent; edits are rejected at the API schema level.
+ */
+export interface TenantSettingsUpdate {
+  llm?: LLMSettingsData;
+  cost?: CostSettingsData;
+  cycle?: CycleSettingsData;
+  notifications?: NotificationSettingsData;
+  sales?: SalesSettingsData;
+}
+
+export interface TenantSettingsUpdateResult {
+  settings: TenantSettingsData;
+  restartingEmployees: number;
+}
+
+/**
  * Activity event from API.
  */
 export interface Activity {

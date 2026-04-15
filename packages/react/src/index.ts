@@ -142,6 +142,10 @@ export {
   useCancelScheduledAction,
   useCreateScheduledAction,
   useSchedule,
+  // Settings
+  settingsKeys,
+  useSettings,
+  useUpdateSettings,
 } from './hooks';
 
 // Components
@@ -229,6 +233,16 @@ export type {
   WebhookTokenIssued,
   ScheduledAction,
   ScheduledActionSource,
+  TenantSettingsData,
+  TenantSettingsUpdate,
+  TenantSettingsUpdateResult,
+  LLMSettingsData,
+  CostSettingsData,
+  CycleSettingsData,
+  TrustSettingsData,
+  TrustRule,
+  NotificationSettingsData,
+  SalesSettingsData,
 } from './types';
 
 // API Client (for advanced usage)

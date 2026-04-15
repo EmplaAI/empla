@@ -75,7 +75,12 @@ class Employee(TenantScopedModel):
         String(20),
         nullable=False,
         server_default=text("'onboarding'"),
-        comment="Operational status (onboarding, active, paused, stopped, terminated)",
+        comment=(
+            "Operational status (onboarding, active, paused, stopped, "
+            "terminated, restarting). 'restarting' is a transient state used "
+            "by the settings-change flow — the loop exits gracefully and the "
+            "supervisor respawns the runner so fresh Tenant.settings are read."
+        ),
     )
 
     lifecycle_stage: Mapped[str] = mapped_column(
@@ -140,7 +145,7 @@ class Employee(TenantScopedModel):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "status IN ('onboarding', 'active', 'paused', 'stopped', 'terminated')",
+            "status IN ('onboarding', 'active', 'paused', 'stopped', 'terminated', 'restarting')",
             name="ck_employees_status",
         ),
         CheckConstraint(

@@ -37,6 +37,9 @@ import type {
   SemanticMemoryItem,
   ToolCatalogResponse,
   ScheduledAction,
+  TenantSettingsData,
+  TenantSettingsUpdate,
+  TenantSettingsUpdateResult,
   WebhookAuditEvent,
   WebhookTokenInfo,
   WebhookTokenIssued,
@@ -1738,6 +1741,136 @@ export function createApiClient(config: ApiClientConfig) {
     );
   }
 
+  // =========================================================================
+  // Tenant Settings (PR #83)
+  // =========================================================================
+
+  // The server stores snake_case in a JSONB blob. We convert to camelCase for
+  // the frontend. Keep these mappers tight — adding a field is a 4-site edit.
+
+  function _parseSettings(raw: {
+    version: number;
+    llm: {
+      primary_model: string;
+      fallback_model: string;
+      routing_rules: Record<string, string>;
+      provider_allowlist: string[];
+    };
+    cost: {
+      daily_budget_usd: number;
+      monthly_budget_usd: number;
+      alert_threshold_pct: number;
+      hard_stop_budget_usd: number | null;
+    };
+    cycle: {
+      min_interval_seconds: number;
+      max_interval_seconds: number;
+      adaptive_sensitivity: number;
+    };
+    trust: {
+      current_taint_rules: Array<{
+        category: string;
+        pattern: string;
+        action: 'deny' | 'warn' | 'strip';
+        origin: 'platform' | 'tenant';
+      }>;
+      global_deny_list: string[];
+    };
+    notifications: {
+      inbox_urgent_enabled: boolean;
+      inbox_normal_enabled: boolean;
+    };
+    sales: { quarterly_target_usd: number };
+  }): TenantSettingsData {
+    return {
+      version: raw.version,
+      llm: {
+        primaryModel: raw.llm.primary_model,
+        fallbackModel: raw.llm.fallback_model,
+        routingRules: raw.llm.routing_rules,
+        providerAllowlist: raw.llm.provider_allowlist,
+      },
+      cost: {
+        dailyBudgetUsd: raw.cost.daily_budget_usd,
+        monthlyBudgetUsd: raw.cost.monthly_budget_usd,
+        alertThresholdPct: raw.cost.alert_threshold_pct,
+        hardStopBudgetUsd: raw.cost.hard_stop_budget_usd,
+      },
+      cycle: {
+        minIntervalSeconds: raw.cycle.min_interval_seconds,
+        maxIntervalSeconds: raw.cycle.max_interval_seconds,
+        adaptiveSensitivity: raw.cycle.adaptive_sensitivity,
+      },
+      trust: {
+        currentTaintRules: raw.trust.current_taint_rules,
+        globalDenyList: raw.trust.global_deny_list,
+      },
+      notifications: {
+        inboxUrgentEnabled: raw.notifications.inbox_urgent_enabled,
+        inboxNormalEnabled: raw.notifications.inbox_normal_enabled,
+      },
+      sales: { quarterlyTargetUsd: raw.sales.quarterly_target_usd },
+    };
+  }
+
+  function _serializeSettingsUpdate(body: TenantSettingsUpdate): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    if (body.llm) {
+      out.llm = {
+        primary_model: body.llm.primaryModel,
+        fallback_model: body.llm.fallbackModel,
+        routing_rules: body.llm.routingRules,
+        provider_allowlist: body.llm.providerAllowlist,
+      };
+    }
+    if (body.cost) {
+      out.cost = {
+        daily_budget_usd: body.cost.dailyBudgetUsd,
+        monthly_budget_usd: body.cost.monthlyBudgetUsd,
+        alert_threshold_pct: body.cost.alertThresholdPct,
+        hard_stop_budget_usd: body.cost.hardStopBudgetUsd,
+      };
+    }
+    if (body.cycle) {
+      out.cycle = {
+        min_interval_seconds: body.cycle.minIntervalSeconds,
+        max_interval_seconds: body.cycle.maxIntervalSeconds,
+        adaptive_sensitivity: body.cycle.adaptiveSensitivity,
+      };
+    }
+    if (body.notifications) {
+      out.notifications = {
+        inbox_urgent_enabled: body.notifications.inboxUrgentEnabled,
+        inbox_normal_enabled: body.notifications.inboxNormalEnabled,
+      };
+    }
+    if (body.sales) {
+      out.sales = { quarterly_target_usd: body.sales.quarterlyTargetUsd };
+    }
+    return out;
+  }
+
+  async function getSettings(): Promise<TenantSettingsData> {
+    const raw = await request<Parameters<typeof _parseSettings>[0]>('/v1/settings');
+    return _parseSettings(raw);
+  }
+
+  async function updateSettings(
+    body: TenantSettingsUpdate
+  ): Promise<TenantSettingsUpdateResult> {
+    const raw = await request<{
+      settings: Parameters<typeof _parseSettings>[0];
+      restarting_employees: number;
+    }>('/v1/settings', {
+      method: 'PUT',
+      body: JSON.stringify(_serializeSettingsUpdate(body)),
+    });
+    return {
+      settings: _parseSettings(raw.settings),
+      restartingEmployees: raw.restarting_employees,
+    };
+  }
+
   return {
     setAuthToken,
     login,
@@ -1788,6 +1921,8 @@ export function createApiClient(config: ApiClientConfig) {
     listScheduledActions,
     createScheduledAction,
     cancelScheduledAction,
+    getSettings,
+    updateSettings,
   };
 }
 
