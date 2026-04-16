@@ -6,6 +6,118 @@
 
 ---
 
+## 2026-04-15 - Phase 5B: Custom-role employees via LLM (PR #85)
+
+**Phase:** Phase 5B — User Power + Visibility (PR 9 of 10)
+
+### Added
+
+- **Custom-role employees.** Admins can describe a job in plain English
+  ("a marketing manager who runs lifecycle email campaigns") and the
+  LLM drafts a name, role description, capabilities, and starting
+  goals. The admin reviews the exact text in the create-employee form
+  and clicks Create — no separate template/role table, no approval
+  workflow. Direct create only.
+
+- **`POST /api/v1/employees/generate-role` endpoint.** Admin-only.
+  Takes a NL description, calls the configured LLM via
+  `LLMService.generate_structured` against a strict
+  `GeneratedRoleDraft` schema, returns the draft. No persistence —
+  the draft is ephemeral until the admin POSTs it back through the
+  regular `/employees` endpoint. Returns 503 when no LLM provider is
+  configured, 422 on malformed LLM output, 502 on provider failure.
+
+- **`GenericEmployee` runtime class** (`empla/employees/generic.py`).
+  ~50 lines. Overrides the three abstract `default_*` properties on
+  `DigitalEmployee` to read from the persisted Employee row. Used by
+  the runner for any role code that's not in the built-in registry.
+
+- **`get_employee_class()` falls back to `GenericEmployee`** for
+  unknown role codes (instead of returning `None`). The runner can
+  now spawn custom-role employees without sys.exit. None remains
+  reserved for code-path bugs (importlib failure on a built-in role).
+
+- **`EmployeeCreate` schema extended** with `role_description` and
+  `goals` fields. For `role='custom'` both are required and the
+  endpoint enforces:
+  - admin-only (`auth.role == "admin"` else 403)
+  - `role_description` non-empty (else 422), 1kB cap, control chars
+    stripped (Unicode `Cc/Cf/Cs` categories — strips `\u202e` RTL,
+    `\u200b` zero-width, BOM, etc.)
+  - `goals` non-empty list (else 422), each shape-validated by
+    `GoalInput`
+  Built-in roles ignore these fields and use their `ROLE_CATALOG`
+  defaults.
+
+- **Dashboard role builder card.** New `RoleBuilderCard` component
+  appears in `/employees/new` when role='custom' is selected. Calls
+  `useGenerateRole`, pre-fills the form on success. `EmployeeForm`
+  gained `onRoleChange` + `overrides` props so the parent page can
+  push LLM-generated text into the form without owning form state.
+
+- **`@empla/react` SDK additions.** `useGenerateRole` mutation hook,
+  `api.generateRole(description)`, `GeneratedRoleDraft` and
+  `GoalInput` types. `EmployeeCreate` now carries `roleDescription`
+  + `goals`; `createEmployee` translates camelCase → snake_case for
+  the goal fields.
+
+- **`AuthContext.role` shortcut** on `empla/api/deps.py`. Lets
+  endpoints write `auth.role != "admin"` for inline conditional
+  admin gates (used by `POST /employees` for the custom-role path)
+  without reaching through `auth.user.role`. Tests can mock with a
+  flat `SimpleNamespace`.
+
+### Tests
+
+30 new unit tests in `tests/unit/test_custom_employees.py` cover:
+GenericEmployee instantiation + abstract-method override + config
+delegation, registry fallback (3 cases), schema validation
+(control chars, length cap, newlines preserved, only-control-chars
+returns None, GoalInput priority bounds, max 20 goals),
+`POST /employees` (missing role_description → 422, missing goals
+→ 422, member 403, member can still create built-ins, admin happy
+path persists role_description into config + creates EmployeeGoal
+rows), GeneratedRoleDraft schema (allowlist enforcement, dedupe,
+length bounds), and the generator endpoint (LLM happy path with
+mocked draft, ValidationError → 422, missing API key → 503,
+generic exception → 502, request validation).
+
+Two existing tests updated for the new behavior:
+`test_get_employee_class_unknown_returns_none` →
+`...returns_generic_employee`,
+`test_start_employee_raises_for_unsupported_role` →
+`...succeeds_for_custom_role` (now spawns subprocess).
+
+Total unit suite: 1925 passing (+30 new, 0 regressions).
+
+### Migration / data
+
+No new migration. The `role` CHECK constraint on `employees`
+already permits `'custom'` (added in Phase 1's initial schema).
+The runner-side config builder already reads `role_description`
+from `Employee.config["role_description"]` JSONB and seeds
+`config.goals` from the relationship, so the runtime needed no
+changes — the wiring just had a "no class for this role" gap that
+`GenericEmployee` fills.
+
+### Explicitly deferred
+
+- Per-goal target/priority editor in the wizard. Today the LLM-
+  generated values flow through silently; admin can edit only the
+  role description text. Inline goal editing lands when we add a
+  goals UI on the Mind tab.
+- Personality slider editor in the wizard. Defaults flow through
+  unchanged; same story.
+- "Save as template" — re-running the LLM on each spawn costs ~$0.03
+  and avoids template-versioning questions. Templates can land in a
+  follow-up if reuse becomes important.
+- Admin approval queue. Direct-create-only was the chosen tradeoff —
+  admin auth IS the gate, no second-step approval workflow.
+- Capability allowlist beyond `{email, calendar, crm, search}`. Add
+  more keys when the corresponding integrations land.
+
+---
+
 ## 2026-04-15 - Phase 5B: Playbook Editor with Optimistic Locking (PR #84)
 
 **Phase:** Phase 5B — User Power + Visibility (PR 8 of 10)

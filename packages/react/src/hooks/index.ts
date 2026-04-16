@@ -17,6 +17,7 @@ export {
   useDeleteEmployee,
   useEmployee,
   useEmployees,
+  useGenerateRole,
   useUpdateEmployee,
 } from './useEmployees';
 

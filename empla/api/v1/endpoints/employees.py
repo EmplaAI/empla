@@ -19,7 +19,7 @@ from empla.api.v1.schemas.employee import (
     EmployeeResponse,
     EmployeeUpdate,
 )
-from empla.models.employee import Employee
+from empla.models.employee import Employee, EmployeeGoal
 
 logger = logging.getLogger(__name__)
 
@@ -103,17 +103,42 @@ async def create_employee(
     """
     Create a new digital employee.
 
-    Args:
-        db: Database session
-        auth: Current user context
-        data: Employee creation data
+    For built-in roles (``sales_ae``, ``csm``, ``pm``, ``sdr``,
+    ``recruiter``) the runtime resolves goals + personality + capabilities
+    from ``ROLE_CATALOG``; ``role_description`` and ``goals`` in the body
+    are ignored. For ``role='custom'`` the body MUST carry both
+    ``role_description`` (interpolated into the LLM system prompt) and
+    a non-empty ``goals`` list — these are persisted on the Employee row
+    and seeded as ``EmployeeGoal`` rows so the runner reads them on
+    start. There is no separate "custom role" table; each custom
+    employee is one-off.
 
-    Returns:
-        Created employee
-
-    Raises:
-        HTTPException: If email already exists
+    Returns 422 when ``role='custom'`` lacks the required custom-role
+    fields, 409 on duplicate email.
     """
+    # Custom-role policy enforcement. The schema couldn't enforce this
+    # without a discriminated union; doing it here keeps the 422 / 403
+    # messages human-readable.
+    if data.role == "custom":
+        # Admin gate: custom role text is interpolated into a system prompt,
+        # so prompt-injection risk lives behind admin auth. Built-in roles
+        # use ROLE_CATALOG and don't have this surface.
+        if auth.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required to create custom-role employees",
+            )
+        if not data.role_description:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="role_description is required when role='custom'",
+            )
+        if not data.goals:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="goals must be a non-empty list when role='custom'",
+            )
+
     # Check for duplicate email
     existing = await db.execute(
         select(Employee).where(
@@ -128,6 +153,13 @@ async def create_employee(
             detail=f"Employee with email {data.email} already exists",
         )
 
+    # Materialize role_description into Employee.config JSONB. The runner's
+    # config builder reads it from db_config["role_description"] (see
+    # empla/runner/main.py) — we don't have a top-level column for it.
+    db_config = dict(data.config or {})
+    if data.role == "custom" and data.role_description:
+        db_config["role_description"] = data.role_description
+
     # Create employee
     employee = Employee(
         tenant_id=auth.tenant_id,
@@ -136,19 +168,43 @@ async def create_employee(
         email=data.email,
         capabilities=data.capabilities,
         personality=data.personality,
-        config=data.config,
+        config=db_config,
         status="onboarding",
         lifecycle_stage="shadow",
         created_by=auth.user_id,
     )
 
     db.add(employee)
+    await db.flush()  # assign employee.id without committing — we still need
+    # to attach goals before the single commit below
+
+    # Seed EmployeeGoal rows from request. For custom roles this is the only
+    # source of truth; for built-ins we accept goals as an override (rare,
+    # but admins can shape a built-in's goals at creation time).
+    if data.goals:
+        for g in data.goals:
+            db.add(
+                EmployeeGoal(
+                    tenant_id=auth.tenant_id,
+                    employee_id=employee.id,
+                    goal_type=g.goal_type,
+                    description=g.description,
+                    priority=g.priority,
+                    target=g.target,
+                )
+            )
+
     await db.commit()
     await db.refresh(employee)
 
     logger.info(
         f"Created employee {employee.id}",
-        extra={"employee_id": str(employee.id), "tenant_id": str(auth.tenant_id)},
+        extra={
+            "employee_id": str(employee.id),
+            "tenant_id": str(auth.tenant_id),
+            "role": data.role,
+            "goals_seeded": len(data.goals or []),
+        },
     )
 
     # New employees are never running, but check for consistency with other endpoints

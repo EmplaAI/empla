@@ -17,6 +17,7 @@ from empla.api.v1.endpoints import (
     memory,
     metrics,
     playbooks,
+    role_builder,
     roles,
     scheduler,
     settings,
@@ -42,3 +43,4 @@ api_router.include_router(memory.router, prefix="/employees", tags=["memory"])
 api_router.include_router(tools.router, prefix="/employees", tags=["tools"])
 api_router.include_router(scheduler.router, prefix="/employees", tags=["scheduler"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
+api_router.include_router(role_builder.router, prefix="/employees", tags=["role-builder"])

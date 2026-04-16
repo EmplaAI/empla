@@ -19,6 +19,7 @@ import type {
   EmployeeIntention,
   EmployeeRuntimeStatus,
   EmployeeUpdate,
+  GeneratedRoleDraft,
   BlockedToolsResponse,
   EpisodicMemoryItem,
   IntegrationCredential,
@@ -318,6 +319,28 @@ export function createApiClient(config: ApiClientConfig) {
   }
 
   async function createEmployee(data: EmployeeCreate): Promise<Employee> {
+    // The Python schema uses snake_case (role_description, goals[].goal_type).
+    // Translate from the camelCase SDK type so callers don't have to think
+    // about it. Built-in roles ignore role_description/goals; we still
+    // forward them when present in case the caller wants to override.
+    const body: Record<string, unknown> = {
+      name: data.name,
+      role: data.role,
+      email: data.email,
+    };
+    if (data.capabilities !== undefined) body.capabilities = data.capabilities;
+    if (data.personality !== undefined) body.personality = data.personality;
+    if (data.config !== undefined) body.config = data.config;
+    if (data.roleDescription !== undefined) body.role_description = data.roleDescription;
+    if (data.goals !== undefined) {
+      body.goals = data.goals.map((g) => ({
+        description: g.description,
+        ...(g.priority !== undefined ? { priority: g.priority } : {}),
+        ...(g.target !== undefined ? { target: g.target } : {}),
+        ...(g.goalType !== undefined ? { goal_type: g.goalType } : {}),
+      }));
+    }
+
     const response = await request<{
       id: string;
       tenant_id: string;
@@ -335,10 +358,47 @@ export function createApiClient(config: ApiClientConfig) {
       is_running: boolean;
     }>('/v1/employees', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(body),
     });
 
     return transformEmployee(response);
+  }
+
+  /**
+   * POST /v1/employees/generate-role — admin-only LLM endpoint that
+   * turns a NL job description into a draft RoleDefinition. The wizard
+   * pre-fills its form from this; the actual employee is created via
+   * the regular ``createEmployee`` call once the admin reviews the text.
+   */
+  async function generateRole(description: string): Promise<GeneratedRoleDraft> {
+    const response = await request<{
+      name_suggestion: string;
+      role_description: string;
+      capabilities: string[];
+      goals: Array<{
+        description: string;
+        priority?: number;
+        target?: Record<string, unknown>;
+        goal_type?: string;
+      }>;
+      personality: Record<string, number>;
+    }>('/v1/employees/generate-role', {
+      method: 'POST',
+      body: JSON.stringify({ description }),
+    });
+
+    return {
+      nameSuggestion: response.name_suggestion,
+      roleDescription: response.role_description,
+      capabilities: response.capabilities,
+      goals: response.goals.map((g) => ({
+        description: g.description,
+        priority: g.priority,
+        target: g.target,
+        goalType: g.goal_type,
+      })),
+      personality: response.personality,
+    };
   }
 
   async function updateEmployee(id: string, data: EmployeeUpdate): Promise<Employee> {
@@ -1968,6 +2028,7 @@ export function createApiClient(config: ApiClientConfig) {
     listEmployees,
     getEmployee,
     createEmployee,
+    generateRole,
     updateEmployee,
     deleteEmployee,
     startEmployee,

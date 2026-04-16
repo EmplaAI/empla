@@ -61,6 +61,7 @@ class AuthContext:
         tenant: Tenant the user belongs to
         tenant_id: UUID of the tenant (shortcut)
         user_id: UUID of the user (shortcut)
+        role: User's role string (shortcut for ``user.role``)
     """
 
     def __init__(self, user: User, tenant: Tenant) -> None:
@@ -68,6 +69,11 @@ class AuthContext:
         self.tenant = tenant
         self.tenant_id = tenant.id
         self.user_id = user.id
+        # Shortcut so endpoints that conditionally require admin (e.g. POST
+        # /employees with role='custom') can write `auth.role != "admin"`
+        # without reaching through the user attribute. Also lets unit tests
+        # use a SimpleNamespace fixture without nesting a full user mock.
+        self.role = user.role
 
 
 async def get_current_user(
