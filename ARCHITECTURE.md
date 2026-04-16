@@ -1,6 +1,6 @@
 # empla — Architecture
 
-> **Last Updated:** 2026-04-11
+> **Last Updated:** 2026-04-15
 > **Status:** Reflects current codebase (post Phase 4)
 
 ---
@@ -188,10 +188,13 @@ ToolRouter
 | **ProductManager** | Backlog prioritization, release notes | Implemented |
 | **SDR** | Lead qualification, outbound prospecting | Implemented |
 | **Recruiter** | Sourcing, screening, outreach | Implemented |
+| **Custom (LLM-drafted)** | One-off admin-created roles; state lives on the Employee row | Implemented (PR #85) |
 
-All inherit from `CatalogBackedEmployee` (a `DigitalEmployee` subclass) that
+Built-in roles inherit from `CatalogBackedEmployee` (a `DigitalEmployee` subclass) that
 reads defaults from `ROLE_CATALOG` via a `role_code` class attribute and
-templatizes startup/shutdown belief + episode recording. Employee behavior is
+templatizes startup/shutdown belief + episode recording. Custom-role employees use
+`GenericEmployee` (also a `DigitalEmployee` subclass) which has no role-specific
+methods and reads every value from the persisted Employee row state. Employee behavior is
 defined by:
 - **Personality** (from role catalog)
 - **Default goals** (from role catalog)
@@ -228,7 +231,7 @@ FastAPI at `/api/v1/`:
 | HTTP client | httpx (for HubSpot, Google Calendar) |
 | MCP | Model Context Protocol (stdio + HTTP) |
 | Frontend | React + TypeScript |
-| Testing | pytest (1895 unit tests, ~70% unit coverage) |
+| Testing | pytest (1925 unit tests, ~70% unit coverage) |
 | Linting | ruff |
 | Type checking | mypy |
 | Package manager | uv |

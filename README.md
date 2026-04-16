@@ -3,7 +3,7 @@
 **Autonomous Digital Employees — AI workers that think, plan, and act on their own.**
 
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-![Tests](https://img.shields.io/badge/tests-1895%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-1925%20passing-brightgreen.svg)
 ![Status](https://img.shields.io/badge/status-alpha-orange.svg)
 
 ---
@@ -118,8 +118,9 @@ Product Managers that analyze usage and prioritize roadmaps. Recruiters that sou
 | **SDR** | Lead qualification, outbound prospecting | Live |
 | **Recruiter** | Sourcing, screening, outreach | Live |
 | **Executive Assistant** | Calendar, email triage, briefs | Planned |
+| **Custom (LLM-drafted)** | Describe any job in plain English → LLM drafts goals + personality → admin reviews + creates | Live |
 
-New types are created by subclassing `CatalogBackedEmployee` and adding a `ROLE_CATALOG` entry with goals + personality.
+New built-in types are created by subclassing `CatalogBackedEmployee` and adding a `ROLE_CATALOG` entry. Custom one-off employees are created via the admin-only LLM role builder in `/employees/new` (Custom option in the role dropdown) — no class to write, no template table to populate.
 
 ---
 
@@ -162,7 +163,7 @@ cd empla
 uv sync                              # Install dependencies
 docker-compose up -d                 # Start PostgreSQL
 uv run alembic upgrade head          # Run migrations
-uv run pytest                        # Run tests (787 passing)
+uv run pytest                        # Run tests (1925 passing)
 ```
 
 ---
