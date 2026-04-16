@@ -115,7 +115,7 @@ export function useCreateEmployee() {
 
 /**
  * Hook for the LLM role builder. Sends a NL job description, returns a
- * draft RoleDefinition the wizard can pre-fill its form with. Admin-only
+ * GeneratedRoleDraft the wizard can pre-fill its form with. Admin-only
  * at the API; non-admin tenants get a 403 from the server which surfaces
  * as ``error.message`` here. The draft is ephemeral — the actual employee
  * is created by calling ``useCreateEmployee`` with role='custom' once

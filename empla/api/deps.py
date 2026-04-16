@@ -205,7 +205,7 @@ async def require_admin(auth: CurrentUser) -> AuthContext:
     Raises:
         HTTPException: If user is not an admin
     """
-    if auth.user.role != "admin":
+    if auth.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",

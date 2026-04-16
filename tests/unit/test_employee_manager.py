@@ -215,7 +215,7 @@ async def test_start_employee_succeeds_for_custom_role(
     tenant_id: UUID,
     mock_session: AsyncMock,
     mock_db_employee: Mock,
-):
+) -> None:
     """Custom-role employees spawn via GenericEmployee (PR #85).
 
     Before PR #85 unknown role codes raised ``UnsupportedRoleError``;

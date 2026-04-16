@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useGenerateRole } from '@empla/react';
@@ -37,6 +37,19 @@ export function RoleBuilderCard({ onDraft, isActive = true }: RoleBuilderCardPro
   const [description, setDescription] = useState('');
   const generate = useGenerateRole();
   const requestIdRef = useRef(0);
+  // Survives unmount: the `isActive` prop prevents overwrites when the
+  // parent still renders this component with isActive=false, but the
+  // LLM call can also resolve AFTER the parent unmounts the card
+  // entirely (user switched to a built-in role → card gone). Track
+  // mount status via a ref so late success/failure callbacks don't
+  // fire toasts or onDraft on an orphan.
+  const isMountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const handleGenerate = async () => {
     const trimmed = description.trim();
@@ -47,15 +60,18 @@ export function RoleBuilderCard({ onDraft, isActive = true }: RoleBuilderCardPro
     const thisRequest = ++requestIdRef.current;
     try {
       const draft = await generate.mutateAsync(trimmed);
-      // Guard: if user switched role during the 6-12s LLM call, ignore
-      // the stale response so it doesn't overwrite the now-active form.
-      if (thisRequest !== requestIdRef.current || !isActive) return;
+      // Guard chain: ignore the response if
+      //   (a) a newer request has been fired since,
+      //   (b) the parent is still mounted but role switched away, or
+      //   (c) the component unmounted (e.g., role switched to sales_ae
+      //       mid-call, parent dropped the card from the tree).
+      if (thisRequest !== requestIdRef.current || !isActive || !isMountedRef.current) return;
       onDraft(draft);
       toast.success('Generated draft', {
         description: 'Review the role description and capabilities below before creating.',
       });
     } catch (err) {
-      if (thisRequest !== requestIdRef.current) return;
+      if (thisRequest !== requestIdRef.current || !isMountedRef.current) return;
       const msg = err instanceof Error && err.message ? err.message : 'Generation failed';
       toast.error(msg);
     }

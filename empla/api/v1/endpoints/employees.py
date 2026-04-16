@@ -120,8 +120,18 @@ async def create_employee(
     # config["role_description"] are interpolated into the LLM system
     # prompt (via identity.py). Only admins may supply these — members
     # get their prompt-influencing state from ROLE_CATALOG defaults.
-    _has_prompt_fields = bool(
-        data.role_description or data.goals or (data.config or {}).get("role_description")
+    # Check KEY PRESENCE (not truthiness) so an attempted
+    # config={"role_description": ""} from a member still 403s —
+    # "tried to set the field" is the audit boundary, not "set it
+    # non-empty".
+    _fields_set = data.model_fields_set
+    _supplied_config_role_desc = (
+        "config" in _fields_set
+        and isinstance(data.config, dict)
+        and "role_description" in data.config
+    )
+    _has_prompt_fields = (
+        "role_description" in _fields_set or "goals" in _fields_set or _supplied_config_role_desc
     )
     if _has_prompt_fields and auth.role != "admin":
         raise HTTPException(
@@ -322,20 +332,48 @@ async def update_employee(
     previous_status = employee.status
 
     # Prompt-bound field gate for updates. Same rationale as POST:
-    # role_description, goals, and config["role_description"] land in the
-    # system prompt. Non-admins must not set them via PUT.
+    # config["role_description"] lands in the system prompt. Check
+    # KEY PRESENCE so an explicit empty string from a member still 403s.
     update_data = data.model_dump(exclude_unset=True)
     _config_update = update_data.get("config")
-    _has_prompt_fields = bool(
-        _config_update
-        and isinstance(_config_update, dict)
-        and _config_update.get("role_description")
+    _supplied_config_role_desc = (
+        isinstance(_config_update, dict) and "role_description" in _config_update
     )
-    if _has_prompt_fields and auth.role != "admin":
+    if _supplied_config_role_desc and auth.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required to modify config.role_description",
         )
+
+    # Sanitize admin-supplied config.role_description before persisting.
+    # Even admin input goes through _strip_control_chars so the same
+    # Unicode-injection guard that protects POST applies to PUT. The
+    # create-path validator on EmployeeCreate.role_description doesn't
+    # reach us here because EmployeeUpdate.config is untyped JSONB.
+    if _supplied_config_role_desc:
+        raw = _config_update.get("role_description")
+        if isinstance(raw, str):
+            from empla.api.v1.schemas.employee import _strip_control_chars
+
+            cleaned = _strip_control_chars(raw).strip()
+            if cleaned:
+                _config_update["role_description"] = cleaned
+            else:
+                _config_update.pop("role_description", None)
+
+    # Normalize EmployeeUpdate.name the same way EmployeeCreate does —
+    # the create validator doesn't apply to update, so raw names with
+    # RTL overrides or zero-width chars would otherwise slip through.
+    if "name" in update_data and isinstance(update_data["name"], str):
+        from empla.api.v1.schemas.employee import _strip_control_chars
+
+        cleaned = _strip_control_chars(update_data["name"]).strip()
+        if len(cleaned) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Employee name must be at least 2 non-control characters",
+            )
+        update_data["name"] = cleaned
 
     # Apply updates
     for field, value in update_data.items():

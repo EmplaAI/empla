@@ -124,10 +124,12 @@ export function EmployeeNewPage() {
       });
       navigate(`/employees/${employee.id}`);
     } catch (error) {
+      // Toast already signals the failure to the user. Re-throwing here
+      // would propagate to react-hook-form's handleSubmit caller and
+      // surface as an unhandled rejection in the console.
       toast.error('Failed to create employee', {
         description: error instanceof Error ? error.message : 'Please try again',
       });
-      throw error;
     }
   };
 

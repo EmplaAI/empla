@@ -353,6 +353,67 @@ class TestCreateCustomEmployee:
         assert goals[0].priority == body.goals[0].priority
         assert goals[0].goal_type == body.goals[0].goal_type
 
+    @pytest.mark.asyncio
+    async def test_member_supplying_empty_goals_list_still_403s(self):
+        """CodeRabbit key-presence gate: `goals=[]` is falsy but the caller
+        DID attempt to set the field. We treat 'tried to set' as the audit
+        boundary, so a member submitting `role='sales_ae'` + `goals=[]`
+        must 403 before the 422 'goals cannot be empty' branch fires."""
+        db, _ = _captured_db()
+        body = EmployeeCreate(
+            name="Jordan",
+            role="sales_ae",
+            email="j@example.com",
+            goals=[GoalInput(description="placeholder")],  # supplied, will be cleared next
+        )
+        # Re-hydrate with goals=[] to land in __pydantic_fields_set__ but empty.
+        body_dict = body.model_dump()
+        body_dict["goals"] = []
+        body_empty_goals = EmployeeCreate(**body_dict)
+        assert "goals" in body_empty_goals.model_fields_set
+
+        with pytest.raises(HTTPException) as exc:
+            await employees_ep.create_employee(
+                db=db, auth=_auth(role="user"), data=body_empty_goals
+            )
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_member_supplying_empty_role_description_still_403s(self):
+        """Same key-presence rule for role_description: a member setting it
+        to '' (or any value stripped to '') tried to touch prompt state —
+        gate before schema cleanup runs."""
+        db, _ = _captured_db()
+        body_dict = {
+            "name": "Jordan",
+            "role": "sales_ae",
+            "email": "j2@example.com",
+            "role_description": "   ",  # pure whitespace, cleaned to None
+        }
+        body = EmployeeCreate(**body_dict)
+        # Validator strips to None, but the key is in the fields-set.
+        assert body.role_description is None
+        assert "role_description" in body.model_fields_set
+
+        with pytest.raises(HTTPException) as exc:
+            await employees_ep.create_employee(db=db, auth=_auth(role="user"), data=body)
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_member_supplying_empty_config_role_description_still_403s(self):
+        """A member sending `config={'role_description': ''}` blanks the
+        runner's ROLE_CATALOG fallback — key presence is the check."""
+        db, _ = _captured_db()
+        body = EmployeeCreate(
+            name="Jordan",
+            role="sales_ae",
+            email="j3@example.com",
+            config={"role_description": ""},  # explicit empty
+        )
+        with pytest.raises(HTTPException) as exc:
+            await employees_ep.create_employee(db=db, auth=_auth(role="user"), data=body)
+        assert exc.value.status_code == 403
+
 
 # ---------------------------------------------------------------------------
 # GeneratedRoleDraft schema
@@ -486,5 +547,7 @@ class TestGenerateRoleEndpoint:
     async def test_request_validates_description_length(self):
         with pytest.raises(ValidationError):
             GenerateRoleRequest(description="too short")
+        # Boundary: exactly 2000 chars must pass (max_length is inclusive).
+        GenerateRoleRequest(description="x" * 2000)
         with pytest.raises(ValidationError):
             GenerateRoleRequest(description="x" * 2001)
