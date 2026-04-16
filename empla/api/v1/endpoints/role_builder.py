@@ -57,7 +57,13 @@ router = APIRouter()
 # Note: f-string-style {{ }} escaping for braces inside the prompt body.
 # The single {capabilities} placeholder is filled at request time from
 # ALLOWED_CAPABILITIES so the prompt always reflects the current allowlist.
-_SYSTEM_PROMPT = """You are designing a digital employee for a SaaS platform.
+_SYSTEM_PROMPT = """You are designing an autonomous digital employee.
+
+The employee may work in any domain — sales, customer success, marketing,
+recruiting, healthcare intake, construction coordination, legal intake,
+research, operations, or anything else. Do not assume a SaaS, B2B, or
+specific industry context unless the job description says so. Mirror the
+domain language used in the description.
 
 Given a plain-English job description, produce a JSON draft that captures:
 - A short employee name suggestion (2-3 words, like "Marketing Manager").
