@@ -100,6 +100,62 @@ from `Employee.config["role_description"]` JSONB and seeds
 changes — the wiring just had a "no class for this role" gap that
 `GenericEmployee` fills.
 
+### Fixed (post-/review adversarial sweep)
+
+Multi-specialist review (security + testing + maintainability) and Codex
+adversarial challenge flagged that the admin-gate model only covered
+`role='custom'` creation, leaving the pre-existing pathways for prompt-
+bound fields wide open. Tightened and hardened in the same PR:
+
+- **POST /employees admin gate widened.** Any POST that supplies
+  `role_description`, `goals`, or `config.role_description` now
+  requires admin regardless of role. Members still create built-in
+  employees with `ROLE_CATALOG` defaults. The earlier gate only
+  fired for `role='custom'` — a member could POST `role='sales_ae'`
+  with `goals=[{description: "...", priority: 10}]` and silently
+  inject prompt content into the system prompt.
+
+- **PUT /employees admin gate.** `config.role_description` on update
+  now requires admin. The previous endpoint accepted the full
+  `EmployeeUpdate` payload with no role check, letting any tenant
+  member rewrite the system prompt of any employee.
+
+- **GoalInput.description sanitized.** Added `_strip_control_chars`
+  to `empla/api/v1/schemas/employee.py:GoalInput.description`. Goal
+  text is interpolated into the LLM system prompt via
+  `identity._format_goals`; without the strip, an LLM-emitted RTL
+  override (`\u202e`) or zero-width space (`\u200b`) would land
+  verbatim in the prompt without reaching the admin review step.
+
+- **EmployeeCreate.name sanitized.** Same treatment as
+  `role_description` — name is interpolated into every system
+  prompt at `identity.py:48` as `f"You are {self.name}..."`.
+
+- **Capability allowlist drift eliminated.** `ALLOWED_CAPABILITIES`
+  now derives from `CapabilityKey` via `typing.get_args()`. Adding
+  a new capability requires editing one Literal, not two lists.
+
+- **`_strip_control_chars` docstring fixed.** Was claiming Cc/Cf/Cs;
+  implementation strips all C-category (Cc/Cf/Cs/Co/Cn). Docstring
+  now matches behavior.
+
+- **Role generator prompt: 'maintain' → 'maintenance'.** Matches
+  the canonical `GoalConfig` spelling used by built-in employees.
+  Prevents the LLM from silently emitting unknown goal_types.
+
+- **Stale-response race in RoleBuilderCard.** Track request ID +
+  `isActive` prop so a 6-12s LLM response arriving after the admin
+  switches role is ignored rather than overwriting the now-active
+  form.
+
+- **Edit dialog preserves custom-employee personality.** Before
+  this fix, opening the edit dialog on a custom employee (numeric
+  slider personality from the LLM) and clicking Save without
+  changes reset `personality={}` on the wire — a silent regression
+  to defaults on every innocent name or email edit. Dialog now
+  detects slider-shape personality (has `openness`, no `preset`)
+  and passes it through unchanged.
+
 ### Explicitly deferred
 
 - Per-goal target/priority editor in the wizard. Today the LLM-
