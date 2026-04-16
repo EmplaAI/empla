@@ -15,7 +15,6 @@ import pytest
 
 from empla.services.employee_manager import (
     EmployeeManager,
-    UnsupportedRoleError,
     get_employee_manager,
 )
 
@@ -208,19 +207,33 @@ async def test_start_employee_raises_if_not_found(
 
 
 @pytest.mark.asyncio
-async def test_start_employee_raises_for_unsupported_role(
+@patch("empla.services.employee_manager.subprocess.Popen")
+async def test_start_employee_succeeds_for_custom_role(
+    mock_popen_cls: MagicMock,
     manager: EmployeeManager,
     employee_id: UUID,
     tenant_id: UUID,
     mock_session: AsyncMock,
     mock_db_employee: Mock,
-):
-    """Test start_employee raises UnsupportedRoleError for unknown roles."""
-    mock_db_employee.role = "robot_overlord"
-    _setup_session_with_employee(mock_session, mock_db_employee)
+) -> None:
+    """Custom-role employees spawn via GenericEmployee (PR #85).
 
-    with pytest.raises(UnsupportedRoleError):
-        await manager.start_employee(employee_id, tenant_id, mock_session)
+    Before PR #85 unknown role codes raised ``UnsupportedRoleError``;
+    now they resolve to ``GenericEmployee`` whose state lives on the
+    Employee row, so the manager spawns the runner subprocess
+    normally. The dead code path that raised ``UnsupportedRoleError``
+    only fires now if a built-in role's importlib resolution breaks
+    (a code-path bug, not a user input).
+    """
+    mock_db_employee.role = "marketing_manager"
+    _setup_session_with_employee(mock_session, mock_db_employee)
+    mock_popen_cls.return_value = _mock_popen()
+
+    status = await manager.start_employee(employee_id, tenant_id, mock_session)
+
+    assert status["is_running"] is True
+    mock_popen_cls.assert_called_once()
+    assert mock_db_employee.status == "active"
 
 
 # ============================================================================

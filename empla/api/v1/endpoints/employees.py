@@ -19,7 +19,7 @@ from empla.api.v1.schemas.employee import (
     EmployeeResponse,
     EmployeeUpdate,
 )
-from empla.models.employee import Employee
+from empla.models.employee import Employee, EmployeeGoal
 
 logger = logging.getLogger(__name__)
 
@@ -103,17 +103,58 @@ async def create_employee(
     """
     Create a new digital employee.
 
-    Args:
-        db: Database session
-        auth: Current user context
-        data: Employee creation data
+    For built-in roles (``sales_ae``, ``csm``, ``pm``, ``sdr``,
+    ``recruiter``) the runtime resolves goals + personality + capabilities
+    from ``ROLE_CATALOG``; ``role_description`` and ``goals`` in the body
+    are ignored. For ``role='custom'`` the body MUST carry both
+    ``role_description`` (interpolated into the LLM system prompt) and
+    a non-empty ``goals`` list — these are persisted on the Employee row
+    and seeded as ``EmployeeGoal`` rows so the runner reads them on
+    start. There is no separate "custom role" table; each custom
+    employee is one-off.
 
-    Returns:
-        Created employee
-
-    Raises:
-        HTTPException: If email already exists
+    Returns 422 when ``role='custom'`` lacks the required custom-role
+    fields, 409 on duplicate email.
     """
+    # Prompt-bound field gate: role_description, goals, and
+    # config["role_description"] are interpolated into the LLM system
+    # prompt (via identity.py). Only admins may supply these — members
+    # get their prompt-influencing state from ROLE_CATALOG defaults.
+    # Check KEY PRESENCE (not truthiness) so an attempted
+    # config={"role_description": ""} from a member still 403s —
+    # "tried to set the field" is the audit boundary, not "set it
+    # non-empty".
+    _fields_set = data.model_fields_set
+    _supplied_config_role_desc = (
+        "config" in _fields_set
+        and isinstance(data.config, dict)
+        and "role_description" in data.config
+    )
+    _has_prompt_fields = (
+        "role_description" in _fields_set or "goals" in _fields_set or _supplied_config_role_desc
+    )
+    if _has_prompt_fields and auth.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Admin access required to set role_description, goals, or "
+                "config.role_description. Members use built-in role defaults."
+            ),
+        )
+
+    # Custom-role-specific: require both fields.
+    if data.role == "custom":
+        if not data.role_description:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="role_description is required when role='custom'",
+            )
+        if not data.goals:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="goals must be a non-empty list when role='custom'",
+            )
+
     # Check for duplicate email
     existing = await db.execute(
         select(Employee).where(
@@ -128,6 +169,13 @@ async def create_employee(
             detail=f"Employee with email {data.email} already exists",
         )
 
+    # Materialize role_description into Employee.config JSONB. The runner's
+    # config builder reads it from db_config["role_description"] (see
+    # empla/runner/main.py) — we don't have a top-level column for it.
+    db_config = dict(data.config or {})
+    if data.role == "custom" and data.role_description:
+        db_config["role_description"] = data.role_description
+
     # Create employee
     employee = Employee(
         tenant_id=auth.tenant_id,
@@ -136,19 +184,43 @@ async def create_employee(
         email=data.email,
         capabilities=data.capabilities,
         personality=data.personality,
-        config=data.config,
+        config=db_config,
         status="onboarding",
         lifecycle_stage="shadow",
         created_by=auth.user_id,
     )
 
     db.add(employee)
+    await db.flush()  # assign employee.id without committing — we still need
+    # to attach goals before the single commit below
+
+    # Seed EmployeeGoal rows from request. For custom roles this is the only
+    # source of truth; for built-ins we accept goals as an override (rare,
+    # but admins can shape a built-in's goals at creation time).
+    if data.goals:
+        for g in data.goals:
+            db.add(
+                EmployeeGoal(
+                    tenant_id=auth.tenant_id,
+                    employee_id=employee.id,
+                    goal_type=g.goal_type,
+                    description=g.description,
+                    priority=g.priority,
+                    target=g.target,
+                )
+            )
+
     await db.commit()
     await db.refresh(employee)
 
     logger.info(
         f"Created employee {employee.id}",
-        extra={"employee_id": str(employee.id), "tenant_id": str(auth.tenant_id)},
+        extra={
+            "employee_id": str(employee.id),
+            "tenant_id": str(auth.tenant_id),
+            "role": data.role,
+            "goals_seeded": len(data.goals or []),
+        },
     )
 
     # New employees are never running, but check for consistency with other endpoints
@@ -259,8 +331,51 @@ async def update_employee(
     # Capture original status before applying updates
     previous_status = employee.status
 
-    # Apply updates
+    # Prompt-bound field gate for updates. Same rationale as POST:
+    # config["role_description"] lands in the system prompt. Check
+    # KEY PRESENCE so an explicit empty string from a member still 403s.
     update_data = data.model_dump(exclude_unset=True)
+    _config_update = update_data.get("config")
+    _supplied_config_role_desc = (
+        isinstance(_config_update, dict) and "role_description" in _config_update
+    )
+    if _supplied_config_role_desc and auth.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required to modify config.role_description",
+        )
+
+    # Sanitize admin-supplied config.role_description before persisting.
+    # Even admin input goes through _strip_control_chars so the same
+    # Unicode-injection guard that protects POST applies to PUT. The
+    # create-path validator on EmployeeCreate.role_description doesn't
+    # reach us here because EmployeeUpdate.config is untyped JSONB.
+    if _supplied_config_role_desc:
+        raw = _config_update.get("role_description")
+        if isinstance(raw, str):
+            from empla.api.v1.schemas.employee import _strip_control_chars
+
+            cleaned = _strip_control_chars(raw).strip()
+            if cleaned:
+                _config_update["role_description"] = cleaned
+            else:
+                _config_update.pop("role_description", None)
+
+    # Normalize EmployeeUpdate.name the same way EmployeeCreate does —
+    # the create validator doesn't apply to update, so raw names with
+    # RTL overrides or zero-width chars would otherwise slip through.
+    if "name" in update_data and isinstance(update_data["name"], str):
+        from empla.api.v1.schemas.employee import _strip_control_chars
+
+        cleaned = _strip_control_chars(update_data["name"]).strip()
+        if len(cleaned) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Employee name must be at least 2 non-control characters",
+            )
+        update_data["name"] = cleaned
+
+    # Apply updates
     for field, value in update_data.items():
         setattr(employee, field, value)
 

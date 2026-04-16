@@ -31,9 +31,26 @@ type FormData = z.infer<typeof formSchema>;
 interface EmployeeFormProps {
   onSubmit: (data: FormData) => Promise<void>;
   isLoading?: boolean;
+  /**
+   * Notified when the role dropdown changes. Used by parent pages to
+   * mount role-specific affordances (e.g. the LLM role builder card
+   * appears when role='custom').
+   */
+  onRoleChange?: (role: string) => void;
+  /**
+   * External overrides pushed into the form (typically from an LLM
+   * draft). When ``overrides.name`` or ``overrides.roleDescription``
+   * change, the corresponding field is replaced. Lets a parent wire
+   * "Generate draft" → "fill in the form" without owning the form
+   * state itself.
+   */
+  overrides?: {
+    name?: string;
+    roleDescription?: string;
+  };
 }
 
-export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
+export function EmployeeForm({ onSubmit, isLoading, onRoleChange, overrides }: EmployeeFormProps) {
   const { data: rolesData } = useRoles();
   const apiRoles = rolesData?.roles ?? [];
 
@@ -96,7 +113,22 @@ export function EmployeeForm({ onSubmit, isLoading }: EmployeeFormProps) {
       setValue('roleDescription', selectedRole === 'custom' ? '' : (roleDescriptions[selectedRole] ?? ''));
     }
     prevRoleRef.current = selectedRole;
-  }, [selectedRole, setValue, getValues, roleDescriptions]);
+    onRoleChange?.(selectedRole);
+  }, [selectedRole, setValue, getValues, roleDescriptions, onRoleChange]);
+
+  // External overrides — typically a draft from the LLM role builder.
+  // We replace the field unconditionally so a freshly-arrived draft
+  // wins over a stale value the user typed earlier in the wizard.
+  // The overrides reference identity is the trigger; parents must
+  // pass a new object when they want a re-fill.
+  useEffect(() => {
+    if (overrides?.name !== undefined) {
+      setValue('name', overrides.name, { shouldDirty: true });
+    }
+    if (overrides?.roleDescription !== undefined) {
+      setValue('roleDescription', overrides.roleDescription, { shouldDirty: true });
+    }
+  }, [overrides, setValue]);
 
   const onFormSubmit = async (data: FormData) => {
     try {

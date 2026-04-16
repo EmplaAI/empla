@@ -142,11 +142,19 @@ def test_get_employee_class_csm():
     assert cls.__name__ == "CustomerSuccessManager"
 
 
-def test_get_employee_class_unknown_returns_none():
-    """Test registry returns None for unknown roles."""
+def test_get_employee_class_unknown_returns_generic_employee():
+    """Unknown role codes resolve to GenericEmployee (PR #85).
+
+    Used to return None and force the runner to sys.exit(1); since PR #85
+    introduced custom-role employees, any unknown code now resolves to the
+    GenericEmployee class which reads its state from the persisted Employee
+    row. None is now reserved for code-path bugs (importlib resolution
+    failure on a built-in role), not user-facing errors.
+    """
+    from empla.employees.generic import GenericEmployee
     from empla.employees.registry import get_employee_class
 
-    assert get_employee_class("nonexistent_role") is None
+    assert get_employee_class("nonexistent_role") is GenericEmployee
 
 
 def test_get_supported_roles():

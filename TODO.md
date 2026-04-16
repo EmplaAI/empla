@@ -1,19 +1,19 @@
 # empla - Roadmap
 
-> **Updated:** 2026-04-14
+> **Updated:** 2026-04-15
 > **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5A complete:
 > PR #77 (foundation), PR #78 (PM/SDR/Recruiter), PR #79 (memory API + 4-group
 > tabs), PR #80 (tool catalog + trust boundary view + runner auth) shipped.
 > Phase 5B in progress: PR #81 (webhook UI) + PR #82 (scheduler) + PR #83
-> (settings + runner-restart) + PR #84 (playbook editor) shipped —
-> 2 more Phase 5B PRs remain.
+> (settings + runner-restart) + PR #84 (playbook editor) + PR #85 (custom-role
+> employees via LLM) shipped — 1 Phase 5B PR remains (#86 inbox).
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
 
 ## Current State
 
-Tests: **1814 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Tests: **1925 unit tests passing** (0 failing), ~70% coverage on unit test scope |
 Employees: SalesAE, CSM, ProductManager, SDR, Recruiter (all 5 catalog roles implemented) |
 Core features: Complete BDI loop, playbook system with autonomous discovery,
 event-driven wake + scheduled actions, webhooks with credential-based routing,
@@ -97,8 +97,16 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
   preservation. +22 unit tests. Boil-the-lake review: 6 fixes incl.
   step-extras data-loss fix, atomic auto-promotion UPDATE,
   IntegrityError-by-constraint-name detection, dialog isDirty guard.
-- **PR #85** — Custom role builder with admin review gate (GenericEmployee for
-  runtime resolution)
+- **PR #85** ✓ SHIPPED 2026-04-15: Custom-role employees via LLM. Admin
+  describes a job in plain English → `POST /employees/generate-role`
+  returns a draft (name, role description, capabilities, goals) →
+  admin reviews exact text → submits via regular `POST /employees`
+  with `role='custom'`. Direct-create-only; no template/role table.
+  GenericEmployee runtime class for unknown role codes (registry
+  fallback). +30 unit tests. Schema enforces: 1kB cap on
+  role_description, Unicode control-char strip, capability allowlist,
+  admin-only at the API. Per-goal/personality editors deferred to a
+  follow-up.
 - **PR #86** — Inbox (employee→human messaging with structured content blocks)
 
 **Total:** 10 PRs, ~7-9 days CC time. Phase 5 adds ~200 new tests across the

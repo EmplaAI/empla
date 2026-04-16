@@ -62,7 +62,23 @@ export interface Employee {
 }
 
 /**
+ * Initial goal seeded into the BDI system at employee creation. Mirrors
+ * ``empla.api.v1.schemas.employee.GoalInput``.
+ */
+export interface GoalInput {
+  description: string;
+  priority?: number;
+  target?: Record<string, unknown>;
+  goalType?: string;
+}
+
+/**
  * Employee creation data.
+ *
+ * For ``role='custom'`` the API requires both ``roleDescription`` and a
+ * non-empty ``goals`` list; built-in roles get their defaults from
+ * ``ROLE_CATALOG`` and ignore these fields. Custom-role creation is
+ * also admin-only at the API.
  */
 export interface EmployeeCreate {
   name: string;
@@ -71,6 +87,21 @@ export interface EmployeeCreate {
   capabilities?: string[];
   personality?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  roleDescription?: string;
+  goals?: GoalInput[];
+}
+
+/**
+ * Draft returned by ``POST /employees/generate-role``. The dashboard
+ * wizard pre-fills its form from this shape; the user reviews/edits
+ * the text, then submits via ``POST /employees`` with role='custom'.
+ */
+export interface GeneratedRoleDraft {
+  nameSuggestion: string;
+  roleDescription: string;
+  capabilities: string[];
+  goals: GoalInput[];
+  personality: Record<string, number>;
 }
 
 /**

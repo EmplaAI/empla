@@ -27,10 +27,25 @@ _EMPLOYEE_ROLE_MAP: dict[str, str] = {
 
 
 def get_employee_class(role: str) -> type[DigitalEmployee] | None:
-    """Return the DigitalEmployee subclass for *role*, or None if unknown."""
+    """Return the DigitalEmployee subclass for *role*.
+
+    Built-in roles (``sales_ae``, ``csm``, ``pm``, ``sdr``, ``recruiter``)
+    return their dedicated subclass with role-specific helpers. Any other
+    string — including ``custom`` for admin-generated employees — returns
+    :class:`GenericEmployee`, which has no role-specific behavior and reads
+    every value from the Employee row's persisted state (materialized at
+    creation time from an admin-reviewed LLM draft).
+
+    Returns ``None`` only if a built-in role's importlib resolution fails,
+    which signals a code-path bug rather than user error.
+    """
     path = _EMPLOYEE_ROLE_MAP.get(role)
     if path is None:
-        return None
+        # Unknown role → custom employee, runtime resolves to GenericEmployee.
+        # No DB lookup, no role table; the Employee row is the source of truth.
+        from empla.employees.generic import GenericEmployee
+
+        return GenericEmployee
 
     module_path, class_name = path.rsplit(":", 1)
     import importlib

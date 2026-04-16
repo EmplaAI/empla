@@ -87,6 +87,7 @@ export {
   useDeleteEmployee,
   useEmployee,
   useEmployees,
+  useGenerateRole,
   useUpdateEmployee,
   // Integrations
   integrationKeys,
@@ -205,6 +206,8 @@ export type {
   EmployeeStatus,
   EmployeeUpdate,
   EmplaConfig,
+  GeneratedRoleDraft,
+  GoalInput,
   IntegrationCredential,
   IntegrationProvider,
   LifecycleStage,
