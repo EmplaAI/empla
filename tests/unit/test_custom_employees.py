@@ -355,9 +355,11 @@ class TestCreateCustomEmployee:
 
     @pytest.mark.asyncio
     async def test_member_supplying_empty_goals_list_still_403s(self):
-        """CodeRabbit key-presence gate: `goals=[]` is falsy but the caller
-        DID attempt to set the field. We treat 'tried to set' as the audit
-        boundary, so a member submitting `role='sales_ae'` + `goals=[]`
+        """CodeRabbit key-presence gate: ``goals=[]`` is falsy but the
+        caller DID attempt to set the field. We treat 'tried to set' as
+        the audit boundary, so a non-admin (User.role='user', which is
+        the 'member' tier in empla's three-level role CHECK of
+        admin/manager/user) submitting ``role='sales_ae'`` + ``goals=[]``
         must 403 before the 422 'goals cannot be empty' branch fires."""
         db, _ = _captured_db()
         body = EmployeeCreate(
@@ -380,9 +382,10 @@ class TestCreateCustomEmployee:
 
     @pytest.mark.asyncio
     async def test_member_supplying_empty_role_description_still_403s(self):
-        """Same key-presence rule for role_description: a member setting it
-        to '' (or any value stripped to '') tried to touch prompt state —
-        gate before schema cleanup runs."""
+        """Same key-presence rule for role_description: a non-admin
+        (User.role='user') setting it to '' — or any value stripped to ''
+        — tried to touch prompt state, so the gate fires before the
+        schema cleanup runs."""
         db, _ = _captured_db()
         body_dict = {
             "name": "Jordan",
@@ -401,8 +404,10 @@ class TestCreateCustomEmployee:
 
     @pytest.mark.asyncio
     async def test_member_supplying_empty_config_role_description_still_403s(self):
-        """A member sending `config={'role_description': ''}` blanks the
-        runner's ROLE_CATALOG fallback — key presence is the check."""
+        """A non-admin (User.role='user') sending
+        ``config={'role_description': ''}`` would blank the runner's
+        ROLE_CATALOG fallback — key presence is the check, regardless
+        of the value."""
         db, _ = _captured_db()
         body = EmployeeCreate(
             name="Jordan",
@@ -500,10 +505,19 @@ class TestGenerateRoleEndpoint:
     async def test_llm_validation_error_returns_422(self):
         mock_llm = AsyncMock()
         # Trigger a real ValidationError so the 422 branch fires.
+        ve: ValidationError | None = None
         try:
             GeneratedRoleDraft(name_suggestion="X")  # type: ignore[call-arg]
         except ValidationError as e:
             ve = e
+        # Guard: if GeneratedRoleDraft ever stops raising (e.g., a future
+        # schema relaxes the required fields), `ve` would be unbound and
+        # the `side_effect=ve` line below would NameError. Fail loudly
+        # with a clear reason instead.
+        assert ve is not None, (
+            "Expected GeneratedRoleDraft(name_suggestion='X') to raise "
+            "ValidationError — schema may have drifted"
+        )
         mock_llm.generate_structured = AsyncMock(side_effect=ve)
 
         with patch.object(role_builder_ep, "LLMService", return_value=mock_llm):
