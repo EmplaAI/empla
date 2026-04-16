@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useGenerateRole } from '@empla/react';
@@ -21,6 +21,8 @@ interface RoleBuilderCardProps {
    * state for submission via createEmployee.
    */
   onDraft: (draft: GeneratedRoleDraft) => void;
+  /** Whether role='custom' is still selected (guards stale responses). */
+  isActive?: boolean;
 }
 
 /**
@@ -31,9 +33,10 @@ interface RoleBuilderCardProps {
  * the draft populates the parent form; the admin reviews + edits the
  * exact text before clicking Create.
  */
-export function RoleBuilderCard({ onDraft }: RoleBuilderCardProps) {
+export function RoleBuilderCard({ onDraft, isActive = true }: RoleBuilderCardProps) {
   const [description, setDescription] = useState('');
   const generate = useGenerateRole();
+  const requestIdRef = useRef(0);
 
   const handleGenerate = async () => {
     const trimmed = description.trim();
@@ -41,13 +44,18 @@ export function RoleBuilderCard({ onDraft }: RoleBuilderCardProps) {
       toast.error('Describe the role in a sentence or two first');
       return;
     }
+    const thisRequest = ++requestIdRef.current;
     try {
       const draft = await generate.mutateAsync(trimmed);
+      // Guard: if user switched role during the 6-12s LLM call, ignore
+      // the stale response so it doesn't overwrite the now-active form.
+      if (thisRequest !== requestIdRef.current || !isActive) return;
       onDraft(draft);
       toast.success('Generated draft', {
         description: 'Review the role description and capabilities below before creating.',
       });
     } catch (err) {
+      if (thisRequest !== requestIdRef.current) return;
       const msg = err instanceof Error && err.message ? err.message : 'Generation failed';
       toast.error(msg);
     }

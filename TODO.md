@@ -13,7 +13,7 @@
 
 ## Current State
 
-Tests: **1814 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Tests: **1925 unit tests passing** (0 failing), ~70% coverage on unit test scope |
 Employees: SalesAE, CSM, ProductManager, SDR, Recruiter (all 5 catalog roles implemented) |
 Core features: Complete BDI loop, playbook system with autonomous discovery,
 event-driven wake + scheduled actions, webhooks with credential-based routing,

@@ -150,7 +150,9 @@ export function EmployeeNewPage() {
       </div>
 
       <div className="max-w-2xl space-y-6">
-        {selectedRole === 'custom' && <RoleBuilderCard onDraft={handleDraft} />}
+        {selectedRole === 'custom' && (
+          <RoleBuilderCard onDraft={handleDraft} isActive={selectedRole === 'custom'} />
+        )}
         <EmployeeForm
           onSubmit={handleSubmit}
           onRoleChange={handleRoleChange}

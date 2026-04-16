@@ -31,19 +31,28 @@ _KEEP_WHITESPACE = {"\t", "\n", "\r"}
 def _strip_control_chars(text: str) -> str:
     """Remove control / format chars that could hide content in a prompt.
 
-    Strips Unicode categories ``Cc`` (control), ``Cf`` (format — includes
-    BOM, RTL override, zero-width joiner), and ``Cs`` (surrogate). Permits
-    ``\\t \\n \\r`` so multi-line role descriptions still work. Run on
-    every operator-supplied or LLM-generated string that lands in an
-    employee system prompt — without this, an LLM could emit
-    ``\\u202e`` (RTL override) or ``\\u200b`` (zero-width space) inside
-    a "harmless" description and silently change how the prompt parses.
+    Strips every Unicode codepoint whose category begins with ``C``: ``Cc``
+    (control — \\u0008 backspace, \\u001b ESC), ``Cf`` (format — includes
+    BOM, ``\\u202e`` RTL override, ``\\u200b`` zero-width space, ``\\u200d``
+    ZWJ), ``Cs`` (lone surrogates), ``Co`` (private-use), and ``Cn``
+    (unassigned). Permits ``\\t \\n \\r`` so multi-line role descriptions
+    still work. Run on every operator-supplied or LLM-generated string that
+    lands in an employee system prompt — without this, an LLM could emit
+    ``\\u202e`` or ``\\u200b`` inside a "harmless" description and silently
+    change how the prompt parses.
     """
     return "".join(c for c in text if c in _KEEP_WHITESPACE or unicodedata.category(c)[0] != "C")
 
 
 class GoalInput(BaseModel):
-    """Goal payload for custom-employee creation. Mirrors ``GoalConfig``."""
+    """Goal payload for custom-employee creation. Mirrors ``GoalConfig``.
+
+    ``description`` passes through ``_strip_control_chars`` because each
+    goal is interpolated verbatim into the LLM system prompt via
+    ``empla/employees/identity.py:_format_goals`` (``f"- [{p}/10] {desc}"``).
+    The dashboard wizard does NOT show goals in the admin review step, so
+    the schema is the only chokepoint for hidden Cc/Cf chars.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -51,6 +60,14 @@ class GoalInput(BaseModel):
     priority: int = Field(default=5, ge=1, le=10)
     target: dict[str, Any] = Field(default_factory=dict)
     goal_type: str = Field(default="achievement", min_length=1, max_length=50)
+
+    @field_validator("description")
+    @classmethod
+    def _clean_description(cls, v: str) -> str:
+        cleaned = _strip_control_chars(v).strip()
+        if not cleaned:
+            raise ValueError("Goal description cannot be empty after stripping control chars")
+        return cleaned
 
 
 class EmployeeCreate(BaseModel):
@@ -105,6 +122,19 @@ class EmployeeCreate(BaseModel):
             return None
         cleaned = _strip_control_chars(v).strip()
         return cleaned or None
+
+    @field_validator("name")
+    @classmethod
+    def _clean_name(cls, v: str) -> str:
+        # ``name`` is interpolated into every LLM system prompt via
+        # ``identity.py``: ``f"You are {self.name}, a {self.role_title}."``
+        # The same threat model that justifies stripping control chars from
+        # ``role_description`` applies here — RTL overrides / zero-width
+        # chars in the name silently shift the prompt's parsing.
+        cleaned = _strip_control_chars(v).strip()
+        if len(cleaned) < 2:
+            raise ValueError("Employee name must be at least 2 non-control characters")
+        return cleaned
 
 
 class EmployeeUpdate(BaseModel):

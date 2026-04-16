@@ -67,8 +67,9 @@ Given a plain-English job description, produce a JSON draft that captures:
   prompt-engineering tricks — just describe what the employee does.
 - 3-6 initial goals: each with a clear description (1 sentence), a
   priority 1-10 (most important = 10), a target dict (use {{}} if no
-  numeric target), and goal_type='achievement' unless 'maintain' or
-  'opportunity' fits better.
+  numeric target), and goal_type='achievement' unless 'maintenance' or
+  'opportunity' fits better. Use these exact spellings — the BDI runtime
+  branches on them.
 - 1-4 capabilities from this exact set: {capabilities}. Pick only what
   the role actually needs — most roles need 1-2.
 - Personality sliders (0.0-1.0): set conscientiousness, proactivity,

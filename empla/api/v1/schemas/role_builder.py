@@ -19,7 +19,7 @@ returns 422 — the dashboard surfaces the parse error so the admin can
 edit-and-retry.
 """
 
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -35,9 +35,12 @@ from empla.api.v1.schemas.employee import (
 # built-in tools but not yet wired everywhere; if the LLM emits anything
 # else we reject the draft so the admin sees the rejection rather than
 # silently shipping a tool the runtime can't satisfy.
-ALLOWED_CAPABILITIES: frozenset[str] = frozenset({"email", "calendar", "crm", "search"})
-
 CapabilityKey = Literal["email", "calendar", "crm", "search"]
+
+# Single source of truth — derived from the Literal so adding a new
+# capability key only requires editing one place. The frozenset is
+# what the LLM system prompt formats into "Pick one of {capabilities}".
+ALLOWED_CAPABILITIES: frozenset[str] = frozenset(get_args(CapabilityKey))
 
 
 class GenerateRoleRequest(BaseModel):

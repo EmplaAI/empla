@@ -116,18 +116,24 @@ async def create_employee(
     Returns 422 when ``role='custom'`` lacks the required custom-role
     fields, 409 on duplicate email.
     """
-    # Custom-role policy enforcement. The schema couldn't enforce this
-    # without a discriminated union; doing it here keeps the 422 / 403
-    # messages human-readable.
+    # Prompt-bound field gate: role_description, goals, and
+    # config["role_description"] are interpolated into the LLM system
+    # prompt (via identity.py). Only admins may supply these — members
+    # get their prompt-influencing state from ROLE_CATALOG defaults.
+    _has_prompt_fields = bool(
+        data.role_description or data.goals or (data.config or {}).get("role_description")
+    )
+    if _has_prompt_fields and auth.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Admin access required to set role_description, goals, or "
+                "config.role_description. Members use built-in role defaults."
+            ),
+        )
+
+    # Custom-role-specific: require both fields.
     if data.role == "custom":
-        # Admin gate: custom role text is interpolated into a system prompt,
-        # so prompt-injection risk lives behind admin auth. Built-in roles
-        # use ROLE_CATALOG and don't have this surface.
-        if auth.role != "admin":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin access required to create custom-role employees",
-            )
         if not data.role_description:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -315,8 +321,23 @@ async def update_employee(
     # Capture original status before applying updates
     previous_status = employee.status
 
-    # Apply updates
+    # Prompt-bound field gate for updates. Same rationale as POST:
+    # role_description, goals, and config["role_description"] land in the
+    # system prompt. Non-admins must not set them via PUT.
     update_data = data.model_dump(exclude_unset=True)
+    _config_update = update_data.get("config")
+    _has_prompt_fields = bool(
+        _config_update
+        and isinstance(_config_update, dict)
+        and _config_update.get("role_description")
+    )
+    if _has_prompt_fields and auth.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required to modify config.role_description",
+        )
+
+    # Apply updates
     for field, value in update_data.items():
         setattr(employee, field, value)
 
