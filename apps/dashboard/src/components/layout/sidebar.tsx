@@ -6,10 +6,12 @@ import {
   Activity,
   Plug,
   Radio,
+  Inbox,
   Settings,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { useInboxUnreadCount } from '@empla/react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -30,6 +32,12 @@ const navItems = [
     label: 'Employees',
     href: '/employees',
     icon: Users,
+  },
+  {
+    label: 'Inbox',
+    href: '/inbox',
+    icon: Inbox,
+    showUnreadBadge: true,
   },
   {
     label: 'Integrations',
@@ -58,20 +66,27 @@ const actionItems = [
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
+  // Shared unread count powers the Inbox badge. The request polls every
+  // 30s and piggybacks on the same underlying inbox list query, so it
+  // costs one extra fetch per tab, not per nav item render.
+  const { data: unreadCount } = useInboxUnreadCount();
 
   const NavItem = ({
     href,
     icon: Icon,
     label,
     disabled,
+    showUnreadBadge,
   }: {
     href: string;
     icon: typeof LayoutDashboard;
     label: string;
     disabled?: boolean;
+    showUnreadBadge?: boolean;
   }) => {
     const isActive =
       href === '/' ? location.pathname === '/' : location.pathname.startsWith(href);
+    const badge = showUnreadBadge && unreadCount && unreadCount > 0 ? unreadCount : 0;
 
     const content = (
       <NavLink
@@ -89,8 +104,19 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {isActive && (
           <div className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-primary shadow-[0_0_8px] shadow-primary" />
         )}
-        <Icon className={cn('h-5 w-5 shrink-0', isActive && 'text-primary')} />
-        {!collapsed && <span>{label}</span>}
+        <div className="relative shrink-0">
+          <Icon className={cn('h-5 w-5', isActive && 'text-primary')} />
+          {badge > 0 && collapsed && (
+            // Collapsed: dot in the icon corner, count hidden (tooltip carries it).
+            <span className="absolute -right-1 -top-1 inline-flex h-2 w-2 rounded-full bg-status-error" />
+          )}
+        </div>
+        {!collapsed && <span className="flex-1">{label}</span>}
+        {!collapsed && badge > 0 && (
+          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-status-error px-1.5 font-mono text-[10px] font-semibold text-background">
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
       </NavLink>
     );
 
@@ -100,6 +126,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <TooltipTrigger asChild>{content}</TooltipTrigger>
           <TooltipContent side="right" className="font-medium">
             {label}
+            {badge > 0 && ` — ${badge} unread`}
           </TooltipContent>
         </Tooltip>
       );

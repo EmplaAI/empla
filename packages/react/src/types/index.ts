@@ -129,6 +129,58 @@ export interface PaginatedResponse<T> {
 }
 
 /**
+ * Inbox message priority tier. Kept in sync with the Python Literal
+ * in ``empla/api/v1/schemas/inbox.py``.
+ */
+export type InboxPriority = 'urgent' | 'normal' | 'off';
+
+/**
+ * Known inbox block kinds. Unknown values render as a JSON preview on
+ * the frontend with a "update your dashboard" hint.
+ */
+export type InboxBlockKind = 'text' | 'cost_breakdown' | 'link' | 'stat' | 'list';
+
+/**
+ * Inbox content block. ``data`` shape depends on ``kind`` — renderers
+ * in ``components/inbox/blocks/`` assume the shapes documented at
+ * ``empla/api/v1/schemas/inbox.py:InboxBlock``.
+ */
+export interface InboxBlock {
+  kind: InboxBlockKind | string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Employee → human inbox message. Written by
+ * ``DigitalEmployee.post_to_inbox`` and the BDI loop's cost hard-stop;
+ * read/marked-read/deleted via the dashboard ``/inbox`` route.
+ */
+export interface InboxMessage {
+  id: string;
+  tenantId: string;
+  employeeId: string;
+  priority: InboxPriority;
+  subject: string;
+  blocks: InboxBlock[];
+  readAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Paginated inbox response with an ``unreadCount`` shortcut for the
+ * sidebar badge (reflects tenant-wide unread, not the filtered page).
+ */
+export interface InboxListResponse {
+  items: InboxMessage[];
+  total: number;
+  unreadCount: number;
+  page: number;
+  pageSize: number;
+  pages: number;
+}
+
+/**
  * Memory types (episodic, semantic, procedural, working).
  */
 export interface EpisodicMemoryItem {

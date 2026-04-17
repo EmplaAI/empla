@@ -82,6 +82,14 @@ export {
 } from './useWebhooks';
 
 export {
+  inboxKeys,
+  useDeleteInboxMessage,
+  useInbox,
+  useInboxUnreadCount,
+  useMarkInboxRead,
+} from './useInbox';
+
+export {
   mcpServerKeys,
   useCreateMCPServer,
   useDeleteMCPServer,

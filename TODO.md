@@ -1,19 +1,20 @@
 # empla - Roadmap
 
-> **Updated:** 2026-04-15
+> **Updated:** 2026-04-16
 > **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5A complete:
 > PR #77 (foundation), PR #78 (PM/SDR/Recruiter), PR #79 (memory API + 4-group
 > tabs), PR #80 (tool catalog + trust boundary view + runner auth) shipped.
-> Phase 5B in progress: PR #81 (webhook UI) + PR #82 (scheduler) + PR #83
+> Phase 5B complete: PR #81 (webhook UI) + PR #82 (scheduler) + PR #83
 > (settings + runner-restart) + PR #84 (playbook editor) + PR #85 (custom-role
-> employees via LLM) shipped — 1 Phase 5B PR remains (#86 inbox).
+> employees via LLM) + PR #86 (inbox + cost hard-stop) all shipped.
+> Phase 5 closes.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
 
 ## Current State
 
-Tests: **1925 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Tests: **1961 unit tests passing** (0 failing), ~70% coverage on unit test scope |
 Employees: SalesAE, CSM, ProductManager, SDR, Recruiter (all 5 catalog roles implemented) |
 Core features: Complete BDI loop, playbook system with autonomous discovery,
 event-driven wake + scheduled actions, webhooks with credential-based routing,
@@ -107,11 +108,31 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
   role_description, Unicode control-char strip, capability allowlist,
   admin-only at the API. Per-goal/personality editors deferred to a
   follow-up.
-- **PR #86** — Inbox (employee→human messaging with structured content blocks)
+- **PR #86** ✓ SHIPPED 2026-04-16: Inbox + cost hard-stop. `/inbox`
+  route with block renderers (text/cost_breakdown/link/stat/list),
+  `DigitalEmployee.post_to_inbox()` helper, dashboard-wide urgent
+  banner, sidebar unread badge. Cost hard-stop (deferred from PR #83)
+  now enforced tenant-wide: loop sums all employees' daily LLM spend,
+  pauses ALL active employees in the tenant when the cap is exceeded,
+  and posts a single urgent `cost_breakdown` inbox message (atomic
+  dedup via UPDATE rowcount so a multi-employee tenant gets one
+  message, not N). Two review sweeps landed 10 hardening fixes (LinkBlock
+  protocol-relative URL escape incl. `//` and `/\`, runner bool-is-int
+  silent cap, post_to_inbox bypassing InboxBlock validation, cross-
+  tenant employee guard in service, admin gate on all 3 endpoints,
+  priority='off' suppression, paused status durability across runner
+  restart, tenant-wide hard-stop rewrite + dedup, delete-no-op audit
+  noise, missing FK indexes). **+33 unit tests in test_inbox.py** (22
+  initial + 9 /review + 1 tenant-dedup + 1 delete-no-op log gate).
+  Total suite: 1961. Closes Phase 5B.
 
-**Total:** 10 PRs, ~7-9 days CC time. Phase 5 adds ~200 new tests across the
+  Deferred from /review sweeps (filed as future work):
+  - Dashboard inbox hardcodes `pageSize: 50` with no UI pagination.
+    After 50 messages older items are unreachable via UI.
+
+**Total:** 10 PRs, ~7-9 days CC time. Phase 5 adds ~215 new tests across the
 per-PR budgets (`#77=5`, `#78=60`, `#79=25`, `#80=10`, `#81=15`, `#82=12`,
-`#83=15`, `#84=20`, `#85=20`, `#86=18`), bringing the target to ~1840 unit
+`#83=15`, `#84=20`, `#85=20`, `#86=33`), bringing the target to ~1840 unit
 tests passing from the current 1644 unit-test-only baseline. (Earlier 2091
 target from the CEO plan was computed against a 1896 total-collection
 baseline that mixed unit + integration + e2e; the honest unit-only delta is
@@ -259,4 +280,4 @@ selection (merged from ml-workflow branch).
 
 ---
 
-**Last Updated:** 2026-04-11
+**Last Updated:** 2026-04-16

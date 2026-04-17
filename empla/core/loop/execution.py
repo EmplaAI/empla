@@ -32,6 +32,10 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from sqlalchemy import func
+from sqlalchemy import select as sa_select
+from sqlalchemy import update as sa_update
+
 from empla.core.hooks import (
     HOOK_AFTER_BELIEF_UPDATE,
     HOOK_AFTER_INTENTION_EXECUTION,
@@ -65,6 +69,7 @@ from empla.core.loop.protocols import (
     ToolSourceProtocol,
 )
 from empla.core.loop.reflection import ReflectionMixin
+from empla.models.audit import Metric
 from empla.models.employee import Employee
 
 if TYPE_CHECKING:
@@ -142,6 +147,7 @@ class ProactiveExecutionLoop(
         tool_router: ToolSourceProtocol | None = None,
         identity: EmployeeIdentity | None = None,
         sessionmaker: async_sessionmaker[AsyncSession] | None = None,
+        cost_hard_stop_usd: float | None = None,
     ) -> None:
         """
         Create and initialize a ProactiveExecutionLoop.
@@ -166,6 +172,14 @@ class ProactiveExecutionLoop(
                 ``getattr(self.employee, "_sessionmaker", None)`` which silently
                 no-op'd because ``self.employee`` is the ORM row, not the
                 ``DigitalEmployee`` instance that holds ``_sessionmaker``.
+            cost_hard_stop_usd: Daily cost cap in USD. When the tenant's
+                cumulative cost for the current UTC day exceeds this, the
+                current cycle completes, the loop posts an urgent inbox
+                message explaining why, and sets ``employees.status='paused'``.
+                Admin must manually resume. Captured once at process start
+                (via ``Tenant.settings.cost.hard_stop_budget``) per the
+                runner-restart settings-reload pattern; not re-read mid-cycle.
+                ``None`` disables the hard stop.
         """
         self.employee = employee
         self.beliefs = beliefs
@@ -178,6 +192,15 @@ class ProactiveExecutionLoop(
         self._hooks = hooks or HookRegistry()
         self._identity = identity
         self._sessionmaker = sessionmaker
+        # Cost hard-stop config is captured at init and never re-read —
+        # settings-change triggers a full runner restart (PR #83), so
+        # mid-process the value is guaranteed stable.
+        self._cost_hard_stop_usd = cost_hard_stop_usd
+        # Whether the loop has already posted the hard-stop inbox message
+        # for the current pause. Prevents duplicate notifications when
+        # the runner restarts a paused employee and the budget is still
+        # exceeded on the new day's first cycle.
+        self._cost_hard_stop_triggered = False
         if identity is not None:
             self._identity_prompt: str | None = identity.to_system_prompt()
             logger.debug(
@@ -391,6 +414,14 @@ class ProactiveExecutionLoop(
                 # Record success metric AFTER hooks complete — avoids writing
                 # success=True then overwriting with success=False if hook raises.
                 await self._record_cycle_metrics(cycle_duration, success=True)
+
+                # Cost hard-stop check: only after metrics land, so we
+                # read a cumulative daily cost that includes this cycle.
+                # Swallow any failure — the hard stop is a safety net,
+                # not a critical path. A broken hard-stop mustn't crash
+                # an otherwise-healthy cycle.
+                with contextlib.suppress(Exception):
+                    await self._check_cost_hard_stop()
 
                 # ============ SLEEP ============
                 # Wait before next cycle (check is_running flag during sleep for prompt shutdown)
@@ -1028,6 +1059,205 @@ class ProactiveExecutionLoop(
                 "Failed to record cycle metrics — cost panel and cycle "
                 "history will miss this cycle. Check DB connectivity and "
                 "metrics schema.",
+                exc_info=True,
+                extra={"employee_id": str(self.employee.id)},
+            )
+
+    async def _check_cost_hard_stop(self) -> None:
+        """Enforce the tenant's daily cost cap if one is configured.
+
+        Reads the sum of ``llm.cost_usd`` metrics for this tenant over
+        the current UTC day (inclusive of the cycle just recorded). If
+        the sum exceeds ``self._cost_hard_stop_usd``, the method:
+
+        1. Writes ``employees.status='paused'`` to the DB via a short-
+           lived session. The existing pause-via-DB loop-exit path
+           (the status_checker callback at cycle start) drains the loop
+           on the next tick.
+        2. Posts an urgent inbox message with a ``cost_breakdown`` block
+           so the admin sees the reason — including per-cycle costs —
+           inside the message, not behind a click.
+
+        Idempotent via ``_cost_hard_stop_triggered``: we never post
+        twice for the same pause window. The flag resets on process
+        restart (settings changes trigger restart, and a settings change
+        is the only legitimate path to resume — admin either raises the
+        budget or explicitly unpauses).
+
+        Never raises. The caller wraps this in ``contextlib.suppress``
+        but a silently-broken hard stop is almost worse than no hard
+        stop at all, so the method logs loudly on every failure path.
+        """
+        if self._cost_hard_stop_usd is None or self._cost_hard_stop_usd <= 0:
+            return  # feature disabled for this tenant
+        if self._cost_hard_stop_triggered:
+            return  # already posted for the current pause window
+        if self._sessionmaker is None:
+            return  # same silent-skip rule as _record_cycle_metrics
+
+        tenant_id = self.employee.tenant_id
+        day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+
+        try:
+            async with self._sessionmaker() as session:
+                # Sum today's LLM cost tenant-wide. Uses the
+                # (tenant_id, metric_name, timestamp) filter which the
+                # existing metric indexes cover.
+                total_result = await session.execute(
+                    sa_select(func.coalesce(func.sum(Metric.value), 0.0)).where(
+                        Metric.tenant_id == tenant_id,
+                        Metric.metric_name == "llm.cost_usd",
+                        Metric.timestamp >= day_start,
+                        Metric.timestamp < day_end,
+                    )
+                )
+                daily_cost = float(total_result.scalar() or 0.0)
+
+                if daily_cost < self._cost_hard_stop_usd:
+                    return  # under budget, nothing to do
+
+                logger.warning(
+                    "Cost hard-stop triggered: tenant=%s daily=$%.4f cap=$%.2f",
+                    tenant_id,
+                    daily_cost,
+                    self._cost_hard_stop_usd,
+                    extra={
+                        "employee_id": str(self.employee.id),
+                        "tenant_id": str(tenant_id),
+                        "daily_cost_usd": daily_cost,
+                        "cap_usd": self._cost_hard_stop_usd,
+                    },
+                )
+
+                # Tenant-wide per-cycle breakdown. The daily_cost sum
+                # above is tenant-wide, so the breakdown must match —
+                # otherwise the message's "cap reached ($X)" header
+                # shows one total and the per-cycle table sums to a
+                # smaller number. Includes employee_id on each cycle so
+                # admins can tell which employee contributed what. Cap
+                # at 10 most recent cycles for the per-block 4kB schema
+                # cap.
+                breakdown_result = await session.execute(
+                    sa_select(
+                        Metric.employee_id,
+                        Metric.tags,
+                        Metric.value,
+                        Metric.timestamp,
+                    )
+                    .where(
+                        Metric.tenant_id == tenant_id,
+                        Metric.metric_name == "llm.cost_usd",
+                        Metric.timestamp >= day_start,
+                        Metric.timestamp < day_end,
+                    )
+                    .order_by(Metric.timestamp.desc())
+                    .limit(10)
+                )
+                cycles: list[dict[str, float | int | str]] = []
+                for emp_id, tags, value, ts in breakdown_result.all():
+                    cycles.append(
+                        {
+                            "cycle": int((tags or {}).get("cycle", 0)),
+                            "cost_usd": round(float(value), 6),
+                            "phase": "llm",
+                            "recorded_at": ts.isoformat(),
+                            "employee_id": str(emp_id) if emp_id else "",
+                        }
+                    )
+
+                # Atomic tenant-wide pause + dedup. The cap is
+                # tenant-level, so the enforcement must pause ALL active
+                # employees (otherwise a multi-employee tenant keeps
+                # spending until each employee's cycle individually
+                # trips the check). The WHERE status IN ('active',
+                # 'running') makes this idempotent: if another loop in
+                # this tenant already paused the fleet, our UPDATE
+                # matches 0 rows — rowcount tells us we lost the race
+                # and must suppress our urgent inbox post to avoid
+                # N-for-tenant duplicate messages.
+                now = datetime.now(UTC)
+                pause_result = await session.execute(
+                    sa_update(Employee)
+                    .where(
+                        Employee.tenant_id == tenant_id,
+                        Employee.status.in_(("active", "running")),
+                    )
+                    .values(status="paused", updated_at=now)
+                )
+                paused_count = pause_result.rowcount or 0
+                await session.commit()
+                # Always flip OUR in-memory state — whether we won the
+                # race or not, this process must stop re-entering the
+                # check. Without this, the run_continuous_loop while
+                # proceeds to sleep + another cycle before the
+                # status_checker fires, spending another cycle's LLM
+                # budget past the cap.
+                self._cost_hard_stop_triggered = True
+                self.is_running = False
+
+                if paused_count == 0:
+                    # Another loop in this tenant already paused the
+                    # fleet. Skip our inbox post to avoid N urgent
+                    # messages for a single tenant-level event.
+                    logger.info(
+                        "Cost hard-stop: tenant already paused by another "
+                        "employee; skipping duplicate urgent inbox post",
+                        extra={
+                            "tenant_id": str(tenant_id),
+                            "employee_id": str(self.employee.id),
+                        },
+                    )
+                    return
+
+            # Post the inbox message via the public helper so error
+            # handling follows the same "never crash" contract. Done
+            # after the commit so a failed inbox write can't leave
+            # employees mid-flight with no explanation.
+            from empla.services.inbox_service import post_to_inbox
+
+            blocks: list[dict[str, object]] = [
+                {
+                    "kind": "text",
+                    "data": {
+                        "content": (
+                            f"Paused {paused_count} employee(s) — "
+                            f"today's tenant LLM spend "
+                            f"(${daily_cost:.2f}) passed the daily cap "
+                            f"(${self._cost_hard_stop_usd:.2f}). Review the "
+                            f"breakdown below, then raise the cap or resume "
+                            f"from each employee page."
+                        )
+                    },
+                },
+                {
+                    "kind": "cost_breakdown",
+                    "data": {
+                        "cycles": cycles,
+                        "total_usd": round(daily_cost, 4),
+                        "window": day_start.strftime("%Y-%m-%d UTC"),
+                    },
+                },
+                {
+                    "kind": "link",
+                    "data": {
+                        "label": "Cost settings",
+                        "url": "/settings#cost",
+                    },
+                },
+            ]
+            await post_to_inbox(
+                sessionmaker=self._sessionmaker,
+                tenant_id=tenant_id,
+                employee_id=self.employee.id,
+                subject=f"Paused: daily cost cap reached (${self._cost_hard_stop_usd:.2f})",
+                blocks=blocks,
+                priority="urgent",
+            )
+        except Exception:
+            logger.error(
+                "Cost hard-stop check failed; employee not paused and no "
+                "inbox message posted. Check metrics schema + DB connectivity.",
                 exc_info=True,
                 extra={"employee_id": str(self.employee.id)},
             )

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
+import { CostPauseBanner } from '@/components/inbox/cost-pause-banner';
 import { cn } from '@/lib/utils';
 
 export function DashboardLayout() {
@@ -16,6 +17,10 @@ export function DashboardLayout() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
+        {/* Dashboard-wide urgent alert bar. Renders only when the
+           tenant has unread urgent inbox messages (e.g., cost hard-
+           stop fired). Persistent until the admin opens + reads. */}
+        <CostPauseBanner />
 
         <main
           className={cn(

@@ -537,6 +537,76 @@ class DigitalEmployee(ABC):
         else:
             logger.info(f"Employee {self.name} stopped cleanly")
 
+    async def post_to_inbox(
+        self,
+        subject: str,
+        blocks: list[dict[str, object]],
+        priority: str = "normal",
+    ) -> bool:
+        """Post a structured message to the tenant's inbox.
+
+        The inbox is employee → human: questions, escalations, urgent
+        notifications. The body is a list of typed content blocks
+        (``text``, ``cost_breakdown``, ``link``, ``stat``, ``list``) —
+        see ``empla.api.v1.schemas.inbox.InboxBlock`` for the shape.
+
+        Args:
+            subject: Short headline shown in the list view (≤200 chars;
+                truncated if longer).
+            blocks: List of InboxBlock-shaped dicts. Total serialized
+                size ≤10kB; oversize is dropped with a WARN.
+            priority: ``urgent`` | ``normal`` | ``off``. Urgent triggers
+                a dashboard-wide banner until the admin resumes.
+
+        Returns:
+            True if the message was persisted, False on drop/error.
+            Inbox failures NEVER raise — the BDI loop must keep running
+            even if the notification channel is broken.
+        """
+        # Deferred import: the inbox service pulls in empla.models which
+        # isn't safe to import at module load from all contexts (tests,
+        # migration autogen). Same pattern as _record_cycle_metrics.
+        from empla.services.inbox_service import post_to_inbox as _post
+
+        if self._sessionmaker is None:
+            logger.warning(
+                "Inbox post skipped: no sessionmaker on %s (employee not started?)",
+                self.name,
+                extra={"employee_id": str(self._employee_id) if self._employee_id else "unset"},
+            )
+            return False
+        if self._employee_id is None:
+            logger.warning(
+                "Inbox post skipped: no employee_id on %s (employee not started?)",
+                self.name,
+            )
+            return False
+
+        # Belt-and-suspenders: the service catches its own DB/validation
+        # errors, but we also wrap the call so the docstring's "NEVER
+        # raise" contract survives import failures, unexpected wiring
+        # bugs, or future refactors that weaken the service's swallow.
+        try:
+            msg = await _post(
+                sessionmaker=self._sessionmaker,
+                tenant_id=self.tenant_id,
+                employee_id=self._employee_id,
+                subject=subject,
+                blocks=blocks,
+                priority=priority,
+            )
+            return msg is not None
+        except Exception:
+            logger.exception(
+                "Inbox post raised unexpectedly — returning False",
+                extra={
+                    "tenant_id": str(self.tenant_id),
+                    "employee_id": str(self._employee_id),
+                    "subject": subject,
+                },
+            )
+            return False
+
     async def on_start(self) -> None:
         """
         Called after employee is initialized but before loop starts.
@@ -861,6 +931,10 @@ class DigitalEmployee(ABC):
             identity=identity,
             # See ProactiveExecutionLoop.__init__ docstring for why this is explicit.
             sessionmaker=self._sessionmaker,
+            # Cost hard-stop comes from Tenant.settings, loaded by the
+            # runner at process start (PR #83 runner-restart pattern).
+            # None = feature disabled for this tenant.
+            cost_hard_stop_usd=self.config.cost_hard_stop_usd,
         )
 
         # Wire up activity recorder for dashboard feed

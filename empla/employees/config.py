@@ -199,6 +199,18 @@ class EmployeeConfig(BaseModel):
         description="Custom role description; overrides the built-in default for this role",
     )
 
+    # Cost hard-stop (from Tenant.settings.cost.hard_stop_budget_usd,
+    # captured at process start by the runner). When the tenant's
+    # cumulative daily LLM spend passes this, the loop pauses the
+    # employee and posts an urgent inbox message. ``None`` disables.
+    # See ``ProactiveExecutionLoop._check_cost_hard_stop`` for the
+    # enforcement logic.
+    cost_hard_stop_usd: float | None = Field(
+        default=None,
+        ge=0,
+        description="Daily cost cap in USD (captured once at process start)",
+    )
+
     # Additional config
     metadata: dict[str, Any] = Field(
         default_factory=dict,
