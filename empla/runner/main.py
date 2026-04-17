@@ -160,7 +160,11 @@ async def run_employee(
             cost_section = db_tenant.settings.get("cost") or {}
             if isinstance(cost_section, dict):
                 raw = cost_section.get("hard_stop_budget_usd")
-                if isinstance(raw, int | float) and raw > 0:
+                # Python bool is a subclass of int — `isinstance(True, int)`
+                # returns True. Without the explicit `not isinstance(raw, bool)`
+                # guard, a settings value of `true` would silently enable a
+                # $1/day cap. Filter bools out first.
+                if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0:
                     cost_hard_stop_usd = float(raw)
         except Exception:
             logger.warning(
@@ -410,10 +414,32 @@ async def run_employee(
         # Stop health server
         await health.stop()
 
-        # Update DB status to "stopped"
+        # Update DB status to "stopped" — but ONLY if we're currently
+        # running. The cost hard-stop (and future restart/terminate
+        # flows) set status='paused'/'restarting'/'terminated' inside
+        # the loop as a durable signal to the supervisor and dashboard
+        # ("employee is paused, admin must resume"). If we unconditionally
+        # stamp 'stopped' here, a deploy or crash erases that signal and
+        # the employee silently resumes at full spend on next start.
         try:
-            await _set_db_status(session_factory, employee_id, tenant_id, "stopped")
-            logger.info(f"Employee {employee_id} status set to 'stopped' in DB")
+            async with session_factory() as session:
+                result = await session.execute(
+                    update(EmployeeModel)
+                    .where(
+                        EmployeeModel.id == employee_id,
+                        EmployeeModel.tenant_id == tenant_id,
+                        EmployeeModel.status.in_(("active", "running")),
+                    )
+                    .values(status="stopped")
+                )
+                await session.commit()
+                if result.rowcount:
+                    logger.info(f"Employee {employee_id} status set to 'stopped' in DB")
+                else:
+                    logger.info(
+                        f"Employee {employee_id} shutdown: preserved non-running "
+                        "status (paused/restarting/terminated) set during loop"
+                    )
         except Exception:
             logger.error(
                 f"Failed to update employee {employee_id} status to 'stopped' in DB. "

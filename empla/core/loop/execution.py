@@ -1167,7 +1167,10 @@ class ProactiveExecutionLoop(
                 # Pause the employee. The status_checker at cycle start
                 # will detect 'paused' on the next tick and drain the
                 # loop. We also flip our own in-memory is_running to
-                # avoid one extra partial cycle after this commit.
+                # avoid one extra partial cycle after this commit —
+                # otherwise the run_continuous_loop while-loop proceeds
+                # to sleep + another cycle before the status_checker
+                # fires, spending another cycle's LLM budget past the cap.
                 now = datetime.now(UTC)
                 await session.execute(
                     sa_update(EmployeeModel)
@@ -1176,6 +1179,7 @@ class ProactiveExecutionLoop(
                 )
                 await session.commit()
                 self._cost_hard_stop_triggered = True
+                self.is_running = False
 
             # Post the inbox message via the public helper so error
             # handling follows the same "never crash" contract. Done

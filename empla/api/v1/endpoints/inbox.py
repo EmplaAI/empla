@@ -2,8 +2,9 @@
 empla.api.v1.endpoints.inbox - Inbox API endpoints
 
 Reads and modifies :class:`empla.models.inbox.InboxMessage` rows.
-All endpoints are tenant-scoped via :class:`CurrentUser` — a member
-in tenant A cannot read tenant B's inbox.
+All endpoints are admin-only and tenant-scoped via
+:class:`RequireAdmin` — a non-admin cannot read, mark-read, or
+delete, and an admin in tenant A cannot touch tenant B's inbox.
 
 Endpoints:
     - ``GET  /inbox``           — paginated list + unread count
@@ -27,7 +28,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy import update as sa_update
 
-from empla.api.deps import CurrentUser, DBSession
+from empla.api.deps import DBSession, RequireAdmin
 from empla.api.v1.schemas.inbox import (
     InboxListResponse,
     InboxMessageResponse,
@@ -43,7 +44,7 @@ router = APIRouter()
 @router.get("", response_model=InboxListResponse)
 async def list_inbox_messages(
     db: DBSession,
-    auth: CurrentUser,
+    auth: RequireAdmin,
     unread_only: Annotated[bool, Query()] = False,
     priority: Annotated[InboxPriority | None, Query()] = None,
     page: Annotated[int, Query(ge=1)] = 1,
@@ -62,9 +63,13 @@ async def list_inbox_messages(
         sidebar badge — computed in the same roundtrip to avoid a second
         query).
     """
+    # priority='off' is documented as "silently logged, not surfaced" —
+    # exclude from all list/count/unread paths. The only way to see these
+    # messages is a direct DB query (they're audit-only by design).
     filters = [
         InboxMessage.tenant_id == auth.tenant_id,
         InboxMessage.deleted_at.is_(None),
+        InboxMessage.priority != "off",
     ]
     if unread_only:
         filters.append(InboxMessage.read_at.is_(None))
@@ -77,12 +82,14 @@ async def list_inbox_messages(
 
     # Tenant-wide unread count for the sidebar badge — uses the
     # idx_inbox_tenant_unread partial index and never reflects the
-    # page_size/priority filters (badge shows ALL unread).
+    # page_size/priority filters (badge shows ALL unread). 'off'
+    # messages are excluded (audit-only, not surfaced).
     unread_result = await db.execute(
         select(func.count()).where(
             InboxMessage.tenant_id == auth.tenant_id,
             InboxMessage.deleted_at.is_(None),
             InboxMessage.read_at.is_(None),
+            InboxMessage.priority != "off",
         )
     )
     unread_count = int(unread_result.scalar() or 0)
@@ -114,7 +121,7 @@ async def list_inbox_messages(
 async def mark_read(
     message_id: UUID,
     db: DBSession,
-    auth: CurrentUser,
+    auth: RequireAdmin,
 ) -> InboxMessageResponse:
     """Mark a message as read. Idempotent: re-marking returns 200 with
     the same ``read_at`` timestamp unchanged.
@@ -165,16 +172,35 @@ async def mark_read(
 async def delete_message(
     message_id: UUID,
     db: DBSession,
-    auth: CurrentUser,
+    auth: RequireAdmin,
 ) -> None:
-    """Soft-delete a message. Idempotent 204: deleting an already-
-    deleted or missing message also returns 204 (we don't leak the
-    distinction — the client's "make it go away" intent is satisfied).
+    """Soft-delete a message. Admin-only: deletion permanently removes
+    the message from the dashboard-wide urgent banner's feed, and the
+    inbox is the primary audit channel for cost hard-stops. Non-admins
+    can mark-as-read (which also dismisses the banner) but cannot
+    destroy the audit trail.
+
+    Idempotent 204: deleting an already-deleted or missing message also
+    returns 204 (we don't leak the distinction — the client's "make it
+    go away" intent is satisfied).
 
     Uses UPDATE+WHERE so we don't load the row into the session. The
-    ``deleted_at IS NULL`` guard makes a second DELETE a no-op.
+    ``deleted_at IS NULL`` guard makes a second DELETE a no-op. Captures
+    the message's priority for audit logs so bulk urgent-deletes are
+    observable.
     """
     now = datetime.now(UTC)
+    # Peek at priority before deleting so the audit log records it. Tiny
+    # cost (one row lookup by PK) for real observability value.
+    peek = await db.execute(
+        select(InboxMessage.priority).where(
+            InboxMessage.id == message_id,
+            InboxMessage.tenant_id == auth.tenant_id,
+            InboxMessage.deleted_at.is_(None),
+        )
+    )
+    priority = peek.scalar_one_or_none()
+
     await db.execute(
         sa_update(InboxMessage)
         .where(
@@ -191,5 +217,6 @@ async def delete_message(
             "tenant_id": str(auth.tenant_id),
             "message_id": str(message_id),
             "user_id": str(auth.user_id),
+            "priority": priority,
         },
     )

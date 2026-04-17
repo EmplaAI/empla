@@ -107,6 +107,25 @@ def upgrade() -> None:
             name="ck_inbox_messages_priority",
         ),
     )
+    # Plain FK-column indexes matching the model's index=True declarations
+    # on tenant_id (inherited from TenantScopedModel) and employee_id.
+    # The composite partial indexes below cover the common query paths,
+    # but these single-column non-partial indexes serve (a) FK-join
+    # lookups that include soft-deleted rows and (b) the alembic
+    # autogenerate contract — omitting them triggers drift on the next
+    # autogen run.
+    op.create_index(
+        op.f("ix_inbox_messages_tenant_id"),
+        "inbox_messages",
+        ["tenant_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_inbox_messages_employee_id"),
+        "inbox_messages",
+        ["employee_id"],
+        unique=False,
+    )
     # Primary list view: most recent first, per tenant.
     op.create_index(
         "idx_inbox_tenant_created",
@@ -144,4 +163,6 @@ def downgrade() -> None:
     op.drop_index("idx_inbox_employee_created", table_name="inbox_messages")
     op.drop_index("idx_inbox_tenant_unread", table_name="inbox_messages")
     op.drop_index("idx_inbox_tenant_created", table_name="inbox_messages")
+    op.drop_index(op.f("ix_inbox_messages_employee_id"), table_name="inbox_messages")
+    op.drop_index(op.f("ix_inbox_messages_tenant_id"), table_name="inbox_messages")
     op.drop_table("inbox_messages")

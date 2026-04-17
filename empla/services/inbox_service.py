@@ -30,8 +30,10 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from empla.models.employee import Employee
 from empla.models.inbox import InboxMessage
 
 logger = logging.getLogger(__name__)
@@ -96,12 +98,29 @@ async def post_to_inbox(
         )
         subject = subject[:197] + "..."
 
+    # Shape validation — every block must match the InboxBlock schema
+    # (kind Literal, extra='forbid', per-block 4kB cap). The BDI loop's
+    # cost hard-stop and DigitalEmployee.post_to_inbox helper both feed
+    # through this service; without this check, LLM-generated blocks
+    # reach the DB without ever touching Pydantic validation.
+    try:
+        from empla.api.v1.schemas.inbox import InboxBlock
+
+        validated_blocks = [InboxBlock.model_validate(b).model_dump() for b in blocks]
+    except Exception as exc:
+        logger.warning(
+            "Inbox blocks failed schema validation: %s — dropping message",
+            exc,
+            extra={"tenant_id": str(tenant_id), "employee_id": str(employee_id)},
+        )
+        return None
+
     # Body-size cap. Serialize once for the check AND to guarantee the
     # JSONB column stores valid JSON (the SQLAlchemy dialect serializes
     # on insert, but that happens inside the transaction — a too-large
     # payload fails there with a worse error).
     try:
-        serialized_size = len(json.dumps(blocks, default=str))
+        serialized_size = len(json.dumps(validated_blocks, default=str))
     except (TypeError, ValueError) as exc:
         logger.warning(
             "Inbox blocks not JSON-serializable: %s — dropping message",
@@ -122,12 +141,39 @@ async def post_to_inbox(
 
     try:
         async with sessionmaker() as session:
+            # Cross-tenant guard: the inbox_messages FKs alone allow
+            # (tenant_id=A, employee_id=B-where-B-belongs-to-tenant-C).
+            # Without this check, a buggy caller or a rehomed employee
+            # row would create silently corrupted inbox rows. Composite
+            # FK is the "right" DB-level fix but requires a UNIQUE index
+            # on employees(tenant_id, id) — done at the service layer
+            # here so the fix ships with PR #86 and does not block on
+            # a schema change.
+            tenant_match = await session.execute(
+                select(Employee.id).where(
+                    Employee.id == employee_id,
+                    Employee.tenant_id == tenant_id,
+                )
+            )
+            if tenant_match.scalar_one_or_none() is None:
+                logger.warning(
+                    "Inbox message dropped: employee %s does not belong "
+                    "to tenant %s (cross-tenant post attempt)",
+                    employee_id,
+                    tenant_id,
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "employee_id": str(employee_id),
+                    },
+                )
+                return None
+
             msg = InboxMessage(
                 tenant_id=tenant_id,
                 employee_id=employee_id,
                 priority=priority,
                 subject=subject,
-                blocks=blocks,
+                blocks=validated_blocks,
             )
             session.add(msg)
             await session.commit()
@@ -139,7 +185,7 @@ async def post_to_inbox(
                     "employee_id": str(employee_id),
                     "message_id": str(msg.id),
                     "priority": priority,
-                    "block_count": len(blocks),
+                    "block_count": len(validated_blocks),
                 },
             )
             return msg

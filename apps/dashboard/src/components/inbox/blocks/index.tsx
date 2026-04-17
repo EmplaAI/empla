@@ -100,9 +100,18 @@ function CostBreakdownBlock({ data }: { data: Record<string, unknown> }) {
 function LinkBlock({ data }: { data: Record<string, unknown> }) {
   const label = typeof data.label === 'string' ? data.label : 'Link';
   const url = typeof data.url === 'string' ? data.url : '#';
-  // Allow internal routes (start with /) and http(s). Anything else gets
-  // flagged to avoid a javascript: URL slipping in from an LLM payload.
-  const isSafe = url.startsWith('/') || url.startsWith('http://') || url.startsWith('https://');
+  // URL safety:
+  //   - Internal routes must start with '/' but NOT '//' (protocol-relative).
+  //     `//evil.com` would otherwise pass `startsWith('/')` and render as a
+  //     same-origin-looking link that browsers resolve to `https://evil.com`.
+  //   - External URLs must use http:// or https:// (case-insensitive).
+  //   - Everything else (`javascript:`, `data:`, `mailto:`, `file:`, etc.)
+  //     falls through and renders as a rejected-link placeholder.
+  // All external links get `rel="noopener noreferrer"` + `target="_blank"`.
+  const lower = url.toLowerCase();
+  const isInternal = url.startsWith('/') && !url.startsWith('//');
+  const isExternal = lower.startsWith('http://') || lower.startsWith('https://');
+  const isSafe = isInternal || isExternal;
   if (!isSafe) {
     return (
       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -110,7 +119,6 @@ function LinkBlock({ data }: { data: Record<string, unknown> }) {
       </span>
     );
   }
-  const isExternal = url.startsWith('http://') || url.startsWith('https://');
   return (
     <a
       href={url}
