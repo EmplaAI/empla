@@ -86,14 +86,96 @@
 - Cost hard-stop (disabled when cap=None, triggers with urgent
   `cost_breakdown` block, does not re-trigger after first pause)
 
-Full unit suite: **1950 passing** (+22 new, 0 regressions).
+Full unit suite: **1959 passing** (+31 new after /review sweep, 0
+regressions).
 
 ### Migration
 
 `l7g8h9i0j1k2_add_inbox_messages.py` adds the `inbox_messages`
-table + 4 partial indexes (tenant-list, tenant-unread-badge,
-employee-list, urgent-banner). CHECK constraint on `priority`
-(urgent/normal/off). Foreign keys CASCADE from tenants + employees.
+table + 6 indexes: 4 partial indexes (tenant-list, tenant-unread-
+badge, employee-list, urgent-banner) and 2 plain single-column FK
+indexes on `tenant_id` + `employee_id` (post-/review — added to
+match model `index=True` declarations and prevent alembic-
+autogenerate drift). CHECK constraint on `priority` (urgent/normal/
+off). Foreign keys CASCADE from tenants + employees.
+
+### Fixed (post-/review adversarial sweep)
+
+Multi-model sweep at HEAD (gstack /review: 6 criticals across
+testing/security/infra specialists; Codex adversarial: 4 more
+criticals the main review missed). All 10 fixed; 5 new tests lock
+them in. Ship-time findings:
+
+- **LinkBlock protocol-relative URL escape.** `apps/dashboard/src/
+  components/inbox/blocks/index.tsx` accepted `//evil.com` as
+  "internal" because the old guard was `url.startsWith('/')`.
+  Browsers resolve protocol-relative URLs as same-scheme, so an
+  employee-posted link would load cross-origin without
+  `noopener noreferrer`. Split into strict internal-only
+  (`/` but not `//`) plus explicit http(s) external, lowercased
+  for scheme comparison.
+
+- **Runner bool-is-int silent cap.** `isinstance(True, int)` is
+  `True` in Python, so a settings value of `hard_stop_budget_usd:
+  true` would silently enable a $1/day cap. Added
+  `not isinstance(raw, bool)` guard in `empla/runner/main.py`.
+
+- **post_to_inbox bypassed InboxBlock validation.** The service
+  wrote `list[dict[str, Any]]` straight to JSONB, skipping the
+  kind-allowlist, `extra=forbid`, and per-block 4kB cap. An
+  LLM-emitted block with an unknown `kind` or injected top-level
+  key would land in the DB verbatim. Now validates every block
+  through `InboxBlock.model_validate().model_dump()` before the
+  size check + insert.
+
+- **Cross-tenant employee guard.** The `inbox_messages` FKs allow
+  `(tenant=A, employee=B-in-tenant-C)` — FKs point at separate
+  tables with no composite enforcement. A buggy or malicious caller
+  could create silently corrupted rows. Added service-level SELECT
+  verifying the `(tenant, employee)` pair against `employees`
+  before the insert.
+
+- **All three endpoints locked to `RequireAdmin`.** The plan says
+  "admins read, mark-read, and soft-delete"; prior code only gated
+  DELETE. A non-admin tenant member could read urgent cost-pause
+  messages, tamper with read state, and destroy the audit trail.
+  `GET /inbox`, `POST /inbox/{id}/read`, and `DELETE /inbox/{id}`
+  all now require admin. DELETE also peeks `priority` before
+  soft-delete for richer audit-log observability on urgent deletes.
+
+- **`priority='off'` suppression.** The model + migration document
+  `off` as "silently logged, not surfaced" but the read path
+  returned them, inflating the sidebar unread badge if an employee
+  used `off` for debug logging. Filter `priority != 'off'` added
+  to the primary list query, the filtered count, AND the tenant-
+  wide unread count.
+
+- **Paused status durability across runner restart.** The
+  runner's shutdown `finally` block unconditionally stamped
+  `status='stopped'`, erasing `paused` set by
+  `_check_cost_hard_stop()` on any deploy or crash. Now guards
+  with `WHERE status IN ('active','running')` so
+  paused/restarting/terminated survive. The "admin must resume"
+  contract now holds across process boundaries.
+
+- **Comment drift in cost hard-stop.** `execution.py` docstring
+  claimed `self.is_running` was flipped to avoid one extra partial
+  cycle but the line was missing. Added + expanded the comment.
+
+- **Missing FK indexes in migration.** Model declared
+  `index=True` on `employee_id` and inherited `tenant_id` indexing
+  from `TenantScopedModel`, but the migration only created the
+  composite partial indexes. Added matching plain single-column
+  indexes so alembic-autogenerate doesn't drift.
+
+Explicitly deferred (tracked as future work, not fixed in this
+sweep):
+
+- Tenant-wide budget only pauses the tripping employee. In a
+  multi-employee tenant, other employees keep spending until their
+  next cycle. Requires supervisor-level design.
+- Dashboard hardcodes `pageSize: 50` with no UI pagination after
+  50 messages.
 
 ### Explicitly deferred
 
