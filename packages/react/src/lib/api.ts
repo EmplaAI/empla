@@ -20,6 +20,10 @@ import type {
   EmployeeRuntimeStatus,
   EmployeeUpdate,
   GeneratedRoleDraft,
+  InboxBlock,
+  InboxListResponse,
+  InboxMessage,
+  InboxPriority,
   BlockedToolsResponse,
   EpisodicMemoryItem,
   IntegrationCredential,
@@ -399,6 +403,76 @@ export function createApiClient(config: ApiClientConfig) {
       })),
       personality: response.personality,
     };
+  }
+
+  // ==========================================================================
+  // Inbox
+  // ==========================================================================
+
+  function transformInboxMessage(raw: {
+    id: string;
+    tenant_id: string;
+    employee_id: string;
+    priority: InboxPriority;
+    subject: string;
+    blocks: InboxBlock[];
+    read_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }): InboxMessage {
+    return {
+      id: raw.id,
+      tenantId: raw.tenant_id,
+      employeeId: raw.employee_id,
+      priority: raw.priority,
+      subject: raw.subject,
+      blocks: raw.blocks,
+      readAt: raw.read_at,
+      createdAt: raw.created_at,
+      updatedAt: raw.updated_at,
+    };
+  }
+
+  async function listInbox(params?: {
+    unreadOnly?: boolean;
+    priority?: InboxPriority;
+    page?: number;
+    pageSize?: number;
+  }): Promise<InboxListResponse> {
+    const qs = new URLSearchParams();
+    if (params?.unreadOnly) qs.set('unread_only', 'true');
+    if (params?.priority) qs.set('priority', params.priority);
+    if (params?.page !== undefined) qs.set('page', String(params.page));
+    if (params?.pageSize !== undefined) qs.set('page_size', String(params.pageSize));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    const raw = await request<{
+      items: Parameters<typeof transformInboxMessage>[0][];
+      total: number;
+      unread_count: number;
+      page: number;
+      page_size: number;
+      pages: number;
+    }>(`/v1/inbox${suffix}`);
+    return {
+      items: raw.items.map(transformInboxMessage),
+      total: raw.total,
+      unreadCount: raw.unread_count,
+      page: raw.page,
+      pageSize: raw.page_size,
+      pages: raw.pages,
+    };
+  }
+
+  async function markInboxRead(messageId: string): Promise<InboxMessage> {
+    const raw = await request<Parameters<typeof transformInboxMessage>[0]>(
+      `/v1/inbox/${messageId}/read`,
+      { method: 'POST', body: JSON.stringify({}) },
+    );
+    return transformInboxMessage(raw);
+  }
+
+  async function deleteInboxMessage(messageId: string): Promise<void> {
+    await request<null>(`/v1/inbox/${messageId}`, { method: 'DELETE' });
   }
 
   async function updateEmployee(id: string, data: EmployeeUpdate): Promise<Employee> {
@@ -2029,6 +2103,9 @@ export function createApiClient(config: ApiClientConfig) {
     getEmployee,
     createEmployee,
     generateRole,
+    listInbox,
+    markInboxRead,
+    deleteInboxMessage,
     updateEmployee,
     deleteEmployee,
     startEmployee,

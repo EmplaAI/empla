@@ -12,6 +12,7 @@ from empla.api.v1.endpoints import (
     bdi,
     employee_control,
     employees,
+    inbox,
     integrations,
     mcp_servers,
     memory,
@@ -44,3 +45,4 @@ api_router.include_router(tools.router, prefix="/employees", tags=["tools"])
 api_router.include_router(scheduler.router, prefix="/employees", tags=["scheduler"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 api_router.include_router(role_builder.router, prefix="/employees", tags=["role-builder"])
+api_router.include_router(inbox.router, prefix="/inbox", tags=["inbox"])

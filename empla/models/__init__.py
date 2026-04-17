@@ -24,6 +24,7 @@ from empla.models.audit import AuditLog, Metric
 from empla.models.base import Base
 from empla.models.belief import Belief, BeliefHistory
 from empla.models.employee import Employee, EmployeeGoal, EmployeeIntention
+from empla.models.inbox import InboxMessage
 from empla.models.integration import (
     CredentialStatus,
     CredentialType,
@@ -57,6 +58,7 @@ __all__ = [
     "EmployeeGoal",
     "EmployeeIntention",
     "EpisodicMemory",
+    "InboxMessage",
     "Integration",
     "IntegrationAuthType",
     "IntegrationCredential",

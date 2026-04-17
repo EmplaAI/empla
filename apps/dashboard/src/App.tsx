@@ -12,6 +12,7 @@ import { IntegrationsPage } from '@/routes/integrations';
 import { IntegrationsCallbackPage } from '@/routes/integrations-callback';
 import { ActivityPage } from '@/routes/activity';
 import { EventsPage } from '@/routes/events';
+import { InboxPage } from '@/routes/inbox';
 import { SettingsPage } from '@/routes/settings';
 
 export function App() {
@@ -39,6 +40,7 @@ export function App() {
             <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="events" element={<EventsPage />} />
             <Route path="activity" element={<ActivityPage />} />
+            <Route path="inbox" element={<InboxPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
 

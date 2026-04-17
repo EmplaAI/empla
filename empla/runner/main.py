@@ -32,6 +32,7 @@ from empla.employees.registry import get_employee_class
 from empla.integrations.email.tools import router as email_router_template
 from empla.models.database import get_engine, get_sessionmaker
 from empla.models.employee import Employee as EmployeeModel
+from empla.models.tenant import Tenant
 from empla.runner.health import HealthServer
 
 logger = logging.getLogger(__name__)
@@ -123,7 +124,10 @@ async def run_employee(
     engine = get_engine()
     session_factory = get_sessionmaker(engine)
 
-    # Load employee from DB (eagerly load goals)
+    # Load employee + tenant in one session. Tenant.settings are
+    # captured at process start per PR #83's runner-restart pattern;
+    # mid-process they're guaranteed stable because any settings change
+    # triggers a full respawn.
     async with session_factory() as session:
         result = await session.execute(
             select(EmployeeModel)
@@ -136,10 +140,34 @@ async def run_employee(
         )
         db_employee = result.scalar_one_or_none()
 
+        tenant_row = await session.execute(
+            select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
+        )
+        db_tenant = tenant_row.scalar_one_or_none()
+
     if db_employee is None:
         logger.error(f"Employee {employee_id} not found in tenant {tenant_id}")
         await engine.dispose()
         sys.exit(1)
+
+    # Pull the cost hard-stop from Tenant.settings.cost.hard_stop_budget_usd.
+    # Absent / malformed settings → None → feature disabled (matches
+    # the schema default). Never raise: settings are operator-facing
+    # and a bad row shouldn't kill the runner.
+    cost_hard_stop_usd: float | None = None
+    if db_tenant is not None and isinstance(db_tenant.settings, dict):
+        try:
+            cost_section = db_tenant.settings.get("cost") or {}
+            if isinstance(cost_section, dict):
+                raw = cost_section.get("hard_stop_budget_usd")
+                if isinstance(raw, int | float) and raw > 0:
+                    cost_hard_stop_usd = float(raw)
+        except Exception:
+            logger.warning(
+                "Failed to parse Tenant.settings.cost; cost hard-stop disabled",
+                extra={"tenant_id": str(tenant_id)},
+                exc_info=True,
+            )
 
     # Resolve employee class
     employee_class = get_employee_class(db_employee.role)
@@ -194,6 +222,7 @@ async def run_employee(
             llm=LLMSettings(**(db_config.get("llm") or {})),
             loop=LoopSettings(**(db_config.get("loop") or {})),
             metadata=db_config.get("metadata") or {},
+            cost_hard_stop_usd=cost_hard_stop_usd,
         )
     except (ValidationError, TypeError, KeyError) as e:
         logger.error(

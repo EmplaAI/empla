@@ -1,19 +1,20 @@
 # empla - Roadmap
 
-> **Updated:** 2026-04-15
+> **Updated:** 2026-04-16
 > **Strategy:** Phase 4 (Efficiency + Intelligence) shipped. Phase 5A complete:
 > PR #77 (foundation), PR #78 (PM/SDR/Recruiter), PR #79 (memory API + 4-group
 > tabs), PR #80 (tool catalog + trust boundary view + runner auth) shipped.
-> Phase 5B in progress: PR #81 (webhook UI) + PR #82 (scheduler) + PR #83
+> Phase 5B complete: PR #81 (webhook UI) + PR #82 (scheduler) + PR #83
 > (settings + runner-restart) + PR #84 (playbook editor) + PR #85 (custom-role
-> employees via LLM) shipped — 1 Phase 5B PR remains (#86 inbox).
+> employees via LLM) + PR #86 (inbox + cost hard-stop) all shipped.
+> Phase 5 closes.
 > **Reference:** `ARCHITECTURE.md`, `DESIGN.md`, `docs/designs/phase5-platform-completeness.md`
 
 ---
 
 ## Current State
 
-Tests: **1925 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Tests: **1950 unit tests passing** (0 failing), ~70% coverage on unit test scope |
 Employees: SalesAE, CSM, ProductManager, SDR, Recruiter (all 5 catalog roles implemented) |
 Core features: Complete BDI loop, playbook system with autonomous discovery,
 event-driven wake + scheduled actions, webhooks with credential-based routing,
@@ -107,7 +108,14 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
   role_description, Unicode control-char strip, capability allowlist,
   admin-only at the API. Per-goal/personality editors deferred to a
   follow-up.
-- **PR #86** — Inbox (employee→human messaging with structured content blocks)
+- **PR #86** ✓ SHIPPED 2026-04-16: Inbox + cost hard-stop. `/inbox`
+  route with block renderers (text/cost_breakdown/link/stat/list),
+  `DigitalEmployee.post_to_inbox()` helper, dashboard-wide urgent
+  banner, sidebar unread badge. Cost hard-stop deferred from PR #83
+  now enforced: loop pauses employee + posts urgent
+  `cost_breakdown` message when daily spend exceeds
+  `Tenant.settings.cost.hard_stop_budget_usd`. +22 unit tests
+  (total 1950). Closes Phase 5B.
 
 **Total:** 10 PRs, ~7-9 days CC time. Phase 5 adds ~200 new tests across the
 per-PR budgets (`#77=5`, `#78=60`, `#79=25`, `#80=10`, `#81=15`, `#82=12`,

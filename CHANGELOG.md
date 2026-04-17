@@ -6,6 +6,105 @@
 
 ---
 
+## 2026-04-16 - Phase 5B: Inbox + cost hard-stop (PR #86)
+
+**Phase:** Phase 5B — User Power + Visibility (PR 10 of 10, closes Phase 5B)
+
+### Added
+
+- **Employee → human inbox.** Every tenant gets a new `/inbox` route
+  in the dashboard. Employees post structured messages via
+  `DigitalEmployee.post_to_inbox()`; admins read, mark-read, and
+  soft-delete from the UI. One-way for now — human replies defer
+  to a future phase.
+
+- **Typed content blocks.** Message bodies are lists of typed blocks
+  (`text`, `cost_breakdown`, `link`, `stat`, `list`) stored as JSONB.
+  The dashboard picks a React component per `kind`. Unknown kinds
+  render as a JSON preview with a "update your dashboard" hint so
+  the frontend is forward-compatible when new kinds land. Per-block
+  payload cap 4kB; total-message cap 10kB (dropped with WARN, never
+  crashes the loop).
+
+- **Cost hard-stop enforcement** (deferred from PR #83). The BDI
+  loop reads `Tenant.settings.cost.hard_stop_budget_usd` at process
+  start (per PR #83's runner-restart settings pattern). After each
+  cycle's metrics persist, `_check_cost_hard_stop()` sums the
+  tenant's daily `llm.cost_usd` metrics and, if over the cap,
+  (1) writes `employees.status='paused'` via the existing pause-via-
+  DB path, and (2) posts an urgent inbox message with a
+  `cost_breakdown` block — so the admin sees the full per-cycle
+  breakdown INSIDE the message, not behind a click. Idempotent via
+  `_cost_hard_stop_triggered`: never re-posts for the same pause
+  window. Never raises (safety-net, not critical path).
+
+- **Dashboard-wide urgent banner.** `<CostPauseBanner>` renders in
+  the layout header whenever there's an unread urgent inbox message.
+  Persistent until the admin opens + reads it. Polls via React Query
+  (30s) sharing the same underlying query as the sidebar badge.
+
+- **Unread badge in sidebar.** Inbox nav item shows an unread count
+  chip when > 0, auto-clears when the admin marks the message read.
+  Tenant-wide count rides the list response so there's no second
+  request.
+
+- **`empla/services/inbox_service.py`.** `post_to_inbox()` writes
+  via a short-lived session (same pattern as `_record_cycle_metrics`
+  post-PR-#77). Normalizes invalid priorities, truncates overlong
+  subjects, rejects oversize bodies, and swallows every DB error
+  with a loud WARN/ERROR so a broken inbox cannot crash the BDI loop.
+
+- **`DigitalEmployee.post_to_inbox()` helper.** Async method on the
+  base class; delegates to the service with the employee's
+  sessionmaker + tenant/employee IDs. Returns False on any failure.
+
+- **`@empla/react` SDK additions.** `useInbox`,
+  `useInboxUnreadCount`, `useMarkInboxRead`, `useDeleteInboxMessage`
+  hooks. `InboxMessage`, `InboxBlock`, `InboxListResponse`,
+  `InboxPriority`, `InboxBlockKind` types. `api.listInbox`,
+  `api.markInboxRead`, `api.deleteInboxMessage`.
+
+- **Runner loads Tenant.settings at startup.** Reads
+  `cost.hard_stop_budget_usd` into `EmployeeConfig.cost_hard_stop_usd`
+  and forwards to `ProactiveExecutionLoop.__init__`. Matches the
+  PR #83 pattern: settings are captured once at process start;
+  changes trigger a full restart.
+
+### Tests
+
+22 new unit tests in `tests/unit/test_inbox.py` cover:
+- `InboxBlock` schema (per-block 4kB cap, Literal kind enforcement,
+  extra=forbid)
+- `post_to_inbox` service (happy, oversize drop, priority
+  normalization, subject truncation, DB error → None)
+- Endpoint handlers (list with unread count, mark-read happy +
+  idempotent-already-read + missing 404, delete idempotent)
+- Cross-tenant isolation (tenant B cannot see tenant A's bound
+  params)
+- `DigitalEmployee.post_to_inbox` (no sessionmaker → False; happy
+  path forwards to service)
+- Cost hard-stop (disabled when cap=None, triggers with urgent
+  `cost_breakdown` block, does not re-trigger after first pause)
+
+Full unit suite: **1950 passing** (+22 new, 0 regressions).
+
+### Migration
+
+`l7g8h9i0j1k2_add_inbox_messages.py` adds the `inbox_messages`
+table + 4 partial indexes (tenant-list, tenant-unread-badge,
+employee-list, urgent-banner). CHECK constraint on `priority`
+(urgent/normal/off). Foreign keys CASCADE from tenants + employees.
+
+### Explicitly deferred
+
+- Human → employee replies (inbox is one-way)
+- SSE/WebSocket real-time delivery (polling is sufficient for MVP)
+- Daily digest (needs tenant-level scheduler primitive; punt)
+- Inbox unread-count subscription (the polling model already
+  minimizes request volume by piggybacking on the list response)
+
+---
+
 ## 2026-04-15 - Phase 5B: Custom-role employees via LLM (PR #85)
 
 **Phase:** Phase 5B — User Power + Visibility (PR 9 of 10)
