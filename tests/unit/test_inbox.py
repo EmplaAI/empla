@@ -207,36 +207,43 @@ class TestPostToInboxService:
         assert "truncated" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_non_serializable_blocks_rejected(self, caplog):
-        sm, _session, _added = _make_sessionmaker_mock()
+    async def test_non_serializable_blocks_rejected(self, caplog, monkeypatch):
+        """Force json.dumps to raise and verify the service drops the
+        message without propagating the error to the caller (the BDI
+        loop must never crash on inbox failures).
 
-        # A set isn't JSON-serializable via json.dumps without default=
-        # handling. We pass default=str so sets become strings, but
-        # objects without __str__ compatible output are harder — use
-        # a class instance that json can't touch and default=str can't
-        # either.
-        class _NotJson:
-            pass
+        In practice json.dumps is called twice: once inside the
+        InboxBlock pydantic validator's size guard, once in the
+        service's body-size check. Patching the json module globally
+        exercises whichever path runs first — the actual assertion is
+        that (a) msg is None, (b) no row was added, (c) a WARN log
+        named "dropping message" was emitted. Either code path (schema
+        validation rejected or body-serialization rejected) satisfies
+        the contract.
+        """
+        import json as _json
 
+        def _bad_dumps(*_args, **_kwargs):
+            raise TypeError("simulated non-serializable payload")
+
+        monkeypatch.setattr(_json, "dumps", _bad_dumps)
+
+        sm, _session, added = _make_sessionmaker_mock()
         with caplog.at_level("WARNING"):
             msg = await post_to_inbox(
                 sessionmaker=sm,
                 tenant_id=uuid4(),
                 employee_id=uuid4(),
                 subject="t",
-                # Tuples of object instances → default=str reduces to
-                # "<_NotJson object at 0x...>" which IS serializable.
-                # Use something that raises inside json.dumps — a lambda
-                # in a nested list works.
-                blocks=[{"kind": "text", "data": {"content": lambda: 1}}],  # type: ignore[dict-item]
+                blocks=[{"kind": "text", "data": {"content": "x"}}],
             )
-        # default=str converts the lambda to a string too, so this
-        # actually succeeds. That's fine — the schema would reject
-        # the type anyway at the endpoint boundary. We just need to
-        # confirm the service doesn't crash on weird inputs.
-        # This test exists mostly as a smoke test for the try/except
-        # around json.dumps.
-        assert msg is not None or msg is None
+        # Service swallowed the json.dumps failure and dropped the
+        # message. Either the schema validator or the service's own
+        # size check catches it — both log "dropping message" and
+        # return None.
+        assert msg is None
+        assert len(added) == 0
+        assert "dropping message" in caplog.text.lower()
 
     @pytest.mark.asyncio
     async def test_db_error_returns_none(self, caplog):
@@ -319,7 +326,7 @@ class TestInboxEndpoints:
     async def test_mark_read_happy_path(self):
         tenant = uuid4()
         mid = uuid4()
-        row = _fake_message(tenant=tenant, id=mid, read_at=datetime.now(UTC))
+        row = _fake_message(tenant=tenant, message_id=mid, read_at=datetime.now(UTC))
         db = AsyncMock()
         update_result = Mock()
         update_result.scalar_one_or_none = Mock(return_value=row)
@@ -336,7 +343,7 @@ class TestInboxEndpoints:
         filter fails), falls back to SELECT without the filter, returns 200."""
         tenant = uuid4()
         mid = uuid4()
-        already_read = _fake_message(tenant=tenant, id=mid, read_at=datetime.now(UTC))
+        already_read = _fake_message(tenant=tenant, message_id=mid, read_at=datetime.now(UTC))
         db = AsyncMock()
         call = 0
 
@@ -708,7 +715,9 @@ class TestDigitalEmployeePostToInbox:
 @pytest.mark.asyncio
 async def test_cost_hard_stop_disabled_when_cap_is_none():
     """Feature is opt-in via Tenant.settings.cost.hard_stop_budget_usd.
-    cap=None must short-circuit before any DB access."""
+    cap=None must short-circuit BEFORE any DB session is opened and
+    BEFORE any inbox post is attempted. This test asserts both:
+    (a) sessionmaker never called, (b) inbox post never called."""
     from empla.core.loop.execution import ProactiveExecutionLoop
     from empla.core.loop.models import LoopConfig
 
@@ -717,6 +726,10 @@ async def test_cost_hard_stop_disabled_when_cap_is_none():
     employee.tenant_id = uuid4()
     employee.name = "X"
 
+    # Attach a sessionmaker mock so we can assert it was never called.
+    # A disabled-cap loop should short-circuit before opening a session.
+    sm = Mock()
+
     loop = ProactiveExecutionLoop(
         employee=employee,
         beliefs=Mock(),
@@ -724,10 +737,18 @@ async def test_cost_hard_stop_disabled_when_cap_is_none():
         intentions=Mock(),
         memory=Mock(),
         config=LoopConfig(),
+        sessionmaker=sm,
         cost_hard_stop_usd=None,
     )
-    # No sessionmaker either; must early-return cleanly.
-    await loop._check_cost_hard_stop()
+    with patch(
+        "empla.services.inbox_service.post_to_inbox",
+        new=AsyncMock(return_value=Mock()),
+    ) as mocked_post:
+        await loop._check_cost_hard_stop()
+
+    # No DB session opened, no inbox post attempted.
+    sm.assert_not_called()
+    mocked_post.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -745,10 +766,12 @@ async def test_cost_hard_stop_triggers_and_posts_urgent_message():
 
     # Sessionmaker that returns a session whose execute stubs produce:
     #   - sum query → $15 (over $10 cap)
-    #   - breakdown query → 2 cycles
-    #   - UPDATE → no-op
+    #   - breakdown query → 2 cycles (now 4-tuple: employee_id + tags
+    #     + value + ts, matching the tenant-wide breakdown)
+    #   - UPDATE → rowcount=1 (we won the pause race)
     session = AsyncMock()
     call_idx = 0
+    now = datetime.now(UTC)
 
     async def _execute(stmt):
         nonlocal call_idx
@@ -756,14 +779,15 @@ async def test_cost_hard_stop_triggers_and_posts_urgent_message():
         result = Mock()
         if call_idx == 1:  # sum(cost)
             result.scalar = Mock(return_value=15.0)
-        elif call_idx == 2:  # breakdown rows
+        elif call_idx == 2:  # breakdown rows — now includes employee_id
             result.all = Mock(
                 return_value=[
-                    ({"cycle": 1}, 8.0, datetime.now(UTC)),
-                    ({"cycle": 2}, 7.0, datetime.now(UTC)),
+                    (emp_id, {"cycle": 1}, 8.0, now),
+                    (emp_id, {"cycle": 2}, 7.0, now),
                 ]
             )
-        # UPDATE has no consumer in _check_cost_hard_stop
+        else:  # UPDATE — rowcount>0 means we won the pause race
+            result.rowcount = 1
         return result
 
     session.execute = _execute
@@ -835,11 +859,75 @@ async def test_cost_hard_stop_does_not_retrigger_within_process():
     sm.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_cost_hard_stop_tenant_dedup_skips_inbox_when_race_lost():
+    """When another employee in the same tenant already paused the
+    fleet (atomic UPDATE returns rowcount=0), this loop still flips
+    its in-memory flag (to stop re-checking) but must NOT post a
+    duplicate urgent inbox message. Otherwise a tenant with N
+    employees gets N urgent messages for one cost event."""
+    from empla.core.loop.execution import ProactiveExecutionLoop
+    from empla.core.loop.models import LoopConfig
+
+    tenant = uuid4()
+    employee = Mock()
+    employee.id = uuid4()
+    employee.tenant_id = tenant
+    employee.name = "X"
+
+    session = AsyncMock()
+    call_idx = 0
+    now = datetime.now(UTC)
+
+    async def _execute(stmt):
+        nonlocal call_idx
+        call_idx += 1
+        result = Mock()
+        if call_idx == 1:  # sum(cost) — over cap
+            result.scalar = Mock(return_value=15.0)
+        elif call_idx == 2:  # breakdown
+            result.all = Mock(return_value=[(employee.id, {"cycle": 1}, 15.0, now)])
+        else:  # UPDATE — rowcount=0 means another loop already paused
+            result.rowcount = 0
+        return result
+
+    session.execute = _execute
+    session.commit = AsyncMock()
+
+    @asynccontextmanager
+    async def _cm():
+        yield session
+
+    sm = Mock(side_effect=_cm)
+    loop = ProactiveExecutionLoop(
+        employee=employee,
+        beliefs=Mock(),
+        goals=Mock(),
+        intentions=Mock(),
+        memory=Mock(),
+        config=LoopConfig(),
+        sessionmaker=sm,
+        cost_hard_stop_usd=10.0,
+    )
+
+    with patch(
+        "empla.services.inbox_service.post_to_inbox",
+        new=AsyncMock(return_value=Mock()),
+    ) as mocked_post:
+        await loop._check_cost_hard_stop()
+
+    assert loop._cost_hard_stop_triggered is True
+    assert loop.is_running is False
+    # Race lost: our UPDATE matched zero rows, so another loop already
+    # posted the urgent message. We must NOT duplicate.
+    mocked_post.assert_not_called()
+
+
 def _fake_message(
-    *, tenant: UUID, subject: str = "t", id: UUID | None = None, read_at=None
+    *, tenant: UUID, subject: str = "t", message_id: UUID | None = None, read_at=None
 ) -> InboxMessage:
     m = InboxMessage()
-    m.id = id or uuid4()
+    m.id = message_id or uuid4()
     m.tenant_id = tenant
     m.employee_id = uuid4()
     m.priority = "normal"

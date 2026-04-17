@@ -582,15 +582,30 @@ class DigitalEmployee(ABC):
             )
             return False
 
-        msg = await _post(
-            sessionmaker=self._sessionmaker,
-            tenant_id=self.tenant_id,
-            employee_id=self._employee_id,
-            subject=subject,
-            blocks=blocks,
-            priority=priority,
-        )
-        return msg is not None
+        # Belt-and-suspenders: the service catches its own DB/validation
+        # errors, but we also wrap the call so the docstring's "NEVER
+        # raise" contract survives import failures, unexpected wiring
+        # bugs, or future refactors that weaken the service's swallow.
+        try:
+            msg = await _post(
+                sessionmaker=self._sessionmaker,
+                tenant_id=self.tenant_id,
+                employee_id=self._employee_id,
+                subject=subject,
+                blocks=blocks,
+                priority=priority,
+            )
+            return msg is not None
+        except Exception:
+            logger.exception(
+                "Inbox post raised unexpectedly — returning False",
+                extra={
+                    "tenant_id": str(self.tenant_id),
+                    "employee_id": str(self._employee_id),
+                    "subject": subject,
+                },
+            )
+            return False
 
     async def on_start(self) -> None:
         """

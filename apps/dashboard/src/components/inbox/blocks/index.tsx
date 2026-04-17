@@ -101,15 +101,16 @@ function LinkBlock({ data }: { data: Record<string, unknown> }) {
   const label = typeof data.label === 'string' ? data.label : 'Link';
   const url = typeof data.url === 'string' ? data.url : '#';
   // URL safety:
-  //   - Internal routes must start with '/' but NOT '//' (protocol-relative).
-  //     `//evil.com` would otherwise pass `startsWith('/')` and render as a
-  //     same-origin-looking link that browsers resolve to `https://evil.com`.
+  //   - Internal routes must start with '/' and the second char must NOT be
+  //     '/' (protocol-relative like `//evil.com`) or '\' (some legacy
+  //     browsers / webviews normalize `\` to `/` in the scheme-relative
+  //     part, letting `/\evil.com` resolve to `https://evil.com`).
   //   - External URLs must use http:// or https:// (case-insensitive).
   //   - Everything else (`javascript:`, `data:`, `mailto:`, `file:`, etc.)
   //     falls through and renders as a rejected-link placeholder.
   // All external links get `rel="noopener noreferrer"` + `target="_blank"`.
   const lower = url.toLowerCase();
-  const isInternal = url.startsWith('/') && !url.startsWith('//');
+  const isInternal = url.startsWith('/') && url[1] !== '/' && url[1] !== '\\';
   const isExternal = lower.startsWith('http://') || lower.startsWith('https://');
   const isSafe = isInternal || isExternal;
   if (!isSafe) {

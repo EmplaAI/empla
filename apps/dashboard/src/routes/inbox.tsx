@@ -187,7 +187,7 @@ export function InboxPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => markRead.mutateAsync(selected.id)}
+                        onClick={() => markRead.mutate(selected.id)}
                       >
                         <Check className="mr-1 h-3 w-3" /> Mark read
                       </Button>

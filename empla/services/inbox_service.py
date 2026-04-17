@@ -17,10 +17,14 @@ Design notes:
       does not retry, does not raise, does not crash. The per-block
       4kB cap at the schema layer is a cheaper first check; this is
       the total-message cap.
-    - Returns ``bool`` so callers can branch on success (e.g., cost
-      hard-stop wants to know whether the inbox message landed before
-      flipping the employee status, but writing the pause is still
-      worth doing even if the notification failed).
+    - Returns the created :class:`InboxMessage` on success or ``None``
+      on failure (validation rejected, oversize, DB error,
+      cross-tenant mismatch). The thin
+      :meth:`DigitalEmployee.post_to_inbox` wrapper is responsible for
+      converting that result into a plain ``bool`` for loop callers
+      that only care about success/failure. Keeping the model row here
+      lets direct callers (e.g., the cost hard-stop's post-commit
+      path) read the message_id without a second round-trip.
 """
 
 from __future__ import annotations

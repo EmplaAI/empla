@@ -23,6 +23,7 @@ before landing in the DB.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -77,8 +78,6 @@ class InboxBlock(BaseModel):
         block payload sizes), but single-block bombs (e.g., a 1MB text
         body) should fail fast at schema validation.
         """
-        import json
-
         size = len(json.dumps(v, default=str))
         if size > 4096:
             raise ValueError(

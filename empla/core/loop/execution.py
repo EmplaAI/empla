@@ -32,6 +32,10 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from sqlalchemy import func
+from sqlalchemy import select as sa_select
+from sqlalchemy import update as sa_update
+
 from empla.core.hooks import (
     HOOK_AFTER_BELIEF_UPDATE,
     HOOK_AFTER_INTENTION_EXECUTION,
@@ -65,6 +69,7 @@ from empla.core.loop.protocols import (
     ToolSourceProtocol,
 )
 from empla.core.loop.reflection import ReflectionMixin
+from empla.models.audit import Metric
 from empla.models.employee import Employee
 
 if TYPE_CHECKING:
@@ -1090,22 +1095,13 @@ class ProactiveExecutionLoop(
         if self._sessionmaker is None:
             return  # same silent-skip rule as _record_cycle_metrics
 
-        from datetime import UTC, datetime, timedelta
-
-        from sqlalchemy import func
-        from sqlalchemy import select as sa_select
-        from sqlalchemy import update as sa_update
-
-        from empla.models.audit import Metric
-        from empla.models.employee import Employee as EmployeeModel
-
         tenant_id = self.employee.tenant_id
         day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
 
         try:
             async with self._sessionmaker() as session:
-                # Sum today's LLM cost for this tenant. Uses the
+                # Sum today's LLM cost tenant-wide. Uses the
                 # (tenant_id, metric_name, timestamp) filter which the
                 # existing metric indexes cover.
                 total_result = await session.execute(
@@ -1134,18 +1130,23 @@ class ProactiveExecutionLoop(
                     },
                 )
 
-                # Collect per-cycle breakdown for the inbox message.
-                # Cap at 10 most recent cycles so the block stays
-                # under the per-block 4kB schema cap.
+                # Tenant-wide per-cycle breakdown. The daily_cost sum
+                # above is tenant-wide, so the breakdown must match —
+                # otherwise the message's "cap reached ($X)" header
+                # shows one total and the per-cycle table sums to a
+                # smaller number. Includes employee_id on each cycle so
+                # admins can tell which employee contributed what. Cap
+                # at 10 most recent cycles for the per-block 4kB schema
+                # cap.
                 breakdown_result = await session.execute(
                     sa_select(
+                        Metric.employee_id,
                         Metric.tags,
                         Metric.value,
                         Metric.timestamp,
                     )
                     .where(
                         Metric.tenant_id == tenant_id,
-                        Metric.employee_id == self.employee.id,
                         Metric.metric_name == "llm.cost_usd",
                         Metric.timestamp >= day_start,
                         Metric.timestamp < day_end,
@@ -1154,37 +1155,65 @@ class ProactiveExecutionLoop(
                     .limit(10)
                 )
                 cycles: list[dict[str, float | int | str]] = []
-                for tags, value, ts in breakdown_result.all():
+                for emp_id, tags, value, ts in breakdown_result.all():
                     cycles.append(
                         {
                             "cycle": int((tags or {}).get("cycle", 0)),
                             "cost_usd": round(float(value), 6),
                             "phase": "llm",
                             "recorded_at": ts.isoformat(),
+                            "employee_id": str(emp_id) if emp_id else "",
                         }
                     )
 
-                # Pause the employee. The status_checker at cycle start
-                # will detect 'paused' on the next tick and drain the
-                # loop. We also flip our own in-memory is_running to
-                # avoid one extra partial cycle after this commit —
-                # otherwise the run_continuous_loop while-loop proceeds
-                # to sleep + another cycle before the status_checker
-                # fires, spending another cycle's LLM budget past the cap.
+                # Atomic tenant-wide pause + dedup. The cap is
+                # tenant-level, so the enforcement must pause ALL active
+                # employees (otherwise a multi-employee tenant keeps
+                # spending until each employee's cycle individually
+                # trips the check). The WHERE status IN ('active',
+                # 'running') makes this idempotent: if another loop in
+                # this tenant already paused the fleet, our UPDATE
+                # matches 0 rows — rowcount tells us we lost the race
+                # and must suppress our urgent inbox post to avoid
+                # N-for-tenant duplicate messages.
                 now = datetime.now(UTC)
-                await session.execute(
-                    sa_update(EmployeeModel)
-                    .where(EmployeeModel.id == self.employee.id)
+                pause_result = await session.execute(
+                    sa_update(Employee)
+                    .where(
+                        Employee.tenant_id == tenant_id,
+                        Employee.status.in_(("active", "running")),
+                    )
                     .values(status="paused", updated_at=now)
                 )
+                paused_count = pause_result.rowcount or 0
                 await session.commit()
+                # Always flip OUR in-memory state — whether we won the
+                # race or not, this process must stop re-entering the
+                # check. Without this, the run_continuous_loop while
+                # proceeds to sleep + another cycle before the
+                # status_checker fires, spending another cycle's LLM
+                # budget past the cap.
                 self._cost_hard_stop_triggered = True
                 self.is_running = False
 
+                if paused_count == 0:
+                    # Another loop in this tenant already paused the
+                    # fleet. Skip our inbox post to avoid N urgent
+                    # messages for a single tenant-level event.
+                    logger.info(
+                        "Cost hard-stop: tenant already paused by another "
+                        "employee; skipping duplicate urgent inbox post",
+                        extra={
+                            "tenant_id": str(tenant_id),
+                            "employee_id": str(self.employee.id),
+                        },
+                    )
+                    return
+
             # Post the inbox message via the public helper so error
             # handling follows the same "never crash" contract. Done
-            # after the commit so a failed inbox write can't leave the
-            # employee mid-flight with no explanation.
+            # after the commit so a failed inbox write can't leave
+            # employees mid-flight with no explanation.
             from empla.services.inbox_service import post_to_inbox
 
             blocks: list[dict[str, object]] = [
@@ -1192,11 +1221,12 @@ class ProactiveExecutionLoop(
                     "kind": "text",
                     "data": {
                         "content": (
-                            f"I've paused myself because today's LLM spend "
+                            f"Paused {paused_count} employee(s) — "
+                            f"today's tenant LLM spend "
                             f"(${daily_cost:.2f}) passed the daily cap "
                             f"(${self._cost_hard_stop_usd:.2f}). Review the "
                             f"breakdown below, then raise the cap or resume "
-                            f"from the employee page."
+                            f"from each employee page."
                         )
                     },
                 },

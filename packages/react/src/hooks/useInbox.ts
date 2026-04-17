@@ -15,8 +15,12 @@ import type { InboxListResponse, InboxMessage, InboxPriority } from '../types';
 export const inboxKeys = {
   all: ['inbox'] as const,
   lists: () => [...inboxKeys.all, 'list'] as const,
-  list: (params?: { unreadOnly?: boolean; priority?: InboxPriority; page?: number }) =>
-    [...inboxKeys.lists(), params] as const,
+  list: (params?: {
+    unreadOnly?: boolean;
+    priority?: InboxPriority;
+    page?: number;
+    pageSize?: number;
+  }) => [...inboxKeys.lists(), params] as const,
 };
 
 /**
@@ -44,22 +48,36 @@ export function useInbox(
 }
 
 /**
- * Tenant-wide unread count for the sidebar badge. Shares its query
- * key with the unfiltered list so the existing list request already
- * hydrates this — no second request in practice. If no list fetch has
- * happened yet, this falls back to a minimal request with ``pageSize=1``
- * to land the ``unreadCount`` field without pulling a large page.
+ * Tenant-wide unread count for the sidebar badge. Seeds from any
+ * cached inbox list response (the API always returns ``unreadCount``
+ * tenant-wide regardless of list filters, so any cached list in the
+ * client is authoritative for seeding). When no list fetch has
+ * happened yet — e.g., sidebar mounts before the inbox route opens —
+ * falls back to a minimal network request with ``pageSize=1`` so we
+ * get ``unreadCount`` without pulling a large page.
+ *
+ * Refetch cadence matches ``useInbox`` (30s) so the badge never lags
+ * behind a list view the user is actively staring at.
  */
 export function useInboxUnreadCount() {
   const api = useEmplaApi();
+  const qc = useQueryClient();
   return useQuery<number>({
     queryKey: [...inboxKeys.all, 'unread-count'],
     queryFn: async () => {
+      // Piggyback on any cached list first. Avoids a duplicate network
+      // request when the inbox page is open (useInbox already fetched).
+      const cached = qc.getQueriesData<InboxListResponse>({
+        queryKey: inboxKeys.lists(),
+      });
+      for (const [, data] of cached) {
+        if (data && typeof data.unreadCount === 'number') {
+          return data.unreadCount;
+        }
+      }
       const r = await api.listInbox({ pageSize: 1 });
       return r.unreadCount;
     },
-    // Same 30s cadence as the list view; badge shouldn't lag behind
-    // the list the user is staring at.
     refetchInterval: 30_000,
   });
 }

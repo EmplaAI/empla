@@ -466,13 +466,13 @@ export function createApiClient(config: ApiClientConfig) {
   async function markInboxRead(messageId: string): Promise<InboxMessage> {
     const raw = await request<Parameters<typeof transformInboxMessage>[0]>(
       `/v1/inbox/${messageId}/read`,
-      { method: 'POST', body: JSON.stringify({}) },
+      { method: 'POST' },
     );
     return transformInboxMessage(raw);
   }
 
   async function deleteInboxMessage(messageId: string): Promise<void> {
-    await request<null>(`/v1/inbox/${messageId}`, { method: 'DELETE' });
+    await request<void>(`/v1/inbox/${messageId}`, { method: 'DELETE' });
   }
 
   async function updateEmployee(id: string, data: EmployeeUpdate): Promise<Employee> {

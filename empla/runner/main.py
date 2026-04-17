@@ -155,6 +155,19 @@ async def run_employee(
     # the schema default). Never raise: settings are operator-facing
     # and a bad row shouldn't kill the runner.
     cost_hard_stop_usd: float | None = None
+    if db_tenant is None:
+        # Abnormal: the employee row exists but its tenant doesn't.
+        # Either the tenant was soft-deleted mid-flight or the FK is
+        # corrupt. Starting without a cap is the safe default (the
+        # status_checker would pause the employee on the next cycle),
+        # but operators should see this.
+        logger.warning(
+            "Tenant %s not found (soft-deleted or missing) while starting "
+            "employee %s — cost hard-stop disabled",
+            tenant_id,
+            employee_id,
+            extra={"tenant_id": str(tenant_id), "employee_id": str(employee_id)},
+        )
     if db_tenant is not None and isinstance(db_tenant.settings, dict):
         try:
             cost_section = db_tenant.settings.get("cost") or {}
