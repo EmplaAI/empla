@@ -115,9 +115,9 @@ function LinkBlock({ data }: { data: Record<string, unknown> }) {
   const isSafe = isInternal || isExternal;
   if (!isSafe) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1 text-xs text-muted-foreground">
         Link rejected: unsafe URL scheme
-      </span>
+      </div>
     );
   }
   return (
