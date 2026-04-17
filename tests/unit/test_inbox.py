@@ -387,13 +387,13 @@ class TestInboxEndpoints:
         mid = uuid4()
         db = AsyncMock()
 
-        # delete_message runs two executes: a SELECT to peek at priority
-        # (for the audit log) then an UPDATE. Return a Mock with
-        # scalar_one_or_none for the peek; the UPDATE's result isn't
-        # consumed. Shared _execute works for both calls.
+        # delete_message runs two executes per call: SELECT(priority)
+        # then UPDATE. Return a Mock with scalar_one_or_none for the
+        # peek; rowcount=1 on the UPDATE so the audit log fires.
         async def _execute(stmt):
             r = Mock()
             r.scalar_one_or_none = Mock(return_value="normal")
+            r.rowcount = 1
             return r
 
         db.execute = _execute
@@ -403,6 +403,33 @@ class TestInboxEndpoints:
         await inbox_ep.delete_message(message_id=mid, db=db, auth=_auth(tenant_id=tenant))
         await inbox_ep.delete_message(message_id=mid, db=db, auth=_auth(tenant_id=tenant))
         assert db.commit.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_no_op_does_not_log_soft_deleted(self, caplog):
+        """When the message is already deleted/missing, the endpoint
+        still returns 204 (idempotent) but must NOT emit the "Inbox
+        message soft-deleted" INFO log — that would fill the audit
+        feed with false positives for urgent-message deletions that
+        never happened. Priority peek is None + UPDATE rowcount=0."""
+        tenant = uuid4()
+        mid = uuid4()
+        db = AsyncMock()
+
+        async def _execute(stmt):
+            r = Mock()
+            r.scalar_one_or_none = Mock(return_value=None)  # no live row
+            r.rowcount = 0  # UPDATE matched nothing
+            return r
+
+        db.execute = _execute
+        db.commit = AsyncMock()
+
+        with caplog.at_level("INFO"):
+            await inbox_ep.delete_message(message_id=mid, db=db, auth=_auth(tenant_id=tenant))
+        # Endpoint returned (204 implicit) — still committed, but the
+        # audit-relevant INFO line did NOT fire.
+        assert "soft-deleted" not in caplog.text
+        db.commit.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

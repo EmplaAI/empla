@@ -14,7 +14,7 @@
 
 ## Current State
 
-Tests: **1959 unit tests passing** (0 failing), ~70% coverage on unit test scope |
+Tests: **1961 unit tests passing** (0 failing), ~70% coverage on unit test scope |
 Employees: SalesAE, CSM, ProductManager, SDR, Recruiter (all 5 catalog roles implemented) |
 Core features: Complete BDI loop, playbook system with autonomous discovery,
 event-driven wake + scheduled actions, webhooks with credential-based routing,
@@ -111,28 +111,28 @@ for the full plan. Reviewed by CEO + Eng + Design; scored 8/10 design completene
 - **PR #86** ✓ SHIPPED 2026-04-16: Inbox + cost hard-stop. `/inbox`
   route with block renderers (text/cost_breakdown/link/stat/list),
   `DigitalEmployee.post_to_inbox()` helper, dashboard-wide urgent
-  banner, sidebar unread badge. Cost hard-stop deferred from PR #83
-  now enforced: loop pauses employee + posts urgent
-  `cost_breakdown` message when daily spend exceeds
-  `Tenant.settings.cost.hard_stop_budget_usd`. +22 unit tests.
-  Post-/review sweep added 9 hardening fixes (protocol-relative URL
-  escape in LinkBlock, runner bool-is-int silent cap, post_to_inbox
-  bypassing InboxBlock validation, cross-tenant employee guard in
-  service, admin gate on all 3 endpoints, priority='off'
-  suppression, paused status durability across runner restart,
-  comment drift, missing FK indexes) + 9 more tests. Total 1959.
-  Closes Phase 5B.
+  banner, sidebar unread badge. Cost hard-stop (deferred from PR #83)
+  now enforced tenant-wide: loop sums all employees' daily LLM spend,
+  pauses ALL active employees in the tenant when the cap is exceeded,
+  and posts a single urgent `cost_breakdown` inbox message (atomic
+  dedup via UPDATE rowcount so a multi-employee tenant gets one
+  message, not N). Two review sweeps landed 10 hardening fixes (LinkBlock
+  protocol-relative URL escape incl. `//` and `/\`, runner bool-is-int
+  silent cap, post_to_inbox bypassing InboxBlock validation, cross-
+  tenant employee guard in service, admin gate on all 3 endpoints,
+  priority='off' suppression, paused status durability across runner
+  restart, tenant-wide hard-stop rewrite + dedup, delete-no-op audit
+  noise, missing FK indexes). **+33 unit tests in test_inbox.py** (22
+  initial + 9 /review + 1 tenant-dedup + 1 delete-no-op log gate).
+  Total suite: 1961. Closes Phase 5B.
 
-  Deferred from /review sweep (file as future work):
-  - Tenant-wide cost budget only pauses the tripping employee. In
-    multi-employee tenants, other employees keep spending until their
-    next cycle. Requires supervisor-level pause design.
+  Deferred from /review sweeps (filed as future work):
   - Dashboard inbox hardcodes `pageSize: 50` with no UI pagination.
     After 50 messages older items are unreachable via UI.
 
-**Total:** 10 PRs, ~7-9 days CC time. Phase 5 adds ~200 new tests across the
+**Total:** 10 PRs, ~7-9 days CC time. Phase 5 adds ~215 new tests across the
 per-PR budgets (`#77=5`, `#78=60`, `#79=25`, `#80=10`, `#81=15`, `#82=12`,
-`#83=15`, `#84=20`, `#85=20`, `#86=18`), bringing the target to ~1840 unit
+`#83=15`, `#84=20`, `#85=20`, `#86=33`), bringing the target to ~1840 unit
 tests passing from the current 1644 unit-test-only baseline. (Earlier 2091
 target from the CEO plan was computed against a 1896 total-collection
 baseline that mixed unit + integration + e2e; the honest unit-only delta is

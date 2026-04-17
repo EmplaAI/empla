@@ -201,7 +201,7 @@ async def delete_message(
     )
     priority = peek.scalar_one_or_none()
 
-    await db.execute(
+    result = await db.execute(
         sa_update(InboxMessage)
         .where(
             InboxMessage.id == message_id,
@@ -211,12 +211,29 @@ async def delete_message(
         .values(deleted_at=now, updated_at=now)
     )
     await db.commit()
-    logger.info(
-        "Inbox message soft-deleted",
-        extra={
-            "tenant_id": str(auth.tenant_id),
-            "message_id": str(message_id),
-            "user_id": str(auth.user_id),
-            "priority": priority,
-        },
-    )
+    # Only log the "soft-deleted" event when the UPDATE actually flipped
+    # a row. Idempotent re-deletes and 404s both reach here (endpoint
+    # returns 204 either way — we don't leak existence), but emitting
+    # the same INFO line in all three cases would drown the audit feed
+    # in false positives for urgent-message deletions that never
+    # happened. Gate on rowcount; fall back to a DEBUG no-op line so
+    # the path is still visible at debug-level.
+    if result.rowcount:
+        logger.info(
+            "Inbox message soft-deleted",
+            extra={
+                "tenant_id": str(auth.tenant_id),
+                "message_id": str(message_id),
+                "user_id": str(auth.user_id),
+                "priority": priority,
+            },
+        )
+    else:
+        logger.debug(
+            "Inbox delete matched 0 rows (already deleted or missing)",
+            extra={
+                "tenant_id": str(auth.tenant_id),
+                "message_id": str(message_id),
+                "user_id": str(auth.user_id),
+            },
+        )
