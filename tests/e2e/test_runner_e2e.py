@@ -12,14 +12,17 @@ No real LLM API keys required — uses deterministic mock responses.
 
 import logging
 from collections.abc import AsyncGenerator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from empla.bdi.intentions import PlanGenerationResult
 from empla.core.loop.execution import SituationAnalysis
+from empla.core.loop.models import GoalProgressEvaluation, NonNumericGoalBatchEvaluation
+from empla.core.loop.protocols import GoalRecommendation
 from empla.employees import SalesAE
 from empla.employees.config import EmployeeConfig, LLMSettings, LoopSettings
 from empla.llm.models import LLMResponse, TokenUsage
@@ -50,13 +53,65 @@ MOCK_LLM_RESPONSE = LLMResponse(
     finish_reason="end_turn",
 )
 
+# Cycle-2 of the BDI loop hits _apply_goal_recommendations which
+# requests GoalRecommendation (not SituationAnalysis). Returning
+# SituationAnalysis for all structured calls raised
+# ``AttributeError: 'SituationAnalysis' has no attribute 'goals_to_abandon'``.
+# Empty recommendation = "LLM had no changes to suggest" — a valid
+# response that exercises the handler without driving goal churn.
+MOCK_GOAL_RECOMMENDATION = GoalRecommendation(
+    new_goals=[],
+    goals_to_abandon=[],
+    priority_adjustments=[],
+    reasoning="No changes recommended in this cycle.",
+)
+MOCK_GOAL_PROGRESS = GoalProgressEvaluation(results=[])
+MOCK_NONNUMERIC_GOAL_EVAL = NonNumericGoalBatchEvaluation(results=[])
+# Empty intention list — the smoke test only needs the plan generation
+# call not to raise; downstream code already tolerates empty plans.
+MOCK_PLAN_GENERATION = PlanGenerationResult(
+    intentions=[],
+    strategy_summary="Mock strategy: no-op plan for test cycle.",
+    assumptions=[],
+    risks=[],
+    success_criteria=[],
+)
+
 
 def make_mock_llm_service() -> AsyncMock:
-    """Create a mock LLM service that returns deterministic responses."""
+    """Create a mock LLM service that returns deterministic responses.
+
+    ``generate_structured`` dispatches on the ``response_format`` kwarg
+    so each call site gets the right Pydantic type — returning a
+    ``SituationAnalysis`` for everything would fail with an
+    ``AttributeError`` as soon as the loop reached the
+    ``GoalRecommendation`` path in ``_apply_goal_recommendations``.
+    """
     mock = AsyncMock()
 
-    # generate_structured returns (LLMResponse, parsed_model)
-    mock.generate_structured = AsyncMock(return_value=(MOCK_LLM_RESPONSE, MOCK_SITUATION_ANALYSIS))
+    def _generate_structured(*args, **kwargs):
+        # response_format is the second positional arg in the provider
+        # contract but comes through as a kwarg from the service layer.
+        # side_effect is called synchronously by AsyncMock and its
+        # return value is used as the awaited result — this must NOT
+        # be an async function (otherwise AsyncMock returns a coroutine
+        # that callers try to double-await, leaking warnings).
+        fmt = kwargs.get("response_format")
+        if fmt is None and len(args) >= 2:
+            fmt = args[1]
+        if fmt is GoalRecommendation:
+            return (MOCK_LLM_RESPONSE, MOCK_GOAL_RECOMMENDATION)
+        if fmt is GoalProgressEvaluation:
+            return (MOCK_LLM_RESPONSE, MOCK_GOAL_PROGRESS)
+        if fmt is NonNumericGoalBatchEvaluation:
+            return (MOCK_LLM_RESPONSE, MOCK_NONNUMERIC_GOAL_EVAL)
+        if fmt is PlanGenerationResult:
+            return (MOCK_LLM_RESPONSE, MOCK_PLAN_GENERATION)
+        # Default covers SituationAnalysis + any future types; the
+        # test's primary path expects SituationAnalysis.
+        return (MOCK_LLM_RESPONSE, MOCK_SITUATION_ANALYSIS)
+
+    mock.generate_structured = AsyncMock(side_effect=_generate_structured)
 
     # generate returns LLMResponse
     mock.generate = AsyncMock(return_value=MOCK_LLM_RESPONSE)
@@ -74,6 +129,12 @@ def make_mock_llm_service() -> AsyncMock:
 
     # close is a no-op
     mock.close = AsyncMock()
+
+    # Sync methods on the real service — AsyncMock wraps all attribute
+    # access as async by default, which would leak coroutines when the
+    # loop calls these without awaiting. Explicitly mock as sync.
+    mock.reset_cycle_budget = MagicMock(return_value=None)
+    mock.get_cost_summary = MagicMock(return_value={})
 
     return mock
 
